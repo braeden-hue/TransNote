@@ -1,0 +1,14 @@
+# Target labels
+ xnnpack-populate
+# Source files and their labels
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/xnnpack-subbuild/CMakeFiles/xnnpack-populate
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/xnnpack-subbuild/CMakeFiles/xnnpack-populate.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/xnnpack-subbuild/CMakeFiles/xnnpack-populate-complete.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/src/xnnpack-populate-stamp/xnnpack-populate-build.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/src/xnnpack-populate-stamp/xnnpack-populate-configure.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/src/xnnpack-populate-stamp/xnnpack-populate-download.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/src/xnnpack-populate-stamp/xnnpack-populate-install.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/src/xnnpack-populate-stamp/xnnpack-populate-mkdir.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/src/xnnpack-populate-stamp/xnnpack-populate-patch.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/src/xnnpack-populate-stamp/xnnpack-populate-test.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/src/xnnpack-populate-stamp/xnnpack-populate-update.rule

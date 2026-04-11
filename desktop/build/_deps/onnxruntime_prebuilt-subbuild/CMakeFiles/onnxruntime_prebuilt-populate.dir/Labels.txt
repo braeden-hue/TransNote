@@ -1,0 +1,14 @@
+# Target labels
+ onnxruntime_prebuilt-populate
+# Source files and their labels
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/onnxruntime_prebuilt-populate
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/onnxruntime_prebuilt-populate.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/onnxruntime_prebuilt-populate-complete.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-build.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-configure.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-download.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-install.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-mkdir.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-patch.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-test.rule
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-update.rule

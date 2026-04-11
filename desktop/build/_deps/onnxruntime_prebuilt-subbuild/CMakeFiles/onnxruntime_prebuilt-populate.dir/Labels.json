@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/onnxruntime_prebuilt-populate"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/onnxruntime_prebuilt-populate.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/onnxruntime_prebuilt-populate-complete.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-build.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-configure.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-download.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-install.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-mkdir.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-patch.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-test.rule"
+		},
+		{
+			"file" : "/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/onnxruntime_prebuilt-populate-prefix/src/onnxruntime_prebuilt-populate-stamp/onnxruntime_prebuilt-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"onnxruntime_prebuilt-populate"
+		],
+		"name" : "onnxruntime_prebuilt-populate"
+	}
+}

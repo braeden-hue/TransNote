@@ -1,0 +1,3 @@
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/onnxruntime_prebuilt-populate.dir
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/edit_cache.dir
+/mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/desktop/build/_deps/onnxruntime_prebuilt-subbuild/CMakeFiles/rebuild_cache.dir
