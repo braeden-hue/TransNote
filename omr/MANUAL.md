@@ -245,19 +245,169 @@ Exit code 0 = PASS (mean accuracy ≥ threshold), 1 = FAIL.
 
 ---
 
-### TFLite export (Phase 3 complete)
+### 누적 학습: 데이터를 추가할 때마다 반복하는 절차
 
-> Export scripts are not yet implemented. Planned workflow:
->
-> ```bash
-> python omr/training/export_tflite.py \
->   --segnet models/segnet_best.pt \
->   --seq2seq models/seq2seq_best.pt \
->   --tokenizer data/tokenizer.json \
->   --out_dir assets/models/
-> ```
->
-> Output: `segnet_INT8.tflite`, `encoder_INT8.tflite`, `decoder_INT8.tflite`
+학습을 여러 번 반복해도 이전 결과가 누적되도록 하려면 아래 순서를 따릅니다.
+
+#### 핵심 원칙
+
+| 항목 | 방법 |
+|------|------|
+| 데이터 관리 | `data/train`에 새 데이터를 **추가(append)** — 이전 데이터를 지우지 않음 |
+| 체크포인트 | 새 학습 전에 현재 `.pt` 파일을 **버전 이름으로 복사**해 보존 |
+| `--resume` | 이전 학습의 최적 체크포인트 하나만 지정 (여러 개 나열 불필요) |
+| 학습률 | fine-tuning 시 초기 학습률의 1/3~1/10 수준으로 낮춤 (아래 설명 참조) |
+
+#### Fine-tuning 시 학습률을 낮추는 이유
+
+처음 학습 후 체크포인트는 이미 loss 최솟값 근처에 있습니다.
+같은 lr로 계속 학습하면 그 최솟값을 **지나쳐** 이전에 학습한 표현을 덮어쓸 수 있습니다.
+lr을 낮추면 새 데이터에 대한 기울기 방향으로 **작은 보정 스텝**만 밟아 기존 지식을 보존합니다.
+
+```
+초기 Phase 2 학습 : --lr 1e-4
+1차 fine-tuning   : --lr 3e-5   (약 3배 감소)
+2차 fine-tuning   : --lr 1e-5   (다시 3배 감소, 필요 시)
+```
+
+#### 1회차 (최초 학습)
+
+```bash
+# 1-1. 데이터 생성 (예: 2,000장)
+python omr/data_gen/generate_dataset.py \
+  --count 2000 --out_dir data/train \
+  --musescore "C:\Program Files\MuseScore 4\bin\MuseScore4.exe"
+
+# 1-2. Phase 1 (SegNet)
+python omr/training/train.py --phase 1 \
+  --data_dir data/train --tokenizer data/tokenizer.json \
+  --out_dir models/ --epochs 50 --batch 16 --lr 3e-4
+
+# 1-3. Phase 2 (Encoder + Decoder)
+python omr/training/train.py --phase 2 \
+  --data_dir data/train --tokenizer data/tokenizer.json \
+  --out_dir models/ --segnet_ckpt models/segnet_best.pt \
+  --epochs 100 --batch 8 --lr 1e-4
+
+# 1-4. Phase 3 (end-to-end fine-tune)
+python omr/training/train.py --phase 3 \
+  --data_dir data/train --tokenizer data/tokenizer.json \
+  --out_dir models/ --resume models/seq2seq_best.pt \
+  --epochs 30 --batch 4 --lr 3e-5
+
+# 1-5. 체크포인트 버전 저장 (롤백 보존용)
+cp models/segnet_best.pt   models/segnet_best_v1.pt
+cp models/seq2seq_best.pt  models/seq2seq_best_v1.pt
+
+# 1-6. TFLite export
+python omr/training/export_tflite.py \
+  --segnet models/segnet_best.pt --seq2seq models/seq2seq_best.pt \
+  --data_dir data/train --tokenizer data/tokenizer.json \
+  --out_dir assets/ --version v1
+```
+
+#### 2회차 (데이터 추가 후 계속 학습)
+
+```bash
+# 2-1. 새 데이터 추가 (기존 data/train에 누적)
+python omr/data_gen/generate_dataset.py \
+  --count 3000 --out_dir data/train \
+  --musescore "C:\Program Files\MuseScore 4\bin\MuseScore4.exe" \
+  --seed 100    # seed를 바꿔 새로운 악보 생성
+
+# 2-2. v1 체크포인트에서 이어서 fine-tuning (lr 낮춤)
+python omr/training/train.py --phase 2 \
+  --data_dir data/train --tokenizer data/tokenizer.json \
+  --out_dir models/ --segnet_ckpt models/segnet_best_v1.pt \
+  --resume models/seq2seq_best_v1.pt \
+  --epochs 50 --batch 8 --lr 3e-5       # lr 낮춤 (1e-4 → 3e-5)
+
+python omr/training/train.py --phase 3 \
+  --data_dir data/train --tokenizer data/tokenizer.json \
+  --out_dir models/ --resume models/seq2seq_best.pt \
+  --epochs 20 --batch 4 --lr 1e-5
+
+# 2-3. 체크포인트 버전 저장
+cp models/segnet_best.pt   models/segnet_best_v2.pt
+cp models/seq2seq_best.pt  models/seq2seq_best_v2.pt
+
+# 2-4. TFLite export (v2)
+python omr/training/export_tflite.py \
+  --segnet models/segnet_best.pt --seq2seq models/seq2seq_best.pt \
+  --data_dir data/train --tokenizer data/tokenizer.json \
+  --out_dir assets/ --version v2
+```
+
+> **요약**: 이전 `.pt` 파일을 여러 개 명령어에 나열하지 않습니다.  
+> `--resume`에는 **직전 최적 체크포인트 하나**만 지정하고,  
+> `data/train`에 데이터를 계속 쌓아가면 모델이 누적 데이터를 학습합니다.
+
+---
+
+## Step 2.5: Export to TFLite
+
+Phase 3 학습이 끝난 후 실행합니다. PyTorch `.pt` → ONNX → TFLite INT8 변환.
+
+### 의존성 설치 (최초 1회)
+
+```bash
+pip install onnx onnxsim onnx2tf tensorflow
+```
+
+> `onnx2tf`는 tensorflow와 함께 설치됩니다. CUDA 환경에서는 `tensorflow-gpu` 대신
+> `tensorflow` (CPU)로도 export 가능합니다.
+
+### 기본 실행 (INT8, version v1)
+
+```bash
+python omr/training/export_tflite.py \
+  --segnet    models/segnet_best.pt \
+  --seq2seq   models/seq2seq_best.pt \
+  --data_dir  data/train \
+  --tokenizer data/tokenizer.json \
+  --out_dir   assets/ \
+  --version   v1
+```
+
+### 출력 파일
+
+```
+assets/
+  segnet_INT8_v1.tflite    ← 버전 보존 (삭제 금지)
+  encoder_INT8_v1.tflite
+  decoder_INT8_v1.tflite   ← FP32 (아래 참조)
+  tokenizer_v1.json
+  segnet_INT8.tflite       ← latest (다음 export 시 덮어써짐)
+  encoder_INT8.tflite
+  decoder_INT8.tflite
+  tokenizer.json
+```
+
+### 옵션
+
+| 옵션 | 설명 |
+|------|------|
+| `--version v2` | 버전 태그 변경 |
+| `--calib_n 200` | INT8 캘리브레이션 이미지 수 (기본 100) |
+| `--no_quantize` | 모든 모델을 FP32로 export |
+| `--quantize_decoder` | Decoder도 INT8 양자화 (정확도 손실 위험, 실험용) |
+
+### Decoder가 FP32인 이유
+
+Encoder와 SegNet은 INT8 양자화 후 정확도 손실이 거의 없습니다.  
+Decoder(Transformer)는 Softmax·LayerNorm 등의 연산이 양자화 오차에 민감해
+INT8로 바꾸면 token error rate가 크게 올라갈 수 있습니다.  
+먼저 FP32로 배포한 뒤, `--quantize_decoder`로 실험해 손실 허용 범위를 확인하세요.
+
+### 이전 버전으로 롤백
+
+```bash
+# v1으로 되돌리기
+cp assets/segnet_INT8_v1.tflite  assets/segnet_INT8.tflite
+cp assets/encoder_INT8_v1.tflite assets/encoder_INT8.tflite
+cp assets/decoder_INT8_v1.tflite assets/decoder_INT8.tflite
+cp assets/tokenizer_v1.json      assets/tokenizer.json
+```
 
 ---
 

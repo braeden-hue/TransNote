@@ -3,7 +3,7 @@
 > 최종 수정: 2026-04-11  
 > 목표: 실시간 카메라로 악보를 촬영하면 자체 학습 OMR 모델이 음표를 인식하고, 인식 결과를 사용자 정의 표기법으로 변환한 새 악보 이미지를 출력한다.
 >
-> **현재 단계**: Phase 4 완료 + Phase 2(학습) 코드 구현 완료 — 데이터 생성 후 학습 실행 가능 상태
+> **현재 단계**: Phase 4 완료 + Phase 2/3 학습·export 코드 구현 완료 — 데이터 생성 후 학습 → TFLite export 실행 가능 상태
 
 ---
 
@@ -395,11 +395,17 @@ Phase 2: 모델 학습 (PyTorch, RTX 3080)
   2-4. 검증: omr/utils/evaluate.py 로 TER / note-only TER 측정     ← 미완료
 
 Phase 3: 모델 변환 및 양자화
-  3-1. PyTorch → ONNX 변환
-  3-2. ONNX → TFLite 변환
-  3-3. Segnet + Encoder INT8 PTQ 적용
-  3-4. Decoder INT8 실험 (정확도 손실 허용 범위 내인지 확인)
-  3-5. Desktop C++ 환경에서 변환 모델 정확도 재검증
+  3-0. OK export_tflite.py 구현 완료 (omr/training/export_tflite.py)
+         PyTorch .pt → ONNX → onnx2tf → TFLite INT8
+         --version 태그로 버전별 스냅샷 저장 (segnet_INT8_v1.tflite 등)
+         SegNet, Encoder: INT8 PTQ (data/train 이미지로 캘리브레이션)
+         Decoder: FP32 기본, --quantize_decoder로 INT8 실험 가능
+         누적 학습 절차 (버전 보존 + fine-tuning lr 감소) → MANUAL.md Step 2 참조
+  3-1. PyTorch → ONNX 변환           ← export_tflite.py 내에서 자동 처리
+  3-2. ONNX → TFLite 변환            ← onnx2tf 사용, export_tflite.py 내 자동
+  3-3. Segnet + Encoder INT8 PTQ     ← 학습 완료 후 실행
+  3-4. Decoder INT8 실험             ← --quantize_decoder 옵션, 학습 완료 후 실험
+  3-5. Desktop C++ 환경 정확도 재검증 ← omr_eval 바이너리 사용
 
 Phase 4: C++ 추론 엔진 (Dart FFI용)
   4-1. OK omr_engine.h — public C API (Dart FFI 진입점)
@@ -551,11 +557,103 @@ void            omr_destroy(handle);
 
 ---
 
+## 10. 추론 속도 최적화 계획
+
+> **전제**: 인식률(TER 기준 90%+)이 확보된 이후에 순서대로 적용한다.  
+> 학습 전·중에는 아래 최적화를 진행하지 않는다.
+
+### 10-1. 최적화 적용 순서
+
+```
+Step 1. NNAPI / GPU / Core ML delegate 활성화     ← 가중치 변경 없음, 즉시 효과
+Step 2. Decoder KV-Cache 구현 및 재export         ← 가장 큰 속도 향상
+Step 3. Decoder INT8 양자화 실험                  ← KV-Cache 이후 진행
+Step 4. SegNet 패치 오버랩 감소                   ← eval로 정확도 확인 후 적용
+Step 5. 모델 경량화 (필요 시)                     ← 인식률 충분히 확보 후 검토
+```
+
+### 10-2. 각 최적화 상세
+
+#### Step 1 — Hardware Delegate (C++ 엔진 수정, 가중치 불변)
+
+TFLite Interpreter 생성 시 delegate 옵션만 추가하면 적용됩니다.
+모델 파일(.tflite) 변경 불필요.
+
+| Delegate | 대상 OS | 속도 향상 | 비고 |
+|----------|---------|----------|------|
+| NNAPI | Android API 27+ | 2~5× | Qualcomm DSP 활용 |
+| GPU | Android / iOS | 2~4× | OpenCL / Metal |
+| Core ML | iOS | 2~6× | Apple Neural Engine |
+| XNNPACK | 전체 (기본 내장) | 1.5~2× | CPU 최적화, 별도 설정 불필요 |
+
+수정 파일: `omr/engine/src/segnet_runner.cpp`, `encoder_runner.cpp`, `decoder_runner.cpp`
+
+#### Step 2 — Decoder KV-Cache (model.py + export_tflite.py 수정)
+
+현재 Decoder는 매 스텝마다 전체 과거 시퀀스를 재연산합니다 (O(T²)).  
+KV-Cache를 도입하면 각 스텝이 O(1)이 되어 전체적으로 수십 배 빨라집니다.
+
+```
+현재 (O(T²)):  스텝 50 → [SOS, t1, ..., t49] 전체 재연산
+KV-Cache (O(1)): 스텝 50 → [t49] 만 연산, 이전 K/V 재사용
+```
+
+- `model.py`: `DecoderStepWithCache` 모듈 추가 (K/V 텐서를 명시적 입출력으로 노출)
+- `export_tflite.py`: 해당 모듈로 decoder export 교체
+- `omr/engine/src/decoder_runner.cpp`: 새 TFLite 인터페이스에 맞게 수정
+- **학습 코드(`train.py`)는 수정 불필요** — 학습은 teacher-forcing 방식 유지
+
+#### Step 3 — Decoder INT8 양자화 (export_tflite.py, 가중치 불변)
+
+KV-Cache 구현 후 `--quantize_decoder` 플래그로 실험합니다.  
+`omr/utils/evaluate.py`로 INT8 전후 TER 차이를 측정해 허용 범위 내인지 확인 후 적용.
+
+| | FP32 (현재) | INT8 (실험) |
+|---|---|---|
+| 모델 크기 | 기준 | ~1/4 |
+| 속도 | 기준 | 2~4× |
+| TER 변화 | 기준 | 실험으로 결정 |
+
+#### Step 4 — SegNet 패치 오버랩 감소 (C++ 엔진 수정, 가중치 불변)
+
+`omr/engine/src/segnet_runner.cpp` 의 stride 값 조정.
+
+```
+현재 (STRIDE=160, 50% 오버랩): 1920px 이미지 → 약 11 패치
+조정 (STRIDE=240, 25% 오버랩): 1920px 이미지 → 약  7 패치 (35% 감소)
+```
+
+적용 전 `omr_eval`로 정확도 비교 필수.
+
+#### Step 5 — 모델 경량화 (재학습 필요)
+
+속도가 여전히 부족한 경우에 한해 검토합니다.
+
+| 방법 | 내용 | 예상 효과 |
+|------|------|----------|
+| Knowledge Distillation | 현재 모델(teacher)로 소형 모델(student) 학습 | 크기 1/2~1/4 |
+| Decoder 레이어 수 감소 | 8 layer → 4~6 layer로 줄여 재학습 | 속도 1.3~2× |
+| SegNet base_ch 감소 | 32 → 16으로 줄여 재학습 | 크기 1/4 |
+
+### 10-3. 학습 속도 개선 (추론과 별개)
+
+RTX 3080 학습 환경에서 속도가 부족할 경우:
+
+| 방법 | 설명 |
+|------|------|
+| `--batch` 증가 | VRAM 허용 범위 내에서 배치 크기 증가 (GPU 활용률 향상) |
+| `--workers` 증가 | DataLoader 병렬 로딩 수 증가 (CPU 코어 수 기준) |
+| Mixed Precision | `train.py`에 이미 구현됨 (`torch.cuda.amp`) |
+| 데이터 SSD 저장 | HDD 대비 I/O 병목 해소 |
+
+---
+
 ## 11. 보류/추후 논의 항목
 
 - **커스텀 표기법 세부 규칙** (섹션 5-2) — Phase 6 착수 전에 반드시 확정
 - **DeepScore 라벨 필드 확정** — Phase 1-3 착수 전에 반드시 확정
-- **Decoder 양자화 허용 손실 기준** — 실험 후 결정
+- **Decoder INT8 양자화 허용 손실 기준** — 학습 완료 후 실험으로 결정 (섹션 10-2 Step 3)
+- **Decoder KV-Cache 구현** — 인식률 90%+ 확보 후 진행 (섹션 10-2 Step 2)
 - **웹 인프라 선택** — 자체 서버(RTX 3080 겸용) vs 클라우드 (AWS, GCP)
 - **카메라 처리 방식** — 연속 프레임 스트리밍 vs 버튼 트리거 스냅샷
 - **학습 Python 코드 레포 위치** — 현재 Flutter 레포에 포함 vs 별도 레포
