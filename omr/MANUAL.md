@@ -119,48 +119,145 @@ print('Sample tokens:', d['tokens'][:10])
 
 ## Step 2: Train the Models
 
-> Training scripts will be added in a future phase. The sections below describe the intended workflow.
-
-### Model architecture summary
-| Model | Architecture | Input | Output |
-|-------|-------------|-------|--------|
-| SegNet | MobileNetV3 + U-Net decoder | 320x320 grayscale | 6-class segmentation map |
-| Encoder | ConvNeXt-Tiny | 256x1280 grayscale tile | seq_len x 512 latent |
-| Decoder | 8-layer Transformer | encoder output + prev tokens | 978-token logits |
-
-### Expected training data requirements
-| Quality | Score count | Approximate GPU time (RTX 3080) |
-|---------|------------|-------------------------------|
-| Minimum viable | 2,000 | ~4 hours |
-| Recommended | 10,000 | ~20 hours |
-| Production | 20,000+ | ~48 hours |
-
-### Training pipeline (planned)
+### Prerequisites
 
 ```bash
-# 1. Train segnet
-python omr/training/train_segnet.py \
+pip install -r omr/training/requirements.txt
+# torch>=2.2.0, torchvision>=0.17.0, numpy>=1.26, opencv-python>=4.9, tensorboard>=2.15
+```
+
+CUDA 11.8+ required. Training is designed for RTX 3080 (10 GB VRAM).
+
+---
+
+### Model architecture summary
+
+| Model | Architecture | Input | Output |
+|-------|-------------|-------|--------|
+| SegNet | 4-level U-Net (base_ch=32) | [B,1,320,320] grayscale | [B,6,320,320] class logits |
+| Encoder | 8-stage strided CNN | [B,1,256,1280] grayscale tile | [B,320,512] latent sequence |
+| Decoder | 8-layer pre-LN Transformer | encoder output + prev tokens | 978-token logits |
+
+---
+
+### Phase 1 — SegNet pretraining
+
+Trains the segmentation network from weak pixel labels (image-processing-based).
+Recommended: ≥2,000 scores (see Step 1).
+
+```bash
+python omr/training/train.py \
+  --phase 1 \
   --data_dir data/train \
+  --tokenizer data/tokenizer.json \
+  --out_dir models/ \
   --epochs 50 \
   --batch 16 \
-  --out models/segnet.pt
+  --lr 3e-4 \
+  --device cuda
+```
 
-# 2. Train encoder + decoder jointly
-python omr/training/train_seq2seq.py \
+Output: `models/segnet_best.pt`, `models/segnet_last.pt`
+
+Monitor with TensorBoard:
+```bash
+tensorboard --logdir models/
+```
+
+---
+
+### Phase 2 — Encoder + Decoder training
+
+Uses the SegNet checkpoint from Phase 1. The encoder is frozen for the first
+`epochs // 5` epochs, then unfrozen at `lr / 3`.
+
+```bash
+python omr/training/train.py \
+  --phase 2 \
   --data_dir data/train \
-  --segnet models/segnet.pt \
+  --tokenizer data/tokenizer.json \
+  --out_dir models/ \
+  --segnet_ckpt models/segnet_best.pt \
   --epochs 100 \
   --batch 8 \
-  --out_dir models/
-
-# 3. Convert to TFLite INT8
-python omr/training/export_tflite.py \
-  --segnet models/segnet.pt \
-  --encoder models/encoder.pt \
-  --decoder models/decoder.pt \
-  --tokenizer data/tokenizer.json \
-  --out_dir assets/models/
+  --lr 1e-4 \
+  --device cuda
 ```
+
+Output: `models/seq2seq_best.pt` (best validation TER), `models/seq2seq_last.pt`
+
+---
+
+### Phase 3 — End-to-end fine-tuning
+
+Jointly fine-tunes all three modules at a lower learning rate.
+
+```bash
+python omr/training/train.py \
+  --phase 3 \
+  --data_dir data/train \
+  --tokenizer data/tokenizer.json \
+  --out_dir models/ \
+  --resume models/seq2seq_best.pt \
+  --epochs 30 \
+  --batch 4 \
+  --lr 3e-5 \
+  --device cuda
+```
+
+---
+
+### Resume an interrupted run
+
+Pass `--resume <checkpoint>` to any phase to continue from the last saved epoch:
+
+```bash
+python omr/training/train.py --phase 2 ... --resume models/seq2seq_last.pt
+```
+
+---
+
+### Evaluate mid-training accuracy
+
+After any phase, run the Python evaluator against a held-out test set:
+
+```bash
+python omr/utils/evaluate.py \
+  --test_dir data/test \
+  --segnet models/segnet_best.pt \
+  --seq2seq models/seq2seq_best.pt \
+  --tokenizer data/tokenizer.json \
+  --threshold 0.90 \
+  --report models/eval_report.csv
+```
+
+Exit code 0 = PASS (mean accuracy ≥ threshold), 1 = FAIL.
+
+---
+
+### Expected training data requirements
+
+| Quality | Score count | Approx GPU time (RTX 3080) |
+|---------|------------|---------------------------|
+| Minimum viable | 2,000 | ~6 h (Phase 1+2) |
+| Recommended | 10,000 | ~24 h |
+| Production | 20,000+ | ~48 h |
+
+---
+
+### TFLite export (Phase 3 complete)
+
+> Export scripts are not yet implemented. Planned workflow:
+>
+> ```bash
+> python omr/training/export_tflite.py \
+>   --segnet models/segnet_best.pt \
+>   --seq2seq models/seq2seq_best.pt \
+>   --tokenizer data/tokenizer.json \
+>   --out_dir assets/models/
+> ```
+>
+> Output: `segnet_INT8.tflite`, `encoder_INT8.tflite`, `decoder_INT8.tflite`
 
 ---
 

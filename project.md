@@ -3,7 +3,7 @@
 > 최종 수정: 2026-04-11  
 > 목표: 실시간 카메라로 악보를 촬영하면 자체 학습 OMR 모델이 음표를 인식하고, 인식 결과를 사용자 정의 표기법으로 변환한 새 악보 이미지를 출력한다.
 >
-> **현재 단계**: Phase 4 진행 중 — C++ 추론 엔진 구현 완료, Phase 2(학습) 대기 중
+> **현재 단계**: Phase 4 완료 + Phase 2(학습) 코드 구현 완료 — 데이터 생성 후 학습 실행 가능 상태
 
 ---
 
@@ -384,10 +384,15 @@ Phase 1: 데이터 생성 파이프라인 (Python) ← 현재 진행 중
   1-6. 실사 사진 증강 스크립트 작성 (augment.py)
 
 Phase 2: 모델 학습 (PyTorch, RTX 3080)
-  2-1. Segnet 아키텍처 구현 및 단독 학습
-  2-2. Encoder 아키텍처 구현 및 Segnet 연결 학습
-  2-3. Decoder (Transformer) 구현 및 end-to-end 학습
-  2-4. 검증: compare 스크립트로 DeepScore 기준 정확도 측정
+  2-0. OK 학습 코드 구현 완료 (omr/training/)
+         dataset.py  — SegnetDataset + OMRDataset + 약한 픽셀 라벨 자동 생성
+         model.py    — SegNet(U-Net 4-level) + Encoder(8-stage CNN) + Decoder(8-layer Transformer)
+         train.py    — 3-Phase 학습 루프 (Focal Loss, AdamW, OneCycleLR, mixed precision)
+         requirements.txt — torch>=2.2, torchvision, numpy, opencv-python, tensorboard
+  2-1. Segnet 단독 사전학습 (Phase 1, --epochs 50 --batch 16)      ← 데이터 생성 후 실행
+  2-2. Encoder+Decoder 학습 (Phase 2, --epochs 100 --batch 8)      ← 미완료
+  2-3. End-to-end fine-tuning (Phase 3, --epochs 30 --batch 4)     ← 미완료
+  2-4. 검증: omr/utils/evaluate.py 로 TER / note-only TER 측정     ← 미완료
 
 Phase 3: 모델 변환 및 양자화
   3-1. PyTorch → ONNX 변환
@@ -399,6 +404,8 @@ Phase 3: 모델 변환 및 양자화
 Phase 4: C++ 추론 엔진 (Dart FFI용)
   4-1. OK omr_engine.h — public C API (Dart FFI 진입점)
   4-2. OK preprocessor.cpp — autocrop + resize(1920) + CLAHE
+       + perspective_corrector.cpp — Otsu → 4-corner quad → getPerspectiveTransform / HoughLines deskew
+       + noise_filter.cpp — flat-field illumination normalization + bilateral filter (d=9, σ=20/7)
   4-3. OK segnet_runner.cpp — 320x320 패치, 50% 오버랩, TFLite NCHW
   4-4. OK staff_detector.cpp — horizontal projection + peak NMS + 5-line grouping
   4-5. OK staff_canvas.cpp — crop + scale to 256px + tile 1280px (64px overlap)
@@ -406,18 +413,31 @@ Phase 4: C++ 추론 엔진 (Dart FFI용)
   4-7. OK decoder_runner.cpp — greedy KV-cache decoding, MAX_SEQ=608
   4-8. OK token_parser.cpp — tokenizer.json 로드, ID<->문자열 변환
   4-9. OK omr_engine.cpp — 전체 파이프라인 + Dart FFI C API
+       + page_dewarper.cpp — staff_mask 기반 remap 변형 보정 (TRACE_STEP=16px)
   4-10. OK CMakeLists.txt — OpenCV + TFLite, Android/desktop 공용
-  4-11. OK test/test_engine.cpp — standalone CLI 테스트
+  4-11. OK test/test_engine.cpp — standalone CLI 테스트 (smoke test)
+  4-12. OK test/eval_engine.cpp — 배치 평가 (TER / note-only TER, CSV 리포트, 합격 임계값)
   위치: omr/engine/
   빌드: 모델 학습(Phase 2) 완료 후 TFLITE_ROOT 지정하여 cmake 빌드
 
   디렉토리 구조:
     omr/
       engine/                 C++ 추론 엔진
-        include/              헤더 파일 (7개)
-        src/                  구현 파일 (8개)
-        test/                 CLI 테스트
+        include/              헤더 파일 (10개)
+        src/                  구현 파일 (11개)
+        test/                 CLI 테스트 2개 (omr_test, omr_eval)
         CMakeLists.txt
+      training/               PyTorch 학습 코드 ← NEW
+        dataset.py
+        model.py
+        train.py
+        requirements.txt
+      utils/                  평가·검사 유틸
+        omr_inference.py      Python TFLite 파이프라인 (C++ 미러)
+        evaluate.py           Python 평가기 (C++ 백엔드 또는 Python 백엔드)
+        inspect_tflite.py
+        inspect_decoder.py
+        compare_musicxml.py
       data_gen/               데이터 생성 스크립트
         generate_dataset.py
         requirements.txt
@@ -464,13 +484,18 @@ Phase 7: 멀티플랫폼
 
 ```
 입력 이미지 (스마트폰 촬영 JPEG/PNG)
-  [1] Preprocessor : autocrop -> resize 1920px -> CLAHE(clip=1.0, tile=8)
-  [2] SegnetRunner : [1,3,320,320] 50%오버랩 패치 -> 5개 확률맵 (TFLite)
+  [1] Preprocessor
+        PerspectiveCorrector: Otsu → 최대 윤곽 → 4-코너 쿼드 → warpPerspective
+                              (4코너 미검출 시 HoughLinesP → 중앙값 각도 → warpAffine 기울기 보정)
+        autocrop -> resize 1920px -> CLAHE(clip=1.0, tile=8)
+        NoiseFilter: flat-field 조도 정규화 → bilateral filter(d=9, σc=20, σs=7)
+  [2] SegnetRunner : [1,3,320,320] 50%오버랩 패치 -> 6-class 확률맵 (TFLite)
   [3] StaffDetector: 수평투영 -> 피크NMS -> 5-line 그룹화 (unit 11~60px)
-  [4] StaffCanvas  : crop(margin=2u) -> scale 256px -> tile 1280px(64px overlap)
-  [5] EncoderRunner: [1,1,256,1280] norm=(px/255-0.7931)/0.1738 -> [1,320,512]
-  [6] DecoderRunner: greedy KV-cache (8layer,8head,64dim) MAX=608 토큰
-  [7] TokenParser  : ID <-> DeepScore 문자열, tokenizer.json 기반
+  [4] PageDewarper : staff_mask 기반 staff-line 추적 -> 수직 변위장 -> cv::remap
+  [5] StaffCanvas  : crop(margin=2u) -> scale 256px -> tile 1280px(64px overlap)
+  [6] EncoderRunner: [1,1,256,1280] norm=(px/255-0.7931)/0.1738 -> [1,320,512]
+  [7] DecoderRunner: greedy KV-cache (8layer,8head,64dim) MAX=608 토큰
+  [8] TokenParser  : ID <-> DeepScore 문자열, tokenizer.json 기반
 ```
 
 ### 8-2. Dart FFI 공개 API (`omr_engine.h`)

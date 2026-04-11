@@ -1,0 +1,8 @@
+# omr/training/requirements.txt
+# Training dependencies (RTX 3080, CUDA 11.8+)
+
+torch>=2.2.0
+torchvision>=0.17.0
+numpy>=1.26
+opencv-python>=4.9
+tensorboard>=2.15        # optional but recommended for training monitoring
