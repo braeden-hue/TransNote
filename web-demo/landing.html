@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="악보를 카메라 한 장으로. AI가 오선지를 직관적인 커스텀 악보로 변환해 드립니다. 3가지 규칙만 알면 누구나 10분 안에 연주 가능.">
+  <title>악보의 재정의 — 직관적인 악보 기호</title>
+  <link rel="stylesheet" href="landing.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════ NAV ═══════════════════════════ -->
+<nav id="nav">
+  <div class="nav-inner">
+    <a href="landing.html" class="nav-logo">
+      <span class="nav-logo-icon">♩</span>
+      <span class="nav-logo-text">악보의 재정의</span>
+    </a>
+
+    <div class="nav-links" id="nav-links">
+      <a href="#features"    class="nav-link">기능</a>
+      <a href="#how-it-works" class="nav-link">사용법</a>
+      <a href="#team"        class="nav-link">팀</a>
+      <a href="index.html"   class="nav-cta">지금 체험하기 →</a>
+    </div>
+
+    <button class="nav-hamburger" id="nav-hamburger" aria-label="메뉴 열기" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════ HERO ══════════════════════════ -->
+<section id="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+
+  <div class="hero-content">
+    <div class="hero-badge">
+      <span class="hero-badge-dot"></span>
+      AI 기반 악보 인식 · OMR
+    </div>
+
+    <h1 class="hero-title">
+      <span class="hero-title-line1">악보를 카메라</span>
+      <span class="hero-title-line2">한 장으로.</span>
+    </h1>
+
+    <p class="hero-sub">
+      오선지가 어렵게 느껴지셨나요?<br>
+      <strong>단 3가지 규칙</strong>으로 누구나 10분 안에 연주할 수 있습니다.<br>
+      AI가 악보를 찍으면 직관적인 커스텀 악보로 즉시 변환합니다.
+    </p>
+
+    <div class="hero-actions">
+      <div class="hero-btns">
+        <a href="index.html" class="btn-primary">
+          <span>🎹</span> 지금 무료 체험하기
+        </a>
+        <a href="#how-it-works" class="btn-outline">
+          <span>📖</span> 어떻게 작동하나요?
+        </a>
+      </div>
+      <p class="hero-note">설치 불필요 · 브라우저에서 바로 체험</p>
+    </div>
+
+    <!-- Notation preview strip -->
+    <div class="hero-preview">
+      <p class="preview-label">실제 커스텀 악보 미리보기</p>
+      <div class="preview-strip" id="hero-preview-strip">
+        <!-- JS로 렌더링 -->
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ FEATURES ══════════════════════════ -->
+<section id="features" class="section">
+  <div class="section-inner">
+    <div class="section-header">
+      <p class="section-eyebrow reveal">핵심 기능</p>
+      <h2 class="section-title reveal reveal-delay-1">
+        악보 입문의 장벽을<br>완전히 없앴습니다
+      </h2>
+      <p class="section-desc reveal reveal-delay-2">
+        카메라로 찍고, 변환하고, 연주하기까지 —
+        복잡한 과정을 앱 하나로 해결합니다.
+      </p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-icon-wrap">📷</div>
+        <h3 class="feature-title">악보 스캔 & 변환</h3>
+        <p class="feature-desc">
+          오선지 악보를 카메라로 찍으면 AI가 음표를 인식하여
+          직관적인 커스텀 악보로 즉시 변환합니다.
+          복잡한 음자리표와 박자표를 몰라도 됩니다.
+        </p>
+        <span class="feature-badge">OMR 엔진 탑재</span>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="feature-icon-wrap">🎹</div>
+        <h3 class="feature-title">인터랙티브 연주 가이드</h3>
+        <p class="feature-desc">
+          황금빛으로 빛나는 건반이 다음에 누를 음을 안내합니다.
+          박자에 맞게 자동으로 진행되어 처음 연주하는 곡도
+          리듬감 있게 연주할 수 있습니다.
+        </p>
+        <span class="feature-badge">실시간 피드백</span>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-3">
+        <div class="feature-icon-wrap">✨</div>
+        <h3 class="feature-title">3가지 규칙만으로 충분</h3>
+        <p class="feature-desc">
+          세로 위치는 음높이, 셀 너비는 음가, 테두리 색은
+          박자 위치를 나타냅니다. 오선보 지식이 전혀 없어도
+          규칙 3개만 알면 악보를 읽을 수 있습니다.
+        </p>
+        <span class="feature-badge">10분이면 충분</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ HOW IT WORKS ══════════════════════ -->
+<section id="how-it-works" class="section section-alt">
+  <div class="section-inner">
+    <div class="how-layout">
+      <!-- Left: text -->
+      <div class="how-text-col">
+        <p class="section-eyebrow reveal">사용법</p>
+        <h2 class="section-title reveal reveal-delay-1">
+          규칙 3가지면<br>악보가 보입니다
+        </h2>
+        <p class="section-desc reveal reveal-delay-2">
+          기존 오선보의 복잡함을 걷어내고
+          누구나 직관적으로 이해할 수 있는
+          시각적 표기법을 설계했습니다.
+        </p>
+
+        <div class="rules-list">
+          <div class="rule-item reveal reveal-delay-2">
+            <div class="rule-number">1</div>
+            <div class="rule-content">
+              <h4>세로 위치 = 음 높이</h4>
+              <p>셀이 위에 있을수록 <em>고음</em>, 아래에 있을수록 <em>저음</em>입니다.
+                 행(존)이 옥타브를 구분합니다.</p>
+            </div>
+          </div>
+
+          <div class="rule-item reveal reveal-delay-3">
+            <div class="rule-number">2</div>
+            <div class="rule-content">
+              <h4>셀 너비 = 음 길이</h4>
+              <p>셀이 <em>넓을수록 길게</em>, <em>좁을수록 짧게</em> 연주합니다.
+                 음가를 시각적으로 바로 파악할 수 있습니다.</p>
+            </div>
+          </div>
+
+          <div class="rule-item reveal reveal-delay-4">
+            <div class="rule-number">3</div>
+            <div class="rule-content">
+              <h4>테두리 색 = 박자 위치</h4>
+              <p><em style="color:#FF6B35">주황</em> 1박 · <em style="color:#7BC67E">연두</em> 2박 ·
+                 <em style="color:#5BC0EB">하늘</em> 3박 · <em style="color:#C97FD6">보라</em> 4박.
+                 색깔로 박자 위치를 즉시 파악합니다.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: visual demo -->
+      <div class="how-visual-col reveal reveal-delay-2">
+        <div class="notation-visual">
+          <p class="notation-visual-label">커스텀 악보 — 반짝반짝 작은별</p>
+
+          <div class="demo-staff">
+            <!-- Row: 고음 (C5 대역) -->
+            <div class="demo-row">
+              <span class="demo-row-label">고음 C5</span>
+              <div class="demo-cells">
+                <div class="demo-cell" style="width:64px; border-color:#FF6B35; background:rgba(255,107,53,0.14)"><span>C</span></div>
+                <div class="demo-cell" style="width:64px; border-color:#7BC67E; background:rgba(123,198,126,0.14)"><span>C</span></div>
+              </div>
+            </div>
+            <!-- Row: 중음 (G4 대역) -->
+            <div class="demo-row">
+              <span class="demo-row-label">중음 G4</span>
+              <div class="demo-cells">
+                <div class="demo-cell rest" style="width:64px; border-color:#FF6B35"><span>—</span></div>
+                <div class="demo-cell rest" style="width:64px; border-color:#7BC67E"><span>—</span></div>
+                <div class="demo-cell" style="width:64px; border-color:#5BC0EB; background:rgba(91,192,235,0.14)"><span>G</span></div>
+                <div class="demo-cell" style="width:64px; border-color:#C97FD6; background:rgba(201,127,214,0.14)"><span>G</span></div>
+              </div>
+            </div>
+            <!-- Row: 저음 (E4 대역) -->
+            <div class="demo-row">
+              <span class="demo-row-label">저음 E4</span>
+              <div class="demo-cells">
+                <div class="demo-cell rest" style="width:64px; border-color:#FF6B35"><span>—</span></div>
+                <div class="demo-cell rest" style="width:64px; border-color:#7BC67E"><span>—</span></div>
+                <div class="demo-cell rest" style="width:64px; border-color:#5BC0EB"><span>—</span></div>
+                <div class="demo-cell rest" style="width:64px; border-color:#C97FD6"><span>—</span></div>
+                <div class="demo-cell" style="width:48px; border-color:#FF6B35; background:rgba(255,107,53,0.14)"><span>E</span></div>
+                <div class="demo-cell" style="width:48px; border-color:#7BC67E; background:rgba(123,198,126,0.14)"><span>E</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat-legend">
+            <div class="beat-legend-item">
+              <span class="beat-dot" style="background:#FF6B35"></span> 1박
+            </div>
+            <div class="beat-legend-item">
+              <span class="beat-dot" style="background:#7BC67E"></span> 2박
+            </div>
+            <div class="beat-legend-item">
+              <span class="beat-dot" style="background:#5BC0EB"></span> 3박
+            </div>
+            <div class="beat-legend-item">
+              <span class="beat-dot" style="background:#C97FD6"></span> 4박
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ DEMO CTA ══════════════════════════ -->
+<section id="demo-cta" class="section">
+  <div class="cta-glow"></div>
+  <div class="section-inner">
+    <p class="section-eyebrow reveal">직접 체험</p>
+    <h2 class="section-title reveal reveal-delay-1">
+      설명보다 직접 눌러보세요
+    </h2>
+    <p class="section-desc reveal reveal-delay-2">
+      샘플 악보를 클릭하는 것만으로 바로 시작할 수 있습니다.
+      설치도, 회원가입도 필요 없습니다.
+    </p>
+
+    <div class="cta-features reveal reveal-delay-3">
+      <span class="cta-feature-tag"><span class="cta-feature-tag-dot"></span>샘플 악보 4종 제공</span>
+      <span class="cta-feature-tag"><span class="cta-feature-tag-dot"></span>이미지 업로드 지원</span>
+      <span class="cta-feature-tag"><span class="cta-feature-tag-dot"></span>온라인 피아노 내장</span>
+      <span class="cta-feature-tag"><span class="cta-feature-tag-dot"></span>악보 저장 가능</span>
+    </div>
+
+    <div class="cta-btns reveal reveal-delay-4">
+      <a href="index.html" class="btn-primary-lg">
+        <span>🎹</span> 웹 데모 시작하기
+      </a>
+    </div>
+
+    <p class="cta-note reveal reveal-delay-5">
+      브라우저만 있으면 됩니다 · Chrome, Safari, Firefox 지원
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════════════ TEAM ══════════════════════════════ -->
+<section id="team" class="section section-alt">
+  <div class="section-inner">
+    <div class="team-layout">
+      <div class="about-text">
+        <p class="section-eyebrow reveal">팀 소개</p>
+        <h2 class="section-title reveal reveal-delay-1">
+          음악과 AI로<br>새로운 문을 열다
+        </h2>
+        <div class="reveal reveal-delay-2">
+          <p>
+            저희 팀은 <strong>음악 교육의 접근성</strong>을 높이기 위해
+            Optical Music Recognition 기술과 직관적인 UI/UX를 결합했습니다.
+          </p>
+          <p>
+            오선보를 읽지 못해 악기 연주를 포기한 모든 분들을 위해,
+            악보를 <strong>누구나 이해할 수 있는 시각 언어</strong>로
+            재해석했습니다.
+          </p>
+          <p>
+            Flutter 기반 크로스플랫폼 앱으로 곧 출시될 예정이며,
+            현재 웹 데모를 통해 핵심 기능을 먼저 경험해보실 수 있습니다.
+          </p>
+        </div>
+      </div>
+
+      <div class="team-cards reveal reveal-delay-2">
+        <div class="team-card">
+          <div class="team-avatar">👨‍💻</div>
+          <div class="team-name">개발 / 기획</div>
+          <div class="team-role">OMR 파이프라인<br>Flutter 앱</div>
+        </div>
+        <div class="team-card">
+          <div class="team-avatar">🎨</div>
+          <div class="team-name">UI / UX</div>
+          <div class="team-role">표기법 설계<br>인터랙션 디자인</div>
+        </div>
+        <div class="team-card team-card-placeholder">
+          <div class="team-avatar">➕</div>
+          <div class="team-name">모집 중</div>
+          <div class="team-role">iOS 개발자<br>음악 교육 전문가</div>
+        </div>
+        <div class="team-card team-card-placeholder">
+          <div class="team-avatar">➕</div>
+          <div class="team-name">모집 중</div>
+          <div class="team-role">마케팅 / 기획<br>음악 콘텐츠</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ FOOTER ════════════════════════════ -->
+<footer id="footer">
+  <div class="footer-inner">
+    <div>
+      <div class="footer-brand">
+        <span class="footer-brand-icon">♩</span>
+        <span class="footer-brand-text">악보의 재정의</span>
+      </div>
+      <p class="footer-desc">
+        AI 기반 악보 인식(OMR)으로 오선보를 직관적인 커스텀 악보로 변환.
+        누구나 10분 안에 악보를 읽고 연주할 수 있게 합니다.
+      </p>
+    </div>
+
+    <div class="footer-links">
+      <div class="footer-link-row">
+        <a href="index.html"     class="footer-link">웹 데모</a>
+        <a href="#features"      class="footer-link">기능</a>
+        <a href="#how-it-works"  class="footer-link">사용법</a>
+        <a href="#team"          class="footer-link">팀</a>
+      </div>
+      <!-- CCA 3.0 Attribution — 라이선스 준수 필수 -->
+      <p class="footer-attribution">
+        Design: <a href="https://html5up.net" target="_blank" rel="noopener">HTML5UP</a>
+        (Spectral, <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">CCA 3.0</a>)
+      </p>
+    </div>
+  </div>
+
+  <hr class="footer-divider">
+
+  <div class="footer-bottom">
+    <span>© 2025 악보의 재정의. All rights reserved.</span>
+    <span>Made with Flutter &amp; Web Audio API</span>
+  </div>
+</footer>
+
+<!-- ═══════════════════════ SCRIPTS ═══════════════════════════ -->
+<script>
+(function () {
+  // ── 색상 상수 ──────────────────────────────────────────────────
+  const BEAT_COLORS = {
+    1: '#FF6B35',
+    2: '#7BC67E',
+    3: '#5BC0EB',
+    4: '#C97FD6',
+  };
+
+  // ── Hero preview strip — 반짝반짝 첫 소절 ─────────────────────
+  const PREVIEW_NOTES = [
+    { note: 'C', beat: 1, width: 56 },
+    { note: 'C', beat: 2, width: 56 },
+    { note: 'G', beat: 3, width: 56 },
+    { note: 'G', beat: 4, width: 56 },
+    { note: 'A', beat: 1, width: 56 },
+    { note: 'A', beat: 2, width: 56 },
+    { note: 'G', beat: 3, width: 80 },
+  ];
+
+  const strip = document.getElementById('hero-preview-strip');
+  if (strip) {
+    PREVIEW_NOTES.forEach(function (n, i) {
+      const cell = document.createElement('div');
+      cell.className = 'preview-cell';
+      cell.style.cssText =
+        'width:' + n.width + 'px;' +
+        'border-color:' + BEAT_COLORS[n.beat] + ';' +
+        'background:' + BEAT_COLORS[n.beat] + '22;' +
+        'transition-delay:' + (i * 0.06) + 's';
+      cell.innerHTML = '<span class="cell-note">' + n.note + '</span>';
+      strip.appendChild(cell);
+    });
+  }
+
+  // ── Nav: scroll 감지 → .scrolled 클래스 ───────────────────────
+  var nav = document.getElementById('nav');
+  var lastY = 0;
+  function onScroll() {
+    var y = window.scrollY;
+    if (y > 40) {
+      nav.classList.add('scrolled');
+    } else {
+      nav.classList.remove('scrolled');
+    }
+    lastY = y;
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // ── Nav: 햄버거 메뉴 ──────────────────────────────────────────
+  var hamburger = document.getElementById('nav-hamburger');
+  var navLinks  = document.getElementById('nav-links');
+  if (hamburger && navLinks) {
+    hamburger.addEventListener('click', function () {
+      var isOpen = navLinks.classList.toggle('open');
+      hamburger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
+    // 링크 클릭 시 메뉴 닫기
+    navLinks.addEventListener('click', function (e) {
+      if (e.target.tagName === 'A') {
+        navLinks.classList.remove('open');
+        hamburger.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  // ── Scroll-reveal ──────────────────────────────────────────────
+  var revealEls = document.querySelectorAll('.reveal');
+  var observer = new IntersectionObserver(
+    function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+  );
+  revealEls.forEach(function (el) { observer.observe(el); });
+
+  // ── 부드러운 앵커 스크롤 (nav 오프셋 보정) ─────────────────────
+  document.querySelectorAll('a[href^="#"]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      var target = document.querySelector(a.getAttribute('href'));
+      if (!target) return;
+      e.preventDefault();
+      var top = target.getBoundingClientRect().top + window.scrollY - 72;
+      window.scrollTo({ top: top, behavior: 'smooth' });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
