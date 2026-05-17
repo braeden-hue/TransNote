@@ -194,7 +194,7 @@ export const SAMPLES = [
   },
 ];
 
-export const BEAT_COLORS = { 1: '#FF6B35', 2: '#7BC67E', 3: '#5BC0EB', 4: '#C97FD6' };
+export const BEAT_COLORS = { 1: '#0076CE', 2: '#5BB8F5', 3: '#A8D5F5', 4: '#D0EBFA' };
 
 export const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 

@@ -42,6 +42,10 @@ export function buildPiano(pianoEl, pianoWrapper, {
   showLabels = true,
   onPress,
   onRelease,
+  navPrevEl    = null,
+  navNextEl    = null,
+  navLabelEl   = null,
+  onOctaveChange = null,
 } = {}) {
   pianoEl.innerHTML = '';
   pianoEl.style.cssText =
@@ -56,21 +60,9 @@ export function buildPiano(pianoEl, pianoWrapper, {
   appendPartialOctave(pianoEl, keyEls, 8, ['C'], [], showLabels);
 
   // ── 옥타브 네비게이션 ─────────────────────────────────────────────────────
-  const navPrev  = document.getElementById('btn-octave-down');
-  const navNext  = document.getElementById('btn-octave-up');
-  const navLabel = document.getElementById('octave-label');
-
-  function scrollToOct(oct) {
-    viewOct = Math.max(1, Math.min(6, oct));
-    pianoWrapper.scrollLeft = leftOfOct(viewOct);
-    if (navLabel) navLabel.textContent = `C${viewOct} ~ B${viewOct + VISIBLE_OCTS - 1} 영역`;
-    navPrev && (navPrev.disabled = viewOct <= 1);
-    navNext && (navNext.disabled = viewOct >= 6);
-  }
-
-  navPrev?.addEventListener('click', () => scrollToOct(viewOct - 1));
-  navNext?.addEventListener('click', () => scrollToOct(viewOct + 1));
-  scrollToOct(viewOct);
+  const navPrev  = navPrevEl  ?? document.getElementById('btn-octave-down');
+  const navNext  = navNextEl  ?? document.getElementById('btn-octave-up');
+  const navLabel = navLabelEl ?? document.getElementById('octave-label');
 
   // ── 누름 상태 관리 ────────────────────────────────────────────────────────
   const pressedSet   = new Set();
@@ -93,15 +85,15 @@ export function buildPiano(pianoEl, pianoWrapper, {
     }
 
     if (isP) {
-      k.style.background = isB ? '#c0521a' : '#ffd5bb';
+      k.style.background = isB ? '#004d8a' : '#b8ddf8';
       k.style.transform  = isB ? 'translateY(4px) scaleY(0.97)'
                                 : 'perspective(300px) rotateX(6deg)';
       k.style.boxShadow  = isB ? 'none'
-                                : 'inset 0 6px 0 rgba(0,0,0,0.18), inset 0 -2px 0 rgba(255,255,255,0.3)';
+                                : 'inset 0 6px 0 rgba(0,0,0,0.12), inset 0 -2px 0 rgba(255,255,255,0.4)';
     } else if (isE) {
-      k.style.background = isB ? '#4a3000' : '#fffacc';
-      k.style.boxShadow  = isB ? '0 0 10px 3px #ffd700'
-                                : '0 0 10px 3px #ffd700, inset 0 -4px 0 rgba(255,215,0,0.4)';
+      k.style.background = isB ? '#003a6e' : '#d0ebfa';
+      k.style.boxShadow  = isB ? '0 0 10px 3px #0076CE'
+                                : '0 0 10px 3px #0076CE, inset 0 -4px 0 rgba(0,118,206,0.3)';
       k.style.transform  = '';
     } else {
       k.style.background = isB ? '#1c1c1c' : '#f4efe6';
@@ -109,6 +101,39 @@ export function buildPiano(pianoEl, pianoWrapper, {
       k.style.boxShadow  = isB ? '' : 'inset 0 -4px 0 rgba(0,0,0,0.12)';
     }
   }
+
+  // ── 옥타브 네비게이션 ─────────────────────────────────────────────────────
+  function scrollToOct(oct) {
+    const prevOct = viewOct;
+    viewOct = Math.max(1, Math.min(6, oct));
+    const octDelta = viewOct - prevOct;
+
+    // Re-map any currently pressed keys to the equivalent note in the new octave
+    if (octDelta !== 0 && pressedSet.size > 0) {
+      const oldPressed = [...pressedSet];
+      oldPressed.forEach(note => {
+        const noteName = note.slice(0, -1);
+        const noteOct  = parseInt(note.slice(-1));
+        const newNote  = noteName + (noteOct + octDelta);
+        pressedSet.delete(note);
+        applyVisual(note);
+        if (keyEls[newNote]) {
+          pressedSet.add(newNote);
+          applyVisual(newNote);
+        }
+      });
+    }
+
+    pianoWrapper.scrollLeft = leftOfOct(viewOct);
+    if (navLabel) navLabel.textContent = `C${viewOct} ~ B${viewOct + VISIBLE_OCTS - 1} 영역`;
+    navPrev && (navPrev.disabled = viewOct <= 1);
+    navNext && (navNext.disabled = viewOct >= 6);
+    onOctaveChange?.(viewOct, viewOct + VISIBLE_OCTS - 1);
+  }
+
+  navPrev?.addEventListener('click', () => scrollToOct(viewOct - 1));
+  navNext?.addEventListener('click', () => scrollToOct(viewOct + 1));
+  scrollToOct(viewOct);
 
   function press(note) {
     if (!keyEls[note] || pressedSet.has(note)) return;
@@ -197,8 +222,8 @@ export function buildPiano(pianoEl, pianoWrapper, {
     flashCorrect(note) {
       const k = keyEls[note]; if (!k) return;
       const isB = k.classList.contains('bk');
-      k.style.background = isB ? '#3a7a3a' : '#c8f5cc';
-      k.style.boxShadow  = '0 0 12px 4px #7BC67E';
+      k.style.background = isB ? '#004d8a' : '#b8ddf8';
+      k.style.boxShadow  = '0 0 12px 4px #0076CE';
       setTimeout(() => applyVisual(note), 350);
     },
     flashWrong(note) {
@@ -256,6 +281,25 @@ export function buildPiano(pianoEl, pianoWrapper, {
           </svg>
         `;
         k.appendChild(arrow);
+      });
+    },
+
+    // 건반 위에 컬러 점 표시 (가온다 등 기준음 마킹)
+    setDots(specs) {
+      pianoEl.querySelectorAll('.piano-dot').forEach(d => d.remove());
+      specs.forEach(({ note, color = '#FF4444' }) => {
+        const k = keyEls[note];
+        if (!k) return;
+        k.style.position = 'relative';
+        const dot = document.createElement('div');
+        dot.className = 'piano-dot';
+        dot.style.cssText = `
+          position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+          width:7px; height:7px; border-radius:50%;
+          background:${color}; pointer-events:none; z-index:6;
+          box-shadow:0 0 4px 1px ${color};
+        `;
+        k.appendChild(dot);
       });
     },
 

@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
 
     // ── 1. 파이프라인 초기화 (Flutter: nativeInit 호출과 동일) ──────────────────
     AAssetManager* mgr = desktop_create_asset_manager(assets_dir);
-    homr::OmrPipeline pipeline(mgr);
+    homr::OmrPipeline pipeline(mgr);x
 
     if (!pipeline.is_ready()) {
         fprintf(stderr, "[error] 파이프라인 초기화 실패 — 모델 파일 확인: %s\n", assets_dir);

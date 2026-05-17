@@ -1,0 +1,83 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  .claudeignore  —  musicscore_flutter
+#
+#  Keeps Claude's context window free of binary blobs, generated artifacts,
+#  and dependency trees that add noise without contributing to understanding.
+#  Syntax is identical to .gitignore.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── Python cache & build artifacts ───────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+dist/
+build/
+*.whl
+
+# ── Training data (대량 PNG / MusicXML / JSON 학습 데이터) ─────────────────────
+# 수백~수천 장의 반복 파일은 컨텍스트를 낭비함.
+# 구조 파악이 필요한 경우 개별 파일을 직접 Read 할 것.
+data/train/
+data/Round2/
+
+# ── Model checkpoints & exported binaries ─────────────────────────────────────
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.tflite
+*.bin
+*.safetensors
+
+# ── C++ / CMake build output ──────────────────────────────────────────────────
+desktop/build/
+android/app/build/
+android/build/
+android/.gradle/
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# ── Flutter / Dart build artifacts ───────────────────────────────────────────
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.apk
+*.aab
+*.ipa
+
+# ── IDE & OS metadata ─────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+desktop/.cache/
+
+# ── NDK / Gradle caches ───────────────────────────────────────────────────────
+android/local.properties
+.gradle/
+*.jks
+
+# ── Output directory (렌더링 결과 이미지 등) ──────────────────────────────────
+output/
+
+# ── Large test assets ─────────────────────────────────────────────────────────
+# 테스트용 PNG 썸네일은 바이너리라 컨텍스트에 불필요
+data/test/Thumbnails/
+
+# ── Git internal ──────────────────────────────────────────────────────────────
+.git/

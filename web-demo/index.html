@@ -24,6 +24,7 @@
   </header>
 
   <main class="app-main">
+  <div class="screens-wrapper">
 
     <!-- ══ 튜토리얼 ══ -->
     <section class="screen active" id="screen-tutorial">
@@ -67,10 +68,10 @@
             <h3>테두리 색 = 박자 위치</h3>
             <p>색깔로 <em>현재 어느 박자</em>인지 알 수 있습니다</p>
             <div class="rule-demo beat-demo">
-              <div class="beat-cell" style="--c:#FF6B35"><span>1박</span></div>
-              <div class="beat-cell" style="--c:#7BC67E"><span>2박</span></div>
-              <div class="beat-cell" style="--c:#5BC0EB"><span>3박</span></div>
-              <div class="beat-cell" style="--c:#C97FD6"><span>4박</span></div>
+              <div class="beat-cell" style="--c:#0076CE"><span>1박</span></div>
+              <div class="beat-cell" style="--c:#5BB8F5"><span>2박</span></div>
+              <div class="beat-cell" style="--c:#A8D5F5"><span>3박</span></div>
+              <div class="beat-cell" style="--c:#D0EBFA"><span>4박</span></div>
             </div>
             <p class="rule-hint">클릭해보세요!</p>
           </div>
@@ -97,8 +98,18 @@
         <div class="tutorial-preview">
           <h2>직접 체험해보세요</h2>
           <p>아래는 <strong>반짝반짝 작은별</strong> 첫 소절입니다. 셀 클릭 또는 건반을 눌러보세요!</p>
-          <div class="notation-container scrollable" id="tutorial-notation"></div>
-          <div class="piano-wrapper mini-piano">
+          <div class="notation-nav-wrap">
+            <button class="notation-nav-btn" id="tutorial-notation-prev" disabled>&#8249;</button>
+            <div class="notation-container scrollable" id="tutorial-notation"></div>
+            <button class="notation-nav-btn" id="tutorial-notation-next">&#8250;</button>
+          </div>
+          <div class="octave-nav" style="margin-top:12px;">
+            <button class="octave-btn" id="tutorial-oct-down">◀</button>
+            <span id="tutorial-oct-label">C3 ~ B4 영역</span>
+            <button class="octave-btn" id="tutorial-oct-up">▶</button>
+            <span class="octave-hint">옥타브 이동</span>
+          </div>
+          <div class="piano-wrapper mini-piano" id="tutorial-piano-wrapper">
             <div class="piano" id="tutorial-piano"></div>
           </div>
           <p class="kb-hint">키보드: <kbd>A</kbd>도 <kbd>S</kbd>레 <kbd>D</kbd>미 <kbd>F</kbd>파 <kbd>G</kbd>솔 <kbd>H</kbd>라 <kbd>J</kbd>시 &nbsp;|&nbsp; <kbd>W</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> = 반음</p>
@@ -171,7 +182,11 @@
                   <span id="result-tempo"></span>
                 </div>
               </div>
-              <div class="notation-container scrollable" id="convert-notation"></div>
+              <div class="notation-nav-wrap">
+                <button class="notation-nav-btn" id="convert-notation-prev" disabled>&#8249;</button>
+                <div class="notation-container scrollable" id="convert-notation"></div>
+                <button class="notation-nav-btn" id="convert-notation-next">&#8250;</button>
+              </div>
               <div class="result-save">
                 <input type="text" id="save-title-input" class="title-input" placeholder="악보 제목 입력...">
                 <button class="btn-primary" id="btn-save-notation">💾 저장하기</button>
@@ -220,7 +235,11 @@
             </div>
 
             <!-- 악보 표시 -->
-            <div class="notation-container scrollable tall" id="play-notation"></div>
+            <div class="notation-nav-wrap">
+              <button class="notation-nav-btn" id="play-notation-prev" disabled>&#8249;</button>
+              <div class="notation-container scrollable tall" id="play-notation"></div>
+              <button class="notation-nav-btn" id="play-notation-next">&#8250;</button>
+            </div>
 
             <!-- 카운트다운 바 (박자 대기) -->
             <div class="countdown-wrap" id="countdown-wrap" style="display:none">
@@ -271,7 +290,16 @@
       </div>
     </section>
 
+  </div><!-- /.screens-wrapper -->
   </main>
+
+  <!-- 우측 섹션 인디케이터 -->
+  <nav class="page-dots" id="page-dots">
+    <button class="page-dot active" data-screen="tutorial" title="튜토리얼"></button>
+    <button class="page-dot" data-screen="convert" title="악보 변환"></button>
+    <button class="page-dot" data-screen="play" title="연주하기"></button>
+    <button class="page-dot" data-screen="library" title="내 악보함"></button>
+  </nav>
 
   <div class="toast" id="toast"></div>
 

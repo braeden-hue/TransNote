@@ -162,6 +162,54 @@ def load_checkpoint(model: nn.Module, path: str,
     return ckpt
 
 
+def load_checkpoint_with_vocab_expansion(model: nn.Module, path: str) -> dict:
+    """
+    Load a checkpoint whose vocabulary may be smaller than the current model.
+
+    The two vocab-size-dependent layers in OmrSeq2Seq are:
+      decoder.token_emb.weight  [old_vocab, embed_dim]
+      decoder.head.weight        [old_vocab, embed_dim]  (weight-tied to token_emb)
+
+    New token rows (indices old_vocab … new_vocab-1) are Xavier-initialised.
+    All other layers are loaded with strict=True so shape mismatches elsewhere
+    raise an error immediately.
+    """
+    ckpt       = torch.load(path, map_location='cpu', weights_only=False)
+    state_dict = ckpt['model']
+
+    model_state = model.state_dict()
+    new_state   = {}
+
+    VOCAB_KEYS = {'decoder.token_emb.weight', 'decoder.head.weight'}
+
+    for key, old_tensor in state_dict.items():
+        if key in VOCAB_KEYS:
+            new_tensor = model_state[key]                  # [new_vocab, embed_dim]
+            old_v, dim = old_tensor.shape
+            new_v      = new_tensor.shape[0]
+
+            if old_v == new_v:
+                new_state[key] = old_tensor
+            elif old_v < new_v:
+                # Copy existing rows; Xavier-init the new rows
+                expanded = new_tensor.clone()
+                expanded[:old_v] = old_tensor
+                nn.init.xavier_uniform_(expanded[old_v:])   # [n_new, dim] — 2D, in-place
+                new_state[key] = expanded
+                print(f"  Vocab expanded: {key}  {old_v} → {new_v}  "
+                      f"(+{new_v - old_v} rows Xavier-init)")
+            else:
+                raise ValueError(
+                    f"Checkpoint vocab ({old_v}) is larger than model vocab ({new_v}) "
+                    f"for key '{key}'. Cannot shrink vocabulary.")
+        else:
+            new_state[key] = old_tensor
+
+    model.load_state_dict(new_state, strict=True)
+    print(f"  Loaded checkpoint with vocab expansion: {path}")
+    return ckpt
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  CSV logger
 # ─────────────────────────────────────────────────────────────────────────────
@@ -333,7 +381,7 @@ def train_seq2seq(args: argparse.Namespace,
     seq2seq = OmrSeq2Seq(vocab_size=vocab_size).to(device)
 
     if args.resume and os.path.isfile(args.resume):
-        load_checkpoint(seq2seq, args.resume, strict=False)
+        load_checkpoint_with_vocab_expansion(seq2seq, args.resume)
 
     # Phase 2: freeze encoder for the first warm-up portion, then unfreeze.
     # Phase 3: everything is trainable from the start.
