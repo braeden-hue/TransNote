@@ -169,6 +169,155 @@ def _filter_tokens(tokens: list, allowed: set) -> list:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  Round 4 grand staff (대보표) 생성
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _split_tokens_by_measure(tokens: list) -> tuple:
+    """
+    토큰 시퀀스를 (헤더, [(마디_토큰_리스트, 바라인_토큰), ...]) 로 분리.
+
+    헤더 = <SOS>, clef-*, key-*, time-* (첫 note/rest/chord/barline 직전까지)
+    바라인 종결 토큰 = barline / barline-final / barline-end-repeat
+    """
+    BARLINE_ENDS = {"barline", "barline-final", "barline-end-repeat"}
+
+    # 헤더 수집
+    header, i = [], 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if (tok.startswith("note-") or tok.startswith("rest-") or
+                tok.startswith("chord-") or tok in BARLINE_ENDS or tok == "<EOS>"):
+            break
+        header.append(tok)
+        i += 1
+
+    # 마디별 분리
+    measures, current = [], []
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "<EOS>":
+            break
+        if tok in BARLINE_ENDS:
+            measures.append((list(current), tok))
+            current = []
+        else:
+            current.append(tok)
+        i += 1
+
+    if current:
+        measures.append((current, "barline-final"))
+
+    return header, measures
+
+
+def _build_grand_staff(gen_mod, score_id: int) -> tuple:
+    """
+    Round 4 전용: 높은음자리표 + 낮은음자리표 2파트 대보표 악보 생성.
+
+    토큰 구조 (마디별):
+        [treble 음표] staff-bass [bass 음표] barline
+
+    낮은음자리표가 전체 쉼표 마디면 staff-bass + bass 음표 생략.
+    """
+    import random as _rnd
+    from music21 import clef as m21_clef, key as m21_key, meter as m21_meter
+    from music21.stream import Score as M21Score, Part, Measure
+    from music21.note import Note, Rest
+    from music21.chord import Chord as M21Chord
+    from music21.pitch import Pitch as M21Pitch
+
+    # ── 높은음자리표 파트 생성 (기존 build_score 활용) ────────────────────────
+    old_bass_prob = gen_mod.BASS_CLEF_PROB
+    gen_mod.BASS_CLEF_PROB = 0.0
+    treble_score, treble_tokens = gen_mod.build_score(score_id)
+    gen_mod.BASS_CLEF_PROB = old_bass_prob
+
+    treble_part   = list(treble_score.parts)[0]
+    treble_meas   = list(treble_part.getElementsByClass(Measure))
+    n_measures    = len(treble_meas)
+
+    # 조성·박자를 높은음자리표 파트에서 읽기
+    m0     = treble_meas[0]
+    ks_obj = m0.recurse().getElementsByClass(m21_key.KeySignature).first()
+    ts_obj = m0.recurse().getElementsByClass(m21_meter.TimeSignature).first()
+    ks_sharps  = ks_obj.sharps if ks_obj else 0
+    ts_str     = f"{ts_obj.numerator}/{ts_obj.denominator}" if ts_obj else "4/4"
+    measure_ql = (ts_obj.numerator * 4.0 / ts_obj.denominator) if ts_obj else 4.0
+
+    # ── 낮은음자리표 파트 생성 ────────────────────────────────────────────────
+    bass_part = Part()
+    bass_part.insert(0, m21_clef.BassClef())
+    bass_part.insert(0, m21_key.KeySignature(ks_sharps))
+    bass_part.insert(0, m21_meter.TimeSignature(ts_str))
+
+    bass_toks_per_measure = []
+
+    for m_idx in range(n_measures):
+        m      = Measure(number=m_idx + 1)
+        m_toks = []
+        remaining = measure_ql
+
+        while remaining > 0.001:
+            ql, dur_tok = gen_mod._choose_duration(remaining)
+            ql = min(float(ql), remaining)
+
+            r = _rnd.random()
+            if r < gen_mod.REST_PROB:
+                m.append(Rest(quarterLength=ql))
+                m_toks.append(f"rest-{dur_tok}")
+            elif r < gen_mod.REST_PROB + 0.30 and abs(remaining - measure_ql) < 0.001:
+                # 첫 박자에 화음
+                n_notes = _rnd.randint(2, 3)
+                pitches = _rnd.sample(gen_mod.BASS_PITCHES,
+                                      min(n_notes, len(gen_mod.BASS_PITCHES)))
+                pitches.sort(key=lambda p: M21Pitch(p).midi)
+                m.append(M21Chord(pitches, quarterLength=ql))
+                first = gen_mod._normalize_pitch_name(M21Pitch(pitches[0]).nameWithOctave)
+                m_toks.append(f"note-{first}-{dur_tok}")
+                for p_str in pitches[1:]:
+                    m_toks.append(
+                        f"chord-{gen_mod._normalize_pitch_name(M21Pitch(p_str).nameWithOctave)}"
+                    )
+            else:
+                p_str = _rnd.choice(gen_mod.BASS_PITCHES)
+                m.append(Note(p_str, quarterLength=ql))
+                name = gen_mod._normalize_pitch_name(M21Pitch(p_str).nameWithOctave)
+                m_toks.append(f"note-{name}-{dur_tok}")
+
+            remaining -= ql
+
+        bass_part.append(m)
+        bass_toks_per_measure.append(m_toks)
+
+    # ── 두 파트를 하나의 Score 로 합치기 ─────────────────────────────────────
+    combined_score = M21Score()
+    combined_score.append(treble_part)
+    combined_score.append(bass_part)
+
+    # ── 토큰 시퀀스 병합: [treble] staff-bass [bass] barline ──────────────────
+    header, treble_measures = _split_tokens_by_measure(treble_tokens)
+    n_use = min(len(treble_measures), len(bass_toks_per_measure))
+
+    combined_tokens = list(header)
+    for i in range(n_use):
+        m_toks, barline_tok = treble_measures[i]
+        bass_m  = bass_toks_per_measure[i]
+
+        combined_tokens.extend(m_toks)
+
+        # 전체 쉼표가 아닌 경우에만 staff-bass + bass 토큰 추가
+        non_rest = [t for t in bass_m if not t.startswith("rest-")]
+        if non_rest or (bass_m and len(bass_m) > 1):
+            combined_tokens.append("staff-bass")
+            combined_tokens.extend(bass_m)
+
+        combined_tokens.append(barline_tok)
+
+    combined_tokens.append("<EOS>")
+    return combined_score, combined_tokens
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Main
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -245,7 +394,10 @@ def main():
         lbl_path = out_dir / f"{stem}.json"
 
         try:
-            score, tokens = gen_mod.build_score(i)
+            if args.round == 4:
+                score, tokens = _build_grand_staff(gen_mod, i)
+            else:
+                score, tokens = gen_mod.build_score(i)
         except Exception as exc:
             print(f"  [ERROR] {stem}: {exc}")
             continue

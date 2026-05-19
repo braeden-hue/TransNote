@@ -342,8 +342,9 @@ def _extract_combined(score: Score, tokens: list[str]) -> list[str]:
         # treble 음표 토큰
         tokens.extend(_measure_note_tokens(tm))
 
-        # bass 음표 토큰 (전체 쉼표 마디는 생략)
+        # bass 음표 토큰 (전체 쉼표 마디는 생략, 아닐 경우 staff-bass 구분자 삽입)
         if not _is_whole_rest(bm):
+            tokens.append("staff-bass")
             tokens.extend(_measure_note_tokens(bm))
 
         tokens.append(_barline_token(tm))

@@ -27,7 +27,8 @@
     "col-legno", "sul-tasto", "sul-ponticello",
     "pizzicato", "arco",
     "snap-pizzicato",
-    "flutter-tongue"
+    "flutter-tongue",
+    "staff-bass"
   ],
   "cumulative_tokens": "__includes_all_round1_round2_and_round3_tokens_plus_new_tokens_above__",
   "generation_config": {
