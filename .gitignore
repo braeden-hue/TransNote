@@ -43,3 +43,27 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# OMR model checkpoints (large binaries — do not commit)
+models/**/*.pt
+models/**/*.pt.bak
+*.onnx
+*.tflite
+
+# Generated training images (can be hundreds of MB per round)
+# data/train/ samples (first 100) ARE committed as reference
+data/Round1/*.png
+data/Round2/*.png
+data/Round3/*.png
+data/Round4/*.png
+
+# Evaluation reports (generated, not source)
+reports/*.csv
+
+# Python caches
+__pycache__/
+*.pyo
+.pytest_cache/
+
+# Export temp dirs
+assets/_export_tmp/
