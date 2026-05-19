@@ -153,149 +153,203 @@ def mscz_to_musicxml(mscz_path: str, musescore_exe: str) -> str | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  토큰 추출 (music21 Score → list[str])
+#  마디 내 음표 토큰 추출 (단일 마디 → list[str], 바라인 제외)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract_tokens(score: Score, part_index: int = 0) -> list[str]:
+def _measure_note_tokens(measure: Measure) -> list[str]:
+    """한 마디의 notesAndRests 를 오프셋 순으로 토큰화해서 반환."""
+    tokens: list[str] = []
+
+    # 마디 레벨 다이나믹
+    for dyn in measure.getElementsByClass(m21_dyn.Dynamic):
+        tokens.append(f"dynamic-{dyn.value}")
+
+    offset_map: dict[float, list] = defaultdict(list)
+    for el in measure.flatten().notesAndRests:
+        if hasattr(el.duration, "isGrace") and el.duration.isGrace:
+            continue
+        offset_map[round(float(el.offset), 6)].append(el)
+
+    for offset in sorted(offset_map):
+        group = offset_map[offset]
+
+        # 쉼표 하나만
+        if len(group) == 1 and isinstance(group[0], Rest):
+            el = group[0]
+            tokens.append(f"rest-{ql_to_token(float(el.duration.quarterLength))}")
+            continue
+
+        pitches_ql: list[tuple] = []
+        has_artic:  list = []
+        has_expr:   list = []
+
+        for el in group:
+            if isinstance(el, Rest):
+                continue
+            if isinstance(el, Chord):
+                ql = float(el.duration.quarterLength)
+                for p in sorted(el.pitches, key=lambda x: x.midi):
+                    pitches_ql.append((p.midi, normalize_pitch(p.nameWithOctave), ql))
+                has_artic.extend(el.articulations)
+                has_expr.extend(el.expressions)
+            elif isinstance(el, Note):
+                ql = float(el.duration.quarterLength)
+                pitches_ql.append((el.pitch.midi, normalize_pitch(el.pitch.nameWithOctave), ql))
+                has_artic.extend(el.articulations)
+                has_expr.extend(el.expressions)
+
+        if not pitches_ql:
+            continue
+
+        seen_midi: set[int] = set()
+        deduped = []
+        for midi, name, ql in sorted(pitches_ql, key=lambda x: x[0]):
+            if midi not in seen_midi:
+                seen_midi.add(midi)
+                deduped.append((midi, name, ql))
+
+        first_midi, first_name, first_ql = deduped[0]
+        tokens.append(f"note-{first_name}-{ql_to_token(first_ql)}")
+        for _, name, _ in deduped[1:]:
+            tokens.append(f"chord-{name}")
+
+        seen_artic: set[str] = set()
+        for a in has_artic:
+            tok = artic_token(a)
+            if tok and tok not in seen_artic:
+                tokens.append(tok)
+                seen_artic.add(tok)
+
+        seen_expr: set[str] = set()
+        for e in has_expr:
+            tok = expr_token(e)
+            if tok and tok not in seen_expr:
+                tokens.append(tok)
+                seen_expr.add(tok)
+
+    return tokens
+
+
+def _is_whole_rest(measure: Measure) -> bool:
+    """마디 전체가 쉼표 하나로만 이뤄진 경우 True."""
+    els = list(measure.flatten().notesAndRests)
+    return len(els) == 1 and isinstance(els[0], Rest)
+
+
+def _barline_token(measure: Measure) -> str:
+    rb = measure.rightBarline
+    if isinstance(rb, bar.Repeat) and rb.direction == "end":
+        return "barline-end-repeat"
+    if rb is not None and rb.type in ("final", "light-heavy", "double"):
+        return "barline-final"
+    return "barline"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  토큰 추출 (music21 Score → list[str])
+#
+#  part_index = None  → 파트가 2개 이상이면 자동으로 두 파트 합치기
+#  part_index = 0/1   → 해당 파트만 단독 추출
+# ─────────────────────────────────────────────────────────────────────────────
+
+def extract_tokens(score: Score, part_index: int | None = None) -> list[str]:
     tokens: list[str] = ["<SOS>"]
 
     parts = list(score.parts)
     if not parts:
         return tokens + ["<EOS>"]
 
-    part = parts[min(part_index, len(parts) - 1)]
-    part = part.stripTies()   # 이음줄로 연결된 음표 합치기
+    # 파트가 2개 이상이고 part_index 미지정 → 두 파트 합치기
+    combine = (part_index is None and len(parts) >= 2)
+    if combine:
+        return _extract_combined(score, tokens)
+
+    # 단일 파트 추출
+    idx  = 0 if part_index is None else part_index
+    part = parts[min(idx, len(parts) - 1)]
+    part = part.stripTies()
 
     measures = list(part.getElementsByClass(Measure))
     if not measures:
         return tokens + ["<EOS>"]
 
-    # ── 헤더 토큰 (첫 마디에서 읽기) ────────────────────────────────────────
+    # ── 헤더 ─────────────────────────────────────────────────────────────────
     m0 = measures[0]
+    clef_obj = m0.recurse().getElementsByClass(clef.Clef).first() or \
+               part.recurse().getElementsByClass(clef.Clef).first()
+    tokens.append("clef-F" if isinstance(clef_obj, clef.BassClef) else "clef-G")
 
-    clef_obj = m0.recurse().getElementsByClass(clef.Clef).first()
-    if clef_obj is None:
-        clef_obj = part.recurse().getElementsByClass(clef.Clef).first()
-    if isinstance(clef_obj, clef.BassClef):
-        tokens.append("clef-F")
-    else:
-        tokens.append("clef-G")
+    ks = m0.recurse().getElementsByClass(key.KeySignature).first() or \
+         part.recurse().getElementsByClass(key.KeySignature).first()
+    tokens.append(f"key-{SHARPS_TO_KEY.get(ks.sharps, 'C')}" if ks else "key-C")
 
-    ks = m0.recurse().getElementsByClass(key.KeySignature).first()
-    if ks is None:
-        ks = part.recurse().getElementsByClass(key.KeySignature).first()
-    if ks is not None:
-        key_name = SHARPS_TO_KEY.get(ks.sharps, f"C")   # 범위 초과 시 C 대체
-        tokens.append(f"key-{key_name}")
-    else:
-        tokens.append("key-C")
-
-    ts = m0.recurse().getElementsByClass(meter.TimeSignature).first()
-    if ts is None:
-        ts = part.recurse().getElementsByClass(meter.TimeSignature).first()
-    if ts is not None:
-        tokens.append(f"time-{ts.numerator}/{ts.denominator}")
-    else:
-        tokens.append("time-4/4")
+    ts = m0.recurse().getElementsByClass(meter.TimeSignature).first() or \
+         part.recurse().getElementsByClass(meter.TimeSignature).first()
+    tokens.append(f"time-{ts.numerator}/{ts.denominator}" if ts else "time-4/4")
 
     # ── 마디별 처리 ──────────────────────────────────────────────────────────
     for measure in measures:
-        # 반복 시작 바라인
         lb = measure.leftBarline
         if isinstance(lb, bar.Repeat) and lb.direction == "start":
             tokens.append("barline-start-repeat")
+        tokens.extend(_measure_note_tokens(measure))
+        tokens.append(_barline_token(measure))
 
-        # 마디 레벨 다이나믹
-        for dyn in measure.getElementsByClass(m21_dyn.Dynamic):
-            tokens.append(f"dynamic-{dyn.value}")
-
-        # 같은 오프셋의 음표를 화음으로 묶기 위해 오프셋별 그룹화
-        offset_map: dict[float, list] = defaultdict(list)
-        for el in measure.flatten().notesAndRests:
-            # 꾸밈음 제외
-            if hasattr(el.duration, "isGrace") and el.duration.isGrace:
-                continue
-            offset_map[round(float(el.offset), 6)].append(el)
-
-        for offset in sorted(offset_map):
-            group = offset_map[offset]
-
-            # 그룹이 Rest 하나만 → rest 토큰
-            if len(group) == 1 and isinstance(group[0], Rest):
-                el = group[0]
-                tokens.append(f"rest-{ql_to_token(float(el.duration.quarterLength))}")
-                continue
-
-            # 피치 있는 요소만 수집 (같은 오프셋 = 화음으로 취급)
-            pitches_ql: list[tuple] = []   # (midi, pitch_name, ql)
-            has_artic:  list = []
-            has_expr:   list = []
-
-            for el in group:
-                if isinstance(el, Rest):
-                    # 다른 음표와 동시에 등장하는 쉼표는 화음 내에서 무시
-                    continue
-                if isinstance(el, Chord):
-                    ql = float(el.duration.quarterLength)
-                    for p in sorted(el.pitches, key=lambda x: x.midi):
-                        pitches_ql.append((p.midi, normalize_pitch(p.nameWithOctave), ql))
-                    has_artic.extend(el.articulations)
-                    has_expr.extend(el.expressions)
-                elif isinstance(el, Note):
-                    ql = float(el.duration.quarterLength)
-                    pitches_ql.append((el.pitch.midi, normalize_pitch(el.pitch.nameWithOctave), ql))
-                    has_artic.extend(el.articulations)
-                    has_expr.extend(el.expressions)
-
-            if not pitches_ql:
-                continue
-
-            # 중복 피치 제거 (두 성부에서 같은 음이 겹칠 경우)
-            seen_midi: set[int] = set()
-            deduped = []
-            for midi, name, ql in sorted(pitches_ql, key=lambda x: x[0]):
-                if midi not in seen_midi:
-                    seen_midi.add(midi)
-                    deduped.append((midi, name, ql))
-
-            # 첫 번째 음에 duration, 나머지는 chord- 접두사
-            first_midi, first_name, first_ql = deduped[0]
-            dur_tok = ql_to_token(first_ql)
-            tokens.append(f"note-{first_name}-{dur_tok}")
-            for _, name, _ in deduped[1:]:
-                tokens.append(f"chord-{name}")
-
-            # 아티큘레이션 (note 뒤에)
-            seen_artic: set[str] = set()
-            for a in has_artic:
-                tok = artic_token(a)
-                if tok and tok not in seen_artic:
-                    tokens.append(tok)
-                    seen_artic.add(tok)
-
-            # 꾸밈음 / 페르마타 (아티큘레이션 뒤에)
-            seen_expr: set[str] = set()
-            for e in has_expr:
-                tok = expr_token(e)
-                if tok and tok not in seen_expr:
-                    tokens.append(tok)
-                    seen_expr.add(tok)
-
-        # 마디 종료 바라인
-        rb = measure.rightBarline
-        if isinstance(rb, bar.Repeat) and rb.direction == "end":
-            tokens.append("barline-end-repeat")
-        elif rb is not None and rb.type in ("final", "light-heavy", "double"):
-            tokens.append("barline-final")
-        else:
-            tokens.append("barline")
-
-    # 마지막 barline → barline-final 로 변경
     if tokens[-1] == "barline":
         tokens[-1] = "barline-final"
-    elif tokens[-1] not in ("barline-final", "barline-end-repeat", "<EOS>"):
-        tokens.append("barline-final")
+    tokens.append("<EOS>")
+    return tokens
 
+
+def _extract_combined(score: Score, tokens: list[str]) -> list[str]:
+    """
+    높은음자리표(Part 0) + 낮은음자리표(Part 1) 를 마디별로 합쳐 토큰화.
+
+    마디 순서: [treble notes] [bass notes] barline
+    전체 쉼표 마디의 bass 파트는 토큰 생략.
+    """
+    parts = [p.stripTies() for p in list(score.parts)[:2]]
+
+    # ── 헤더: treble 파트 기준 ────────────────────────────────────────────────
+    treble = parts[0]
+    m0 = list(treble.getElementsByClass(Measure))[0]
+
+    clef_obj = m0.recurse().getElementsByClass(clef.Clef).first() or \
+               treble.recurse().getElementsByClass(clef.Clef).first()
+    tokens.append("clef-G")   # 피아노 grand staff 기준 treble이 대표 클레프
+
+    ks = m0.recurse().getElementsByClass(key.KeySignature).first() or \
+         treble.recurse().getElementsByClass(key.KeySignature).first()
+    tokens.append(f"key-{SHARPS_TO_KEY.get(ks.sharps, 'C')}" if ks else "key-C")
+
+    ts = m0.recurse().getElementsByClass(meter.TimeSignature).first() or \
+         treble.recurse().getElementsByClass(meter.TimeSignature).first()
+    tokens.append(f"time-{ts.numerator}/{ts.denominator}" if ts else "time-4/4")
+
+    # ── 마디별 합치기 ─────────────────────────────────────────────────────────
+    treble_measures = list(parts[0].getElementsByClass(Measure))
+    bass_measures   = list(parts[1].getElementsByClass(Measure))
+    n_measures = min(len(treble_measures), len(bass_measures))
+
+    for i in range(n_measures):
+        tm = treble_measures[i]
+        bm = bass_measures[i]
+
+        lb = tm.leftBarline
+        if isinstance(lb, bar.Repeat) and lb.direction == "start":
+            tokens.append("barline-start-repeat")
+
+        # treble 음표 토큰
+        tokens.extend(_measure_note_tokens(tm))
+
+        # bass 음표 토큰 (전체 쉼표 마디는 생략)
+        if not _is_whole_rest(bm):
+            tokens.extend(_measure_note_tokens(bm))
+
+        tokens.append(_barline_token(tm))
+
+    if tokens[-1] == "barline":
+        tokens[-1] = "barline-final"
     tokens.append("<EOS>")
     return tokens
 
@@ -305,7 +359,7 @@ def extract_tokens(score: Score, part_index: int = 0) -> list[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def process_file(input_path: str, output_path: str,
-                 musescore_exe: str, part_index: int) -> bool:
+                 musescore_exe: str, part_index: int | None) -> bool:
     ext = Path(input_path).suffix.lower()
     tmp_xml = None
 
@@ -364,8 +418,8 @@ def main():
                    help="단일 .json 출력 경로")
     p.add_argument("--musescore",  default=None,
                    help="MuseScore 실행 파일 경로")
-    p.add_argument("--part",       type=int, default=0,
-                   help="악보 파트 인덱스 (0=첫번째 파트/RH, 1=LH, 기본: 0)")
+    p.add_argument("--part",       type=int, default=None,
+                   help="악보 파트 인덱스 (0=RH만, 1=LH만). 생략 시 파트가 2개면 자동으로 두 파트 합치기")
     args = p.parse_args()
 
     musescore = args.musescore or find_musescore()
