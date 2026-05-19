@@ -1,3 +1,0 @@
-repository='https://github.com/jax-ml/ml_dtypes'
-module=''
-tag='origin'

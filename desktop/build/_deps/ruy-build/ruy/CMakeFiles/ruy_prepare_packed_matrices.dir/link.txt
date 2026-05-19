@@ -1,2 +1,0 @@
-/usr/bin/ar qc libruy_prepare_packed_matrices.a CMakeFiles/ruy_prepare_packed_matrices.dir/prepare_packed_matrices.cc.o
-/usr/bin/ranlib libruy_prepare_packed_matrices.a

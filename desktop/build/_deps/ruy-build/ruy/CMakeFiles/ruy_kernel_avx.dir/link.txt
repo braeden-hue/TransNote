@@ -1,2 +1,0 @@
-/usr/bin/ar qc libruy_kernel_avx.a CMakeFiles/ruy_kernel_avx.dir/kernel_avx.cc.o
-/usr/bin/ranlib libruy_kernel_avx.a

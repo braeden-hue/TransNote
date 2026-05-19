@@ -1,0 +1,1 @@
+- [online_webpage Color System](project_color_system.md) — Samsung Life CI blue palette (#0076CE primary), white bg, applied to all online_webpage files May 2026

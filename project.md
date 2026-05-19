@@ -6,6 +6,74 @@
 
 ---
 
+## Working Guidelines
+
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+### 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
 ## 목표
 
 악보의 장벽을 허물어 누구나 음악에 "연결"될 수 있도록 한다.  
@@ -25,14 +93,17 @@
 
 ---
 
-## 세부 문서
+## 세부 문서 (에이전트별)
 
-| 문서 | 내용 |
-|---|---|
-| [`docs/training.md`](docs/training.md) | 학습 파이프라인 — 데이터 생성, 모델 아키텍처, Round 1~4 계획, 정확도 측정, 대응 방안 |
-| [`docs/engine.md`](docs/engine.md) | C++ 추론 엔진 — omr/engine/ 구조, Dart FFI API, INT8 양자화, 속도 최적화 |
-| [`docs/custom.md`](docs/custom.md) | DeepScore 토큰 설계 + 커스텀 악보 표기법 규칙 + Python 렌더러 |
-| [`docs/fluttering.md`](docs/fluttering.md) | Flutter 앱 (Android / iOS / Web) — Dart FFI 전환, 확장 기능 (MIDI·플레이헤드·IMSLP) |
+| 문서 | 담당 에이전트 | 내용 |
+|---|---|---|
+| [`docs/project-orchestrator.md`](docs/project-orchestrator.md) | `project-orchestrator` | Phase 계획, 전체 현황, 에이전트 간 의존 관계, 병목 추적 |
+| [`docs/score-training-agent.md`](docs/score-training-agent.md) | `score-training-agent` | 데이터 생성, 모델 아키텍처, Round 1~5 학습 파이프라인 |
+| [`docs/score-recognition-engine.md`](docs/score-recognition-engine.md) | `score-recognition-engine` | C++ 추론 엔진 구조, INT8 양자화, 속도 최적화 |
+| [`docs/sheet-music-qa.md`](docs/sheet-music-qa.md) | `sheet-music-qa` | Round별 정확도 평가, PASS 기준, 평가 스크립트 |
+| [`docs/music-notation-rule-designer.md`](docs/music-notation-rule-designer.md) | `music-notation-rule-designer` | DeepScore 토큰 vocabulary, 커스텀 악보 표기법 시각 규칙 |
+| [`docs/flutter-integration-architect.md`](docs/flutter-integration-architect.md) | `flutter-integration-architect` | Flutter/Dart FFI 통합, Riverpod 상태 관리, 카메라 연동 |
+| [`docs/ui-design-specialist.md`](docs/ui-design-specialist.md) | `ui-design-specialist` | 튜토리얼·악보·연습 화면 UI, CustomPainter 악보 렌더러, 웹 데모 |
 
 ---
 
@@ -42,12 +113,12 @@
 |---|---|
 | Flutter UI (갤러리 선택 → MusicXML 표시) | ✅ 기본 구현 |
 | Android Kotlin JNI 브리지 | ✅ 구현 완료 |
-| C++ 추론 엔진 (`omr/engine/`) | ✅ 구현 완료 (학습 완료 후 모델 교체 필요) |
-| Python 렌더러 (`omr/utils/render_notation.py`) | ✅ 구현 완료 |
-| 학습 코드 (`omr/training/`) | ✅ 구현 완료 (model.py·train.py·dataset.py) |
-| TFLite 변환 스크립트 (`omr/training/export_tflite.py`) | ✅ 구현 완료 (PyTorch → TFLite INT8) |
-| 데이터 생성 (`omr/data_gen/generate_dataset.py`) | ✅ Round 2 기호 추가 완료 (vocab 1012) |
-| 웹 데모 (`web-demo/`) | ✅ 구현 완료 + UI 개선 (그라데이션·옥타브 연동·마우스 휠) |
+| C++ 추론 엔진 (`ml/omr/engine/`) | ✅ 구현 완료 (학습 완료 후 모델 교체 필요) |
+| Python 렌더러 (`ml/omr/utils/render_notation.py`) | ✅ 구현 완료 |
+| 학습 코드 (`ml/omr/training/`) | ✅ 구현 완료 (model.py·train.py·dataset.py) |
+| TFLite 변환 스크립트 (`ml/omr/training/export_tflite.py`) | ✅ 구현 완료 (PyTorch → TFLite INT8) |
+| 데이터 생성 (`ml/data/generate_random_scores.py`) | ✅ Round 2 기호 추가 완료 (vocab 1012) |
+| 웹 데모 (`online_webpage/`) | ✅ 구현 완료 + UI 개선 (그라데이션·옥타브 연동·마우스 휠) |
 | **Flutter 앱 UI 데모 (Phase 5-A)** | ✅ **완료** — 3탭(튜토리얼·악보·연습), CustomPainter 악보, 피아노 위젯 |
 | Round 1 실제 학습 실행 | ❌ **다음 단계** — 3,000장 생성 후 RTX 3080 학습 |
 | iOS OMR 브리지 | ❌ 스텁만 존재 (방안 A: ObjC++ 브리지 예정) |
@@ -68,9 +139,9 @@ Phase 2  🔜  모델 학습 (RTX 3080) ← **다음 실행**
                Round 2: 전체 기호 확장 (vocab 1004→1012, load_checkpoint_with_vocab_expansion)
                Round 3: 2오선 grand staff
                Round 4: 실사 사진 fine-tuning
-Phase 3  ✅  모델 변환·양자화 스크립트 완료 (omr/training/export_tflite.py)
+Phase 3  ✅  모델 변환·양자화 스크립트 완료 (ml/omr/training/export_tflite.py)
                실제 변환은 Round 1 학습 완료 후 실행
-Phase 4  ✅  C++ 추론 엔진 구현 완료 (omr/engine/)
+Phase 4  ✅  C++ 추론 엔진 구현 완료 (ml/omr/engine/)
 Phase 5-A ✅  Flutter 앱 UI 데모 완료
                [구현 완료]
                  lib/main.dart          — 3탭 NavigationBar 셸 (튜토리얼·악보·연습)
@@ -109,7 +180,7 @@ Phase 9      공유 커뮤니티 + 연주 감지
 | 학습 데이터 | — | music21 생성 + 실사 사진 |
 | 라벨 형식 | MusicXML | DeepScore 토큰 시퀀스 |
 | 모델 포맷 (추론) | TFLite + ONNX | TFLite INT8 통일 |
-| 추론 엔진 | MusicScore C++ JNI | 신규 C++ (omr/engine/), Dart FFI |
+| 추론 엔진 | MusicScore C++ JNI | 신규 C++ (ml/omr/engine/), Dart FFI |
 | Flutter 브리지 | MethodChannel | Dart FFI |
 | 이미지 입력 | 갤러리 선택 | 실시간 카메라 + 갤러리 |
 | 출력 | MusicXML 텍스트 | 커스텀 표기법 이미지 |
