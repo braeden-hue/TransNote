@@ -174,50 +174,46 @@ def load_segnet_model(weights_path: str, device):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Image preprocessing (mirrors omr_inference.py)
+#  Image preprocessing — dataset.py와 동일한 방식 (detect_staffs + extract_canvas_tiles)
 # ─────────────────────────────────────────────────────────────────────────────
 
-IMG_MEAN = 0.7931
-IMG_STD  = 0.1738
-CANVAS_H = 256
-CANVAS_W = 1280
+sys.path.insert(0, str(_REPO_ROOT / "omr" / "training"))
 
-def preprocess_image(img_path: str) -> Optional[np.ndarray]:
-    """Load and preprocess a sheet music image to a (1, 1, H, W) float32 tensor."""
+def preprocess_image(img_path: str,
+                     is_system: bool = False) -> Optional[np.ndarray]:
+    """
+    dataset.py의 preprocess → detect_staffs → extract_canvas_tiles 와
+    동일한 파이프라인으로 canvas를 추출한다.
+
+    is_system=True: grand staff(R3) — extract_system_canvas 사용
+    staff가 검출되지 않으면 단순 resize fallback.
+    """
     try:
         import cv2
-    except ImportError:
-        sys.exit("ERROR: opencv-python is required.  Run: pip install opencv-python")
+        from dataset import (preprocess, detect_staffs,
+                             extract_canvas_tiles, extract_system_canvas,
+                             IMG_MEAN, IMG_STD, CANVAS_H, CANVAS_W)
+    except ImportError as e:
+        sys.exit(f"ERROR: {e}")
 
     bgr = cv2.imread(img_path)
     if bgr is None:
         return None
 
-    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr.copy()
+    gray   = preprocess(bgr)
+    staffs = detect_staffs(gray)
 
-    # Resize to 1920 width preserving aspect ratio.
-    H, W = gray.shape
-    target_w = 1920
-    if W != target_w:
-        scale  = target_w / W
-        new_h  = int(round(H * scale))
-        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
-        gray   = cv2.resize(gray, (target_w, new_h), interpolation=interp)
+    if staffs:
+        if is_system and len(staffs) >= 2:
+            tile = extract_system_canvas(gray, staffs)[0]
+        else:
+            tile = extract_canvas_tiles(gray, staffs[0])[0]
+    else:
+        # fallback: resize to CANVAS_H × CANVAS_W
+        tile = cv2.resize(gray, (CANVAS_W, CANVAS_H), interpolation=cv2.INTER_AREA)
 
-    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))
-    gray  = clahe.apply(gray)
-    gray  = cv2.bilateralFilter(gray, 9, 20.0, 7.0)
-
-    # Fit to canvas (256 x 1280) — simple single-tile crop from top strip.
-    H, W = gray.shape
-    tile = np.full((CANVAS_H, CANVAS_W), 255, dtype=np.uint8)
-    copy_h = min(CANVAS_H, H)
-    copy_w = min(CANVAS_W, W)
-    tile[:copy_h, :copy_w] = gray[:copy_h, :copy_w]
-
-    # Normalise and expand to (1, 1, H, W).
     tile_f = (tile.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
-    return tile_f[None, None, :, :]   # [1, 1, 256, 1280]
+    return tile_f[None, None, :, :]   # [1, 1, H, W]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -499,7 +495,9 @@ def main():
         if not args.quiet:
             print(f"  [{i+1:3d}/{len(pairs)}] {stem} ...", end=" ", flush=True)
 
-        canvas_np = preprocess_image(img_path)
+        # grand staff 여부: GT 토큰에 staff-bass가 있으면 system canvas 사용
+        is_system = gt_tokens is not None and "staff-bass" in gt_tokens
+        canvas_np = preprocess_image(img_path, is_system=is_system)
         if canvas_np is None:
             res["error"] = "image load failed"
             all_results.append(res)

@@ -47,6 +47,8 @@ app.*.map.json
 # OMR model checkpoints (large binaries — do not commit)
 models/**/*.pt
 models/**/*.pt.bak
+ml/models/**/*.pt
+ml/models/**/*.pt.bak
 *.onnx
 *.tflite
 

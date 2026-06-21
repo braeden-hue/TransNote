@@ -1,4 +1,4 @@
-import { BEAT_COLORS, pitchToZone, formatNoteName } from './samples.js';
+import { BEAT_COLORS, pitchToZone, formatNoteName, zoneLabels } from './samples.js';
 
 const UNIT_W      = 80;
 const CELL_H      = 46;
@@ -8,10 +8,9 @@ const MARGIN_Y    = 8;
 const INDICATOR_H = 18;  // 화살표 표시 영역 (상단)
 const NS          = 'http://www.w3.org/2000/svg';
 
-const ZONE_LABELS = ['높음 (5옥+)', '중간 (4옥)', '낮음 (3옥↓)'];
-
-// 가온다(C4) 기준 존 — 중간(4옥)
-const REF_ZONE = 1;
+// REF_ZONE: 마디 시작 기준점 점(●)을 표시할 존 인덱스
+// treble: 낮음(4옥, 2) / bass: 위(3옥, 0)
+const REF_ZONE = { treble: 2, bass: 0 };
 
 function el(tag, attrs = {}) {
   const e = document.createElementNS(NS, tag);
@@ -23,6 +22,7 @@ export function renderNotation(container, notes, {
   highlightIdx = -1,
   expectedIdx  = -1,
   onNoteClick,
+  clef = 'treble',
 } = {}) {
   if (!notes?.length) {
     container.innerHTML = '<p style="color:#555;padding:20px">음표 데이터가 없습니다</p>';
@@ -41,6 +41,7 @@ export function renderNotation(container, notes, {
   });
 
   // ── Zone backgrounds + labels ─────────────────────────────────────────────
+  const ZONE_LABELS = zoneLabels(clef);
   for (let z = 0; z < 3; z++) {
     const zy = CONTENT_Y + z * ZONE_H;
     svg.appendChild(el('rect', {
@@ -78,59 +79,110 @@ export function renderNotation(container, notes, {
   const noteXMap = [];
 
   notes.forEach((note, i) => {
-    const w      = note.duration * UNIT_W - 4;
-    const zone   = pitchToZone(note.pitch);
-    const y      = CONTENT_Y + zone * ZONE_H + 5;
-    const h      = CELL_H;
-    const color  = BEAT_COLORS[note.beat] || '#888';
-    const isHL   = i === highlightIdx;
-    const isExp  = i === expectedIdx;
+    const w       = note.duration * UNIT_W - 4;
+    const zone    = pitchToZone(note.pitch, clef);
+    const y       = CONTENT_Y + zone * ZONE_H + 5;
+    const h       = CELL_H;
+    const color   = BEAT_COLORS[note.beat] || '#888';
+    const isHL    = i === highlightIdx;
+    const isExp   = i === expectedIdx;
+    const isChord = note.chordNotes?.length > 0;
 
     noteXMap.push(x);
 
-    const fill = isHL  ? color + '44'
-               : isExp ? '#0076CE18'
-               : '#FFFFFF';
+    if (isChord) {
+      // ── 화음: 박스 + 음표 이름 세로 스택 ─────────────────────────────────
+      const fill        = isHL ? color + '44' : isExp ? '#0076CE18' : '#FFFFFF';
+      const strokeColor = isExp ? '#0076CE' : color;
+      const strokeW     = isHL ? '3' : isExp ? '2.5' : '2';
 
-    const strokeColor = isExp ? '#0076CE' : color;
-    const strokeW     = isHL ? '3' : isExp ? '2.5' : '2';
+      const rect = el('rect', {
+        x, y, width: w, height: h, rx: 5,
+        fill, stroke: strokeColor, 'stroke-width': strokeW,
+      });
+      if (isExp) {
+        const anim = document.createElementNS(NS, 'animate');
+        anim.setAttribute('attributeName', 'stroke-opacity');
+        anim.setAttribute('values', '1;0.25;1');
+        anim.setAttribute('dur', '0.85s');
+        anim.setAttribute('repeatCount', 'indefinite');
+        rect.appendChild(anim);
+      }
+      if (onNoteClick) {
+        rect.style.cursor = 'pointer';
+        rect.addEventListener('click', () => onNoteClick(i, note));
+      }
+      svg.appendChild(rect);
 
-    const rect = el('rect', {
-      x, y, width: w, height: h, rx: 5,
-      fill, stroke: strokeColor, 'stroke-width': strokeW,
-    });
+      if (isHL) {
+        const ring = el('rect', {
+          x: x-3, y: y-3, width: w+6, height: h+6, rx: 8,
+          fill: 'none', stroke: color, 'stroke-width': '1.5',
+        });
+        const a = document.createElementNS(NS, 'animate');
+        a.setAttribute('attributeName', 'opacity');
+        a.setAttribute('values', '0.6;0;0.6');
+        a.setAttribute('dur', '0.8s');
+        a.setAttribute('repeatCount', 'indefinite');
+        ring.appendChild(a);
+        svg.appendChild(ring);
+      }
 
-    if (isExp) {
-      const anim = document.createElementNS(NS, 'animate');
-      anim.setAttribute('attributeName', 'stroke-opacity');
-      anim.setAttribute('values', '1;0.25;1');
-      anim.setAttribute('dur', '0.85s');
-      anim.setAttribute('repeatCount', 'indefinite');
-      rect.appendChild(anim);
+      // 모든 화음 음표 이름 세로 스택
+      const allNotes  = [note.pitch, ...(note.chordNotes || [])];
+      const lineH     = allNotes.length <= 2 ? 14 : 12;
+      const fs        = allNotes.length <= 2 ? 11 : 9;
+      const totalTxtH = allNotes.length * lineH;
+      allNotes.forEach((p, pi) => {
+        const t = el('text', {
+          x: x + w / 2,
+          y: y + h / 2 - totalTxtH / 2 + lineH * (pi + 0.8),
+          'text-anchor': 'middle',
+          fill: isHL ? '#fff' : isExp ? '#0076CE' : color,
+          'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
+          'pointer-events': 'none',
+        });
+        t.textContent = formatNoteName(p);
+        svg.appendChild(t);
+      });
+    } else {
+      // ── 단음: 박스 없이 텍스트만 ──────────────────────────────────────────
+      if (onNoteClick) {
+        // 투명 hit-box for tap detection
+        const hitBox = el('rect', {
+          x, y, width: w, height: h, rx: 5,
+          fill: 'transparent', stroke: 'none',
+        });
+        hitBox.style.cursor = 'pointer';
+        hitBox.addEventListener('click', () => onNoteClick(i, note));
+        svg.appendChild(hitBox);
+      }
+
+      const fs  = w < 26 ? 10 : w < 42 ? 12 : 14;
+      const txt = el('text', {
+        x: x + w / 2, y: y + h / 2 + 5,
+        'text-anchor': 'middle',
+        fill: isHL ? '#fff' : isExp ? '#0076CE' : color,
+        'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
+        'pointer-events': 'none',
+      });
+      txt.textContent = formatNoteName(note.pitch);
+      svg.appendChild(txt);
     }
 
-    if (onNoteClick) {
-      rect.style.cursor = 'pointer';
-      rect.addEventListener('click', () => onNoteClick(i, note));
-    }
-    svg.appendChild(rect);
-
-    // ── 눌러야 할 음표 위에 내려가는 화살표 ─────────────────────────────────
+    // ── expected 화살표 (단음/화음 공통) ──────────────────────────────────
     if (isExp) {
       const arrowCx  = x + w / 2;
-      const arrowTip = y - 2;                       // 노트 셀 바로 위
-      const arrowTop = Math.max(2, arrowTip - 13);  // 화살표 몸통 상단
-      // 흰 배경(다른 존 배경이 겹쳐도 화살표가 선명하게)
+      const arrowTip = y - 2;
+      const arrowTop = Math.max(2, arrowTip - 13);
       svg.appendChild(el('rect', {
         x: arrowCx - 6, y: arrowTop - 1, width: 12, height: arrowTip - arrowTop + 2,
         fill: 'rgba(255,255,255,0.85)', rx: '2',
       }));
-      // 삼각형 화살표
       const tri = el('polygon', {
         points: `${arrowCx - 5},${arrowTop} ${arrowCx + 5},${arrowTop} ${arrowCx},${arrowTip}`,
         fill: '#0076CE',
       });
-      // 위아래 바운스 애니메이션
       const anim2 = document.createElementNS(NS, 'animateTransform');
       anim2.setAttribute('attributeName', 'transform');
       anim2.setAttribute('type', 'translate');
@@ -141,36 +193,11 @@ export function renderNotation(container, notes, {
       svg.appendChild(tri);
     }
 
-    if (isHL) {
-      const ring = el('rect', {
-        x: x-3, y: y-3, width: w+6, height: h+6, rx: 8,
-        fill: 'none', stroke: color, 'stroke-width': '1.5',
-      });
-      const a = document.createElementNS(NS, 'animate');
-      a.setAttribute('attributeName', 'opacity');
-      a.setAttribute('values', '0.6;0;0.6');
-      a.setAttribute('dur', '0.8s');
-      a.setAttribute('repeatCount', 'indefinite');
-      ring.appendChild(a);
-      svg.appendChild(ring);
-    }
-
-    const fs = w < 26 ? 9 : w < 42 ? 11 : 13;
-    const txt = el('text', {
-      x: x + w / 2, y: y + h / 2 + 5,
-      'text-anchor': 'middle',
-      fill: isHL ? '#fff' : strokeColor,
-      'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
-      'pointer-events': 'none',
-    });
-    txt.textContent = formatNoteName(note.pitch);
-    svg.appendChild(txt);
-
     x += note.duration * UNIT_W;
   });
 
-  // ── 가온다(C4) 기준 표시 — 마디 시작마다 중간(4옥) 존 중앙에 파란 점 ──────────
-  const refCY = CONTENT_Y + REF_ZONE * ZONE_H + ZONE_H / 2;
+  // ── 마디 시작 기준점 표시 — clef에 따라 기준 존이 다름 ──────────────────────
+  const refCY = CONTENT_Y + REF_ZONE[clef] * ZONE_H + ZONE_H / 2;
 
   measureXs.forEach(mx => {
     const rc = el('circle', { cx: mx, cy: refCY, r: '5', fill: '#0076CE' });
@@ -204,19 +231,23 @@ export function renderNotation(container, notes, {
   };
 }
 
-// ── 그랜드 스태프 (높은음자리 + 낮은음자리 병렬 표시) ─────────────────────────────
+// 오선 번호(0부터) → 표시 레이블 + 색상
+function staffLabel(si, clef) {
+  if (si === 0) return { label: '🎵 높은음자리 (Treble)', color: '#0076CE' };
+  if (si === 1 && clef === 'bass') return { label: '🎻 낮은음자리 (Bass)', color: '#5BB8F5' };
+  const clefName = clef === 'bass' ? '낮은음자리' : clef === 'alto' ? '알토' : '높은음자리';
+  return { label: `Staff ${si + 1} (${clefName})`, color: '#7BB8A0' };
+}
+
+// ── 다중 오선 렌더러 (2개 이상 N개 지원) ─────────────────────────────────────
 export function renderGrandStaff(container, staves, options = {}) {
   container.innerHTML = '';
   const wrapper = document.createElement('div');
   wrapper.style.cssText = 'display:flex; flex-direction:column; gap:10px;';
 
-  const staffMeta = [
-    { label: '🎵 높은음자리 (Treble)', color: '#0076CE' },
-    { label: '🎵 낮은음자리 (Bass)',   color: '#5BB8F5' },
-  ];
-
   staves.forEach((stave, si) => {
-    const meta = staffMeta[si] ?? { label: `Staff ${si + 1}`, color: '#aaa' };
+    const clef = stave.clef ?? (si === 0 ? 'treble' : 'bass');
+    const meta = staffLabel(si, clef);
 
     const row = document.createElement('div');
     row.style.cssText = 'display:flex; flex-direction:column; gap:3px;';
@@ -249,7 +280,7 @@ export function renderGrandStaff(container, staves, options = {}) {
     btnN.addEventListener('click', () => { inner.scrollLeft += inner.clientWidth * 0.8; setTimeout(updateGsNav, 350); });
     inner.addEventListener('scroll', updateGsNav);
 
-    renderNotation(inner, stave.notes, options);
+    renderNotation(inner, stave.notes, { ...options, clef });
     setTimeout(updateGsNav, 50);
   });
 
@@ -281,30 +312,59 @@ export function renderMiniNotation(container, notes, { unitW = 64, cellH = 38, o
     mx += note.duration * unitW;
   });
 
-  // Note cells
+  // Note cells — 화음만 박스, 단음은 텍스트만
   let x = 4;
   notes.forEach((note, i) => {
-    const w     = note.duration * unitW - 4;
-    const color = BEAT_COLORS[note.beat] || '#888';
+    const w        = note.duration * unitW - 4;
+    const color    = BEAT_COLORS[note.beat] || '#888';
+    const isChord  = note.chordNotes?.length > 0;
 
-    const rect = el('rect', {
-      x, y: NOTE_TOP, width: w, height: cellH, rx: 4,
-      fill: '#FFFFFF', stroke: color, 'stroke-width': '2',
-    });
-    if (onNoteClick) {
-      rect.style.cursor = 'pointer';
-      rect.addEventListener('click', () => onNoteClick(i, note));
+    if (isChord) {
+      const rect = el('rect', {
+        x, y: NOTE_TOP, width: w, height: cellH, rx: 4,
+        fill: '#FFFFFF', stroke: color, 'stroke-width': '2',
+      });
+      if (onNoteClick) {
+        rect.style.cursor = 'pointer';
+        rect.addEventListener('click', () => onNoteClick(i, note));
+      }
+      svg.appendChild(rect);
+
+      const allNotes = [note.pitch, ...(note.chordNotes || [])];
+      const lineH    = 13;
+      const fs       = allNotes.length <= 2 ? 11 : 9;
+      const totalH   = allNotes.length * lineH;
+      allNotes.forEach((p, pi) => {
+        const t = el('text', {
+          x: x + w / 2,
+          y: NOTE_TOP + cellH / 2 - totalH / 2 + lineH * (pi + 0.8),
+          'text-anchor': 'middle', fill: color,
+          'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
+          'pointer-events': 'none',
+        });
+        t.textContent = formatNoteName(p);
+        svg.appendChild(t);
+      });
+    } else {
+      if (onNoteClick) {
+        const hitBox = el('rect', {
+          x, y: NOTE_TOP, width: w, height: cellH, rx: 4,
+          fill: 'transparent', stroke: 'none',
+        });
+        hitBox.style.cursor = 'pointer';
+        hitBox.addEventListener('click', () => onNoteClick(i, note));
+        svg.appendChild(hitBox);
+      }
+
+      const txt = el('text', {
+        x: x + w / 2, y: NOTE_TOP + cellH / 2 + 5,
+        'text-anchor': 'middle', fill: color,
+        'font-size': '12', 'font-weight': '700', 'font-family': 'system-ui',
+        'pointer-events': 'none',
+      });
+      txt.textContent = formatNoteName(note.pitch);
+      svg.appendChild(txt);
     }
-    svg.appendChild(rect);
-
-    const txt = el('text', {
-      x: x + w / 2, y: NOTE_TOP + cellH / 2 + 5,
-      'text-anchor': 'middle', fill: color,
-      'font-size': '12', 'font-weight': '700', 'font-family': 'system-ui',
-      'pointer-events': 'none',
-    });
-    txt.textContent = formatNoteName(note.pitch);
-    svg.appendChild(txt);
 
     x += note.duration * unitW;
   });

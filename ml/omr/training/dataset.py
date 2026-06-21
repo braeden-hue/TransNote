@@ -48,9 +48,10 @@ PAD_ID      = 0
 SOS_ID      = 1
 EOS_ID      = 2
 
-PATCH_SIZE  = 320       # SegNet input patch (square)
-CANVAS_H    = 256       # Encoder canvas height
-CANVAS_W    = 1280      # Encoder canvas width
+PATCH_SIZE       = 320   # SegNet input patch (square)
+CANVAS_H         = 256   # Encoder canvas height (single staff)
+CANVAS_W         = 1280  # Encoder canvas width
+SYSTEM_CANVAS_H  = 384   # Encoder canvas height for grand staff (treble+bass)
 TILE_OVERLAP = 64       # Horizontal tile overlap (px)
 MARGIN_UNITS = 2.0      # Staff-region vertical margin (in unit_size units)
 TARGET_W    = 1920      # Preprocessor target width
@@ -161,6 +162,44 @@ def detect_staffs(gray: np.ndarray) -> List[Dict]:
                 continue
         i += 1
     return staffs
+
+
+def extract_system_canvas(gray: np.ndarray, staffs: List[Dict]) -> List[np.ndarray]:
+    """
+    Grand staff 전용: treble(staffs[0]) + bass(staffs[1]) 영역을 수직으로 이어붙여
+    SYSTEM_CANVAS_H × CANVAS_W 캔버스 1장을 반환한다.
+
+    두 오선의 높이를 각각 SYSTEM_CANVAS_H//2 로 스케일하여 동일 비율을 유지한다.
+    staffs가 1개뿐이면 extract_canvas_tiles 결과를 그대로 반환(fallback).
+    """
+    if len(staffs) < 2:
+        return extract_canvas_tiles(gray, staffs[0])
+
+    H, W = gray.shape
+    half_h = SYSTEM_CANVAS_H // 2
+
+    def _strip(staff: Dict) -> np.ndarray:
+        margin = staff['unit_size'] * MARGIN_UNITS
+        y_top  = max(0, int(staff['y_lines'][0] - margin))
+        y_bot  = min(H - 1, int(staff['y_lines'][4] + margin))
+        s = gray[y_top:y_bot + 1, :]
+        scale = half_h / s.shape[0]
+        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+        return cv2.resize(s, (int(round(s.shape[1] * scale)), half_h),
+                          interpolation=interp)
+
+    treble_strip = _strip(staffs[0])
+    bass_strip   = _strip(staffs[1])
+
+    def _pad_to_w(strip: np.ndarray) -> np.ndarray:
+        sw = strip.shape[1]
+        tile = np.full((half_h, CANVAS_W), 255, dtype=np.uint8)
+        cw = min(CANVAS_W, sw)
+        tile[:, :cw] = strip[:, :cw]
+        return tile
+
+    combined = np.vstack([_pad_to_w(treble_strip), _pad_to_w(bass_strip)])
+    return [combined]   # SYSTEM_CANVAS_H × CANVAS_W
 
 
 def extract_canvas_tiles(gray: np.ndarray, staff: Dict) -> List[np.ndarray]:
@@ -477,9 +516,15 @@ class OMRDataset(Dataset):
                 skipped += 1
                 continue
 
-            for si in range(len(staffs)):
+            # system 샘플(grand staff): 'staff-bass' 토큰이 있으면
+            # treble+bass를 하나의 system canvas로 처리 → si=0만 등록
+            # single staff 샘플: 각 staff별로 등록 (통상 1개)
+            is_system = 'staff-bass' in token_strs
+            n_staffs_to_use = 1 if is_system else len(staffs)
+
+            for si in range(n_staffs_to_use):
                 for ti in range(tiles_per_staff):
-                    self.samples.append((img_path, ids, si, ti))
+                    self.samples.append((img_path, ids, si, ti, is_system))
 
         print(f"[OMRDataset] {len(self.samples)} canvas-tile samples "
               f"({skipped} images skipped — no staff or label)")
@@ -488,7 +533,7 @@ class OMRDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        img_path, ids, staff_idx, tile_idx = self.samples[idx]
+        img_path, ids, staff_idx, tile_idx, is_system = self.samples[idx]
 
         # Load + preprocess image.
         bgr   = cv2.imread(img_path)
@@ -497,14 +542,21 @@ class OMRDataset(Dataset):
         if self.augment:
             gray = augment_image(gray, perspective=False)
 
-        # Extract staff tiles.
+        # Extract canvas tiles.
         staffs = detect_staffs(gray)
-        if staff_idx >= len(staffs):
-            staff_idx = 0   # fallback
-
-        tiles = extract_canvas_tiles(gray, staffs[staff_idx])
-        tile_idx = min(tile_idx, len(tiles) - 1)
-        tile = tiles[tile_idx]  # uint8 [CANVAS_H, CANVAS_W]
+        if not staffs:
+            # fallback: blank canvas
+            tile = np.full((CANVAS_H, CANVAS_W), 255, dtype=np.uint8)
+        elif is_system:
+            # grand staff → system canvas (treble+bass 수직 결합)
+            tiles = extract_system_canvas(gray, staffs)
+            tile  = tiles[0]
+        else:
+            if staff_idx >= len(staffs):
+                staff_idx = 0
+            tiles    = extract_canvas_tiles(gray, staffs[staff_idx])
+            tile_idx = min(tile_idx, len(tiles) - 1)
+            tile     = tiles[tile_idx]   # uint8 [CANVAS_H, CANVAS_W]
 
         # Normalise to float32: (pixel/255 − mean) / std
         canvas = ((tile.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD)

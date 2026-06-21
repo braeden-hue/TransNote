@@ -211,11 +211,23 @@ export function formatChordName(pitches) {
   return pitches.map(formatNoteName).join('');
 }
 
-export function pitchToZone(pitch) {
+// 높은음자리표: 4옥(가온다 포함) = 아래(2), 5옥 = 중간(1), 6옥+ = 위(0)
+// 낮은음자리표: 3옥(C3~B3) = 위(0), 2옥 = 중간(1), 1옥 이하 = 아래(2)
+export function pitchToZone(pitch, clef = 'treble') {
   const oct = parseInt(pitch.slice(-1));
-  if (oct >= 5) return 0;
-  if (oct === 4) return 1;
+  if (clef === 'bass') {
+    if (oct >= 3) return 0;
+    if (oct === 2) return 1;
+    return 2;
+  }
+  if (oct >= 6) return 0;
+  if (oct === 5) return 1;
   return 2;
+}
+
+export function zoneLabels(clef = 'treble') {
+  if (clef === 'bass') return ['높음 (3옥)', '중간 (2옥)', '낮음 (1옥↓)'];
+  return ['높음 (6옥+)', '중간 (5옥)', '낮음 (4옥, 가온다)'];
 }
 
 export function noteToFrequency(pitch) {

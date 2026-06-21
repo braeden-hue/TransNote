@@ -153,7 +153,11 @@ class OmrInference:
                         tokens.append(self._id_to_token.get(tok_id, '<UNK>'))
 
             if idx < len(staffs) - 1:
-                tokens.append('barline')
+                # 오선 간 구분 토큰:
+                #   staff 0 → 1: staff-bass (기존 Grand Staff 구분자)
+                #   staff 1 → 2+: staff-2, staff-3, ... (N번째 오선)
+                sep = 'staff-bass' if idx == 0 else f'staff-{idx + 1}'
+                tokens.append(sep)
 
         return tokens
 

@@ -18,6 +18,38 @@ class _ScoreScreenState extends State<ScoreScreen> {
   int _hlIdx = -1;
   String? _pianoNote;
 
+  final _trebleCtrl = ScrollController();
+  final _bassCtrl   = ScrollController();
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _trebleCtrl.addListener(_syncFromTreble);
+    _bassCtrl.addListener(_syncFromBass);
+  }
+
+  void _syncFromTreble() {
+    if (_syncing || !_bassCtrl.hasClients) return;
+    _syncing = true;
+    _bassCtrl.jumpTo(_trebleCtrl.offset);
+    _syncing = false;
+  }
+
+  void _syncFromBass() {
+    if (_syncing || !_trebleCtrl.hasClients) return;
+    _syncing = true;
+    _trebleCtrl.jumpTo(_bassCtrl.offset);
+    _syncing = false;
+  }
+
+  @override
+  void dispose() {
+    _trebleCtrl.dispose();
+    _bassCtrl.dispose();
+    super.dispose();
+  }
+
   void _selectSample(SampleScore s) {
     setState(() {
       _selected = s;
@@ -132,6 +164,8 @@ class _ScoreScreenState extends State<ScoreScreen> {
                     notes: s.notes,
                     highlightIdx: _hlIdx,
                     onNoteTap: _onNoteTap,
+                    timeSignature: s.timeSignature,
+                    scrollController: _trebleCtrl,
                   ),
                   if (_pianoNote != null) ...[
                     const SizedBox(height: 12),

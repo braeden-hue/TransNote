@@ -59,6 +59,8 @@ BLACK_KEY_MAP = {
     "G#": "4", "Ab": "4",
     "A#": "5", "Bb": "5",
 }
+# 이명동음 중 흰 건반에 해당하는 케이스 (B# = C, E# = F, Cb = B, Fb = E)
+ENHARMONIC_WHITE = {"B#": "C", "E#": "F", "Cb": "B", "Fb": "E"}
 
 # duration 토큰 → quarterLength
 DURATION_QL = {
@@ -113,9 +115,11 @@ def _ql_to_sub(ql: float) -> int:
 
 
 def _pitch_display(pitch: str) -> Tuple[str, bool]:
-    """'C#' → ('1', True),  'C' → ('C', False)"""
+    """'C#' → ('1', True),  'C' → ('C', False),  'B#' → ('C', False)"""
     if pitch in WHITE_KEYS:
         return pitch, False
+    if pitch in ENHARMONIC_WHITE:
+        return ENHARMONIC_WHITE[pitch], False
     return BLACK_KEY_MAP.get(pitch, "?"), True
 
 
@@ -169,7 +173,7 @@ def parse_tokens(tokens: list) -> Tuple[Header, List[List[NoteEvent]]]:
             if last.kind == "note":
                 for lbl in last.labels:
                     if lbl.zone == z:
-                        lbl.text += disp
+                        lbl.text += "/" + disp   # "/" 구분자로 혼동 방지
                         if is_blk:
                             lbl.has_black = True
                         break
@@ -390,6 +394,73 @@ def render(hdr: Header,
     return img
 
 
+# ── Grand Staff 지원 ──────────────────────────────────────────────────────────
+
+STAFF_GAP = 20  # 두 보표 사이 여백 (px)
+
+
+def split_staves(tokens: list) -> Tuple[list, list]:
+    """flat grand staff 토큰 → (treble_tokens, bass_tokens) 분리.
+
+    각 마디 내에서 staff-bass 이전 = treble, 이후 = bass.
+    barline 토큰은 양쪽 모두에 복사한다.
+    key-/time- 헤더 토큰은 bass에도 복사해 박자표가 올바르게 표시되도록 한다.
+    """
+    treble: list = []
+    bass:   list = []
+    in_bass = False
+
+    for tok in tokens:
+        if tok == 'staff-bass':
+            in_bass = True
+            continue
+        if tok in ('barline', 'barline-double', 'barline-final',
+                   'barline-start-repeat', 'barline-end-repeat'):
+            in_bass = False
+            treble.append(tok)
+            bass.append(tok)
+        elif tok in ('<SOS>', '<EOS>', '<PAD>', '<UNK>'):
+            treble.append(tok)
+        elif tok.startswith('key-') or tok.startswith('time-'):
+            # 박자표·조표는 두 보표 모두에 적용
+            treble.append(tok)
+            bass.append(tok)
+        elif in_bass:
+            bass.append(tok)
+        else:
+            treble.append(tok)
+
+    return treble, bass
+
+
+def render_grand_staff(
+        treble_hdr: Header, treble_measures: List[List[NoteEvent]],
+        bass_hdr:   Header, bass_measures:   List[List[NoteEvent]],
+        cell_w: int  = DEFAULT_CELL_W,
+        zone_h: int  = DEFAULT_ZONE_H,
+        font_size: int = DEFAULT_FONT_SZ) -> Image.Image:
+    """두 보표(treble 위, bass 아래)를 수직으로 합성한 이미지를 반환."""
+    img_t = render(treble_hdr, treble_measures, cell_w, zone_h, font_size)
+    img_b = render(bass_hdr,   bass_measures,   cell_w, zone_h, font_size)
+
+    w = max(img_t.width, img_b.width)
+
+    def _pad(img: Image.Image) -> Image.Image:
+        if img.width == w:
+            return img
+        canvas = Image.new("RGB", (w, img.height), (255, 255, 255))
+        canvas.paste(img, (0, 0))
+        return canvas
+
+    img_t = _pad(img_t)
+    img_b = _pad(img_b)
+
+    combined = Image.new("RGB", (w, img_t.height + STAFF_GAP + img_b.height), (255, 255, 255))
+    combined.paste(img_t, (0, 0))
+    combined.paste(img_b, (0, img_t.height + STAFF_GAP))
+    return combined
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -415,20 +486,33 @@ def main() -> None:
 
         data   = json.loads(p.read_text(encoding="utf-8"))
         tokens = data.get("tokens", [])
-        hdr, measures = parse_tokens(tokens)
 
-        if not measures:
-            print(f"[건너뜀] 마디를 찾을 수 없음: {inp}", file=sys.stderr)
-            continue
-
-        img = render(hdr, measures,
-                     cell_w=args.cell,
-                     zone_h=args.zone_h,
-                     font_size=args.font_size)
+        if 'staff-bass' in tokens:
+            # Grand staff: treble + bass 분리 후 합성
+            t_toks, b_toks = split_staves(tokens)
+            t_hdr, t_measures = parse_tokens(t_toks)
+            b_hdr, b_measures = parse_tokens(b_toks)
+            if not t_measures and not b_measures:
+                print(f"[건너뜀] 마디를 찾을 수 없음: {inp}", file=sys.stderr)
+                continue
+            img = render_grand_staff(t_hdr, t_measures, b_hdr, b_measures,
+                                     cell_w=args.cell,
+                                     zone_h=args.zone_h,
+                                     font_size=args.font_size)
+        else:
+            hdr, measures = parse_tokens(tokens)
+            if not measures:
+                print(f"[건너뜀] 마디를 찾을 수 없음: {inp}", file=sys.stderr)
+                continue
+            img = render(hdr, measures,
+                         cell_w=args.cell,
+                         zone_h=args.zone_h,
+                         font_size=args.font_size)
 
         out_path = out_dir / (p.stem + "_notation.png")
         img.save(str(out_path))
-        print(f"저장: {out_path}  ({img.width}×{img.height} px, {len(measures)}마디)")
+        n_measures = len(t_measures) if 'staff-bass' in tokens else len(measures)
+        print(f"저장: {out_path}  ({img.width}×{img.height} px, {n_measures}마디)")
 
         if args.show:
             img.show()

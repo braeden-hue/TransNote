@@ -418,11 +418,12 @@ def train_seq2seq(args: argparse.Namespace,
             for p in seq2seq.encoder.parameters():
                 p.requires_grad = True
             # Re-create optimizer and scheduler with all params.
-            optimizer = AdamW(seq2seq.parameters(), lr=args.lr / 3.0,
+            optimizer = AdamW(seq2seq.parameters(), lr=args.lr / 1.5,
                                weight_decay=1e-4, betas=(0.9, 0.98))
             remaining = (args.epochs - epoch + 1) * len(train_loader)
-            scheduler = OneCycleLR(optimizer, max_lr=args.lr / 3.0,
-                                    total_steps=remaining, pct_start=0.0)
+            scheduler = OneCycleLR(optimizer, max_lr=args.lr / 1.5,
+                                    total_steps=max(1, remaining),
+                                    pct_start=0.1)
             unfreeze_done = True
 
         # ── Train ─────────────────────────────────────────────────────────────
@@ -460,8 +461,8 @@ def train_seq2seq(args: argparse.Namespace,
         val_ter_sum = 0.0
         n_val       = 0
 
-        # Evaluate on up to 50 samples (full val can be slow).
-        MAX_VAL = 50
+        # Evaluate on up to 200 samples for reliable best-checkpoint selection.
+        MAX_VAL = 200
         for canvases, tgt_in, tgt_out, _ in val_loader:
             if n_val >= MAX_VAL:
                 break

@@ -11,10 +11,25 @@ const _noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 const _blackLabel = {'C#': '1', 'D#': '2', 'F#': '3', 'G#': '4', 'A#': '5'};
 
 class ScoreNote {
-  final String pitch;
+  final String pitch;       // 쉼표일 때는 ''
   final double duration;
   final int beat;
-  const ScoreNote({required this.pitch, required this.duration, required this.beat});
+  final List<String> chordNotes;
+  final bool isRest;
+  final String? dynamicMark;  // 'ppp'~'fff' | 'fp' | 'sf' | 'sfz'
+  final String? repeatMark;   // 'end-repeat' → '반복' / 'start-repeat' → '여기부터'
+  final String? hairpin;      // 'cresc' → '점점 세게' / 'dim' → '점점 약하게'
+
+  const ScoreNote({
+    required this.pitch,
+    required this.duration,
+    required this.beat,
+    this.chordNotes = const [],
+    this.isRest = false,
+    this.dynamicMark,
+    this.repeatMark,
+    this.hairpin,
+  });
 }
 
 class SampleScore {
@@ -37,11 +52,23 @@ String formatNoteName(String pitch) {
   return _blackLabel[name] ?? name;
 }
 
-int pitchToZone(String pitch) {
+/// 높은음자리표: 4옥(가온다 포함) = 제일 아래(2), 5옥 = 중간(1), 6옥+ = 위(0)
+/// 낮은음자리표: 3옥(가온다-1~B3) = 제일 위(0), 2옥 = 중간(1), 1옥 이하 = 아래(2)
+int pitchToZone(String pitch, {String clef = 'treble'}) {
   final oct = int.parse(pitch[pitch.length - 1]);
-  if (oct >= 5) return 0;
-  if (oct == 4) return 1;
+  if (clef == 'bass') {
+    if (oct >= 3) return 0;
+    if (oct == 2) return 1;
+    return 2;
+  }
+  if (oct >= 6) return 0;
+  if (oct == 5) return 1;
   return 2;
+}
+
+List<String> zoneLabels(String clef) {
+  if (clef == 'bass') return ['3옥+', '2옥', '1옥↓'];
+  return ['6옥+', '5옥', '4옥'];
 }
 
 double noteToFrequency(String pitch) {

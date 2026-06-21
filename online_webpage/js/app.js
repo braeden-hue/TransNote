@@ -595,13 +595,16 @@ function renderPlay(playedIdx, expectedIdx) {
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'display:flex; flex-direction:column; gap:10px;';
 
-    const staffMeta = [
-      { label: '🎵 높은음자리 (Treble)', color: '#0076CE', notes: trebleNotes, interactive: true },
-      { label: '🎵 낮은음자리 (Bass)',   color: '#5BB8F5', notes: bassNotes,   interactive: false },
-    ];
+    const staffMeta = state.playNotation.staves.map((stave, si) => ({
+      label: si === 0 ? '🎵 높은음자리 (Treble)' : '🎻 낮은음자리 (Bass)',
+      color: si === 0 ? '#0076CE' : '#5BB8F5',
+      notes: stave.notes,
+      clef:  stave.clef ?? (si === 0 ? 'treble' : 'bass'),
+      interactive: si === 0,
+    }));
 
     let trebleCtrl = null;
-    staffMeta.forEach(({ label, color, notes, interactive }) => {
+    staffMeta.forEach(({ label, color, notes, clef, interactive }) => {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex; flex-direction:column; gap:3px;';
       const lbl = document.createElement('div');
@@ -614,6 +617,7 @@ function renderPlay(playedIdx, expectedIdx) {
       wrapper.appendChild(row);
 
       const ctrl = renderNotation(inner, notes, {
+        clef,
         highlightIdx: interactive ? playedIdx  : -1,
         expectedIdx:  interactive ? expectedIdx : -1,
         onNoteClick: interactive ? (i, note) => {

@@ -1,8 +1,68 @@
 # project.md — 맞춤형 악보 인식 & 변환 앱
 
-> 최종 수정: 2026-05-17  
-> **현재 단계**: Phase 5-A 완료 (Flutter 3탭 앱 UI 구현, 웹 데모 UI 개선) — Round 1 학습 데이터(3,000장) 생성 후 학습 예정  
-> **다음 실행**: Phase 2 — Round 1 학습 (데이터 3,000장 생성 → SegNet/Encoder/Decoder 학습 실행)
+---
+## 📋 임시 메모 (2026-06-13)
+
+### 가중치 완료 타임라인 (8/17 데모 역산)
+
+| 기간 | 목표 | 완료 조건 |
+|---|---|---|
+| 6/13~6/23 | Round 2 재학습 | val_acc 75%+ (tiles_per_staff 상향 + perspective 증강) |
+| 6/24~7/8 | Round 3 (2오선 + IMSLP fine-tuning) | val_acc 80%+ |
+| 7/9~7/24 | Round 4 (실사 사진) + TFLite INT8 변환 | 변환 완료 후 FastAPI 서버 배포 |
+| 7/25~8/4 | 앱 엔진 가중치 교체 + 웹 API 연결 + QA | 실기기 갤러리→OMR→커스텀악보 동작 확인 |
+| 8/5~8/15 | 영상·포스터 완성 | 제출 완료 |
+
+> **리스크**: Round 2가 7/1까지 75% 미달이면 Round 3 생략 후 바로 TFLite 변환 → 서버/앱 연결 확보 우선
+
+---
+
+### 우선순위 높은 TODO (학습 외)
+
+#### Flutter NotationWidget 미구현 — 데모 전 필수
+- [ ] **쉼표 표시**: `ScoreNote`에 타입 필드 추가 (`isRest: bool`), 회색 빈 셀 렌더링
+- [ ] **박자표 표시**: `NotationWidget`에 `timeSignature` 파라미터 추가, 보표 좌측에 숫자 표시
+- [ ] **셈여림 표시**: `ScoreNote` 또는 별도 이벤트로 `dynamic` 처리, Python처럼 한국어 변환 후 마디 상단
+- [ ] **Grand staff (2단 보표)**: treble + bass `NotationWidget` 수직 배치 (`Column` 래퍼)
+- [ ] **도돌이표 시각화**: `barline-start/end-repeat` 구분, `:‖` / `‖:` 기호 표시
+
+#### 웹/서버
+- [ ] FastAPI OMR 추론 서버 구성 (Round 2 완료 후 병행 시작)
+- [ ] 웹 프론트엔드 OMR API 연결 (샘플 악보 즉시 체험 버튼 포함)
+
+#### 예산 (연말 팝업 운영 기준, 100만원 내)
+- Apple Developer (130,000원) + Google Play (35,000원) + 도메인 (15,000원)
+- 서버: Railway 무료 플랜 먼저, 초과 시 Hetzner CX21 (≈6,000원/월)
+- 디자인 에셋: UI8 Music UI Kit 일회성 (55,000~100,000원) + Envato Elements 1개월 집중 (30,000원) + LottieFiles 팩 (30,000원)
+
+#### 영상 제작 일정
+- 8/3~8/5: 앱+웹 화면 녹화 / 8/5~8/8: 나레이션+다이어그램 / 8/8~8/12: DaVinci Resolve 편집 / 8/15: 완성본
+
+---
+
+### 커스텀 악보 렌더러 미구현 현황
+
+| 항목 | Python 렌더러 | Flutter Widget | 우선순위 |
+|---|---|---|---|
+| 쉼표 | ✅ | ❌ | 데모 필수 |
+| 박자표 | ✅ | ❌ | 데모 필수 |
+| Grand staff (2단) | ✅ | ❌ | 데모 필수 |
+| 셈여림 | ✅ | ❌ | 데모 필수 |
+| 도돌이표 시각화 | ⚠️ | ❌ | 데모 필수 |
+| 크레센도·디미누엔도 | ❌ | ❌ | 있으면 좋음 |
+| 아티큘레이션 | ❌ | ❌ | 있으면 좋음 |
+| 셋잇단음표 | ❌ | ❌ | 있으면 좋음 |
+| 이음줄/꾸밈음/페르마타/ottava/긴트릴 | ❌ | ❌ | 데모 범위 외 |
+
+---
+
+> 최종 수정: 2026-06-08  
+> **현재 단계**: Phase 2 완료 — Round 1/2 학습 완료 (팀원 `team_ml` 결과물 병합)  
+> **다음 실행**: Round 2 재학습 (누적 데이터 + 증강 강화) → Round 3 IMSLP 실사 fine-tuning  
+>  
+> **학습 현황**: Round 1 val_acc **72%** (TER 0.28), 평가 84~92% / Round 2 val_acc **64%** (Round 1보다 하락)  
+> 가중치 위치: `ml/models/round1/`, `ml/models/round2/`  
+> 개선 방안: `docs/score-training-agent.md` 참조
 
 ---
 
@@ -23,6 +83,7 @@ Before implementing:
 - If something is unclear, stop. Name what's confusing. Ask.
 
 ### 2. Simplicity First
+
 
 **Minimum code that solves the problem. Nothing speculative.**
 
@@ -120,7 +181,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | 데이터 생성 (`ml/data/generate_random_scores.py`) | ✅ Round 2 기호 추가 완료 (vocab 1012) |
 | 웹 데모 (`online_webpage/`) | ✅ 구현 완료 + UI 개선 (그라데이션·옥타브 연동·마우스 휠) |
 | **Flutter 앱 UI 데모 (Phase 5-A)** | ✅ **완료** — 3탭(튜토리얼·악보·연습), CustomPainter 악보, 피아노 위젯 |
-| Round 1 실제 학습 실행 | ❌ **다음 단계** — 3,000장 생성 후 RTX 3080 학습 |
+| Round 1 실제 학습 실행 | ✅ **완료** — Round 1 val_acc 72%, 평가 정확도 84~92% |
+| Round 2 실제 학습 실행 | ⚠️ **완료 (재학습 권장)** — Round 2가 Round 1보다 낮음(64%), 누적 학습 방식으로 재학습 필요 |
 | iOS OMR 브리지 | ❌ 스텁만 존재 (방안 A: ObjC++ 브리지 예정) |
 | 실시간 카메라 | ❌ 미구현 |
 | 웹 가상 피아노 (키보드 입력) | ❌ 미구현 |
@@ -134,10 +196,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ```
 Phase 0  ✅  커스텀 표기법 규칙 확정 + C++ 엔진 분석
 Phase 1  ✅  데이터 생성 파이프라인 (generate_dataset.py)
-Phase 2  🔜  모델 학습 (RTX 3080) ← **다음 실행**
-               Round 1: 기본 음표 3,000장 생성 → SegNet(50ep) → Enc+Dec(100ep) → E2E(30ep)
-               Round 2: 전체 기호 확장 (vocab 1004→1012, load_checkpoint_with_vocab_expansion)
-               Round 3: 2오선 grand staff
+Phase 2  ✅  모델 학습 완료 (RTX 3080)
+               Round 1: val_acc 72%, TER 0.28 → ml/models/round1/
+               Round 2: val_acc 64% (Round 1 역전, 재학습 권장) → ml/models/round2/
+               Round 3: 누적 학습 + 증강 강화 후 재학습 → IMSLP 실사 fine-tuning 포함
                Round 4: 실사 사진 fine-tuning
 Phase 3  ✅  모델 변환·양자화 스크립트 완료 (ml/omr/training/export_tflite.py)
                실제 변환은 Round 1 학습 완료 후 실행

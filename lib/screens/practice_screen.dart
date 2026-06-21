@@ -20,6 +20,38 @@ class _PracticeScreenState extends State<PracticeScreen> {
   String? _wrongNote;     // 틀리게 누르고 있는 건반 음 이름
   bool _done = false;
 
+  final _trebleCtrl = ScrollController();
+  final _bassCtrl   = ScrollController();
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _trebleCtrl.addListener(_syncFromTreble);
+    _bassCtrl.addListener(_syncFromBass);
+  }
+
+  void _syncFromTreble() {
+    if (_syncing || !_bassCtrl.hasClients) return;
+    _syncing = true;
+    _bassCtrl.jumpTo(_trebleCtrl.offset);
+    _syncing = false;
+  }
+
+  void _syncFromBass() {
+    if (_syncing || !_trebleCtrl.hasClients) return;
+    _syncing = true;
+    _trebleCtrl.jumpTo(_bassCtrl.offset);
+    _syncing = false;
+  }
+
+  @override
+  void dispose() {
+    _trebleCtrl.dispose();
+    _bassCtrl.dispose();
+    super.dispose();
+  }
+
   void _selectScore(SampleScore s) {
     setState(() {
       _score = s;
@@ -264,6 +296,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
             notes: s.notes,
             highlightIdx: _highlightIdx,
             expectedIdx: _expectedIdx,
+            timeSignature: s.timeSignature,
+            scrollController: _trebleCtrl,
           ),
         ],
       ),
