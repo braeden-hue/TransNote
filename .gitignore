@@ -49,6 +49,9 @@ models/**/*.pt
 models/**/*.pt.bak
 ml/models/**/*.pt
 ml/models/**/*.pt.bak
+round1/models/
+round2/models/
+round3/models/
 *.onnx
 *.tflite
 
