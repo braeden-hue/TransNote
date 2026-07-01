@@ -352,16 +352,12 @@ def train_seq2seq(args, device, phase: int = 2):
             tgt_out  = tgt_out.to(device)
             tgt_mask = tgt_mask.to(device)
 
-            # Scheduled Sampling: SOS 제외한 입력 토큰을 cur_tf 비율로 유지,
-            # 나머지는 <UNK>로 교체 → 모델이 잘못된 이전 토큰에서도 복구하도록 학습
+            # Scheduled Sampling (word dropout): cur_tf 확률로 GT 토큰 유지,
+            # 나머지는 <UNK> 교체 → exposure bias 완화
             if cur_tf < 1.0:
-                import random as _random
-                drop_mask = torch.zeros_like(tgt_in, dtype=torch.bool)
-                for b in range(tgt_in.size(0)):
-                    for t in range(1, tgt_in.size(1)):           # SOS(pos 0)는 보존
-                        if tgt_mask[b, t]: break                 # PAD 이후 무시
-                        if _random.random() > cur_tf:
-                            drop_mask[b, t] = True
+                drop_mask = (torch.rand_like(tgt_in, dtype=torch.float) > cur_tf)
+                drop_mask[:, 0] = False   # SOS 보존
+                drop_mask = drop_mask & ~tgt_mask   # PAD 위치 제외
                 tgt_in = tgt_in.masked_fill(drop_mask, unk_id)
 
             with autocast(enabled=device.type == 'cuda'):
