@@ -38,9 +38,10 @@ SOS_ID       = 1
 EOS_ID       = 2
 
 PATCH_SIZE   = 320
-CANVAS_H     = 256
-CANVAS_W     = 1280
-MARGIN_UNITS = 2.0
+CANVAS_H        = 256
+CANVAS_W        = 1280
+SYSTEM_CANVAS_H = 384   # grand staff system canvas (treble+bass 수직 결합)
+MARGIN_UNITS    = 2.0
 TARGET_W     = 1920
 IMG_MEAN     = 0.7931
 IMG_STD      = 0.1738
@@ -138,6 +139,34 @@ def extract_staff_canvas(gray: np.ndarray, staff: Dict) -> np.ndarray:
         return np.full((CANVAS_H, CANVAS_W), 255, dtype=np.uint8)
     interp = cv2.INTER_AREA if strip.shape[1] > CANVAS_W else cv2.INTER_LINEAR
     return cv2.resize(strip, (CANVAS_W, CANVAS_H), interpolation=interp)
+
+
+def extract_system_canvas(gray: np.ndarray, staffs: List[Dict]) -> np.ndarray:
+    """
+    Grand staff: staffs[0](treble) + staffs[1](bass) 영역을 수직으로 이어붙여
+    SYSTEM_CANVAS_H × CANVAS_W 캔버스를 반환한다.
+    모델이 학습된 방식과 동일 (ml/omr/training/dataset.py 기준).
+    """
+    H, W   = gray.shape
+    half_h = SYSTEM_CANVAS_H // 2  # 192
+
+    def _strip(staff: Dict) -> np.ndarray:
+        margin = staff['unit_size'] * MARGIN_UNITS
+        y_top  = max(0, int(staff['y_lines'][0] - margin))
+        y_bot  = min(H - 1, int(staff['y_lines'][4] + margin))
+        s      = gray[y_top:y_bot + 1, :]
+        scale  = half_h / max(s.shape[0], 1)
+        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+        return cv2.resize(s, (int(round(s.shape[1] * scale)), half_h),
+                          interpolation=interp)
+
+    def _pad(strip: np.ndarray) -> np.ndarray:
+        tile = np.full((half_h, CANVAS_W), 255, dtype=np.uint8)
+        cw = min(CANVAS_W, strip.shape[1])
+        tile[:, :cw] = strip[:, :cw]
+        return tile
+
+    return np.vstack([_pad(_strip(staffs[0])), _pad(_strip(staffs[1]))])
 
 
 def generate_weak_seg_labels(gray: np.ndarray) -> np.ndarray:

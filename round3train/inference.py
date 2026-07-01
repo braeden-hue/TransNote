@@ -38,6 +38,7 @@ sys.path.insert(0, str(_HERE))
 
 from model import OmrSeq2Seq, SOS_ID, EOS_ID, PAD_ID, MAX_SEQ
 from dataset import (preprocess, detect_staffs, extract_staff_canvas,
+                     extract_system_canvas,
                      IMG_MEAN, IMG_STD, load_tokenizer)
 
 
@@ -45,7 +46,7 @@ from dataset import (preprocess, detect_staffs, extract_staff_canvas,
 #  Greedy decode
 # ─────────────────────────────────────────────────────────────────────────────
 
-INFER_MAX_LEN  = 120   # GT 평균 52토큰 기준 여유치 (608 → 120)
+INFER_MAX_LEN  = 300   # 시스템 전체 인터리빙 시퀀스 기준 (treble+staff-bass+bass)
 EOS_BOOST      = 1.5   # EOS logit 증폭 배율
 
 @torch.no_grad()
@@ -78,11 +79,10 @@ def run_image(image_path: str, seq2seq: OmrSeq2Seq,
     이미지 → 토큰 문자열 리스트.
 
     오선 감지 수 N에 따라:
-    - N == 1 : 단일 오선 (Round 1/2 스타일)
-    - N % 2 == 0 : 짝수 오선 → 시스템별 (treble + staff-bass + bass)로 처리
-    - N 홀수 or 1 : 연속 시스템으로 처리
+    - N % 2 == 0 (≥ 2) : 대보표 → 시스템별 system canvas(384×1280, treble+bass 결합)로
+                          greedy_decode 1회 → 전체 인터리빙 시퀀스 (staff-bass 자동 포함)
+    - 그 외             : 단일 오선 순차 처리
     """
-    STAFF_BASS_TOK = 'staff-bass'
     SKIP_TOKS = {'<PAD>', '<SOS>', '<EOS>'}
 
     bgr = cv2.imread(image_path)
@@ -98,34 +98,16 @@ def run_image(image_path: str, seq2seq: OmrSeq2Seq,
     all_tokens: List[str] = []
 
     if n >= 2 and n % 2 == 0:
-        # 대보표: 짝수 오선 → 시스템 쌍으로 처리
+        # 대보표: 시스템 캔버스(treble+bass 수직 결합 384×1280)로 시퀀스 한 번에 예측.
+        # 모델은 이 방식으로 학습됐음 — 개별 오선을 따로 디코딩하지 않는다.
         n_systems = n // 2
         for sys_i in range(n_systems):
-            treble_staff = staffs[sys_i * 2]
-            bass_staff   = staffs[sys_i * 2 + 1]
-
-            # Treble
-            treble_canvas = extract_staff_canvas(gray, treble_staff)
-            treble_ids    = greedy_decode(seq2seq, treble_canvas, device)
-            treble_ids    = fix_span_tokens(fix_chord_tokens(treble_ids, id2tok), id2tok)
-            for tok_id in treble_ids:
-                tok_str = id2tok.get(tok_id, '<UNK>')
-                if tok_str not in SKIP_TOKS:
-                    all_tokens.append(tok_str)
-
-            # staff-bass 구분자 삽입
-            all_tokens.append(STAFF_BASS_TOK)
-
-            # Bass
-            bass_canvas = extract_staff_canvas(gray, bass_staff)
-            bass_ids    = greedy_decode(seq2seq, bass_canvas, device)
-            bass_ids    = fix_span_tokens(fix_chord_tokens(bass_ids, id2tok), id2tok)
-            # Bass clef 교정: 첫 토큰이 clef-G이면 clef-F로 강제 수정
-            clef_f_id = tok2id.get('clef-F')
-            clef_g_id = tok2id.get('clef-G')
-            if bass_ids and clef_f_id is not None and bass_ids[0] == clef_g_id:
-                bass_ids[0] = clef_f_id
-            for tok_id in bass_ids:
+            treble_staff  = staffs[sys_i * 2]
+            bass_staff    = staffs[sys_i * 2 + 1]
+            sys_canvas    = extract_system_canvas(gray, [treble_staff, bass_staff])
+            sys_ids       = greedy_decode(seq2seq, sys_canvas, device)
+            sys_ids       = fix_span_tokens(fix_chord_tokens(sys_ids, id2tok), id2tok)
+            for tok_id in sys_ids:
                 tok_str = id2tok.get(tok_id, '<UNK>')
                 if tok_str not in SKIP_TOKS:
                     all_tokens.append(tok_str)
