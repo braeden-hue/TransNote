@@ -43,15 +43,17 @@ from dataset import (preprocess, detect_staffs, extract_staff_canvas,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Greedy decode
+#  Decode constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-INFER_MAX_LEN  = 300   # 시스템 전체 인터리빙 시퀀스 기준 (treble+staff-bass+bass)
-EOS_BOOST      = 1.5   # EOS logit 증폭 배율
+INFER_MAX_LEN = 300   # 시스템 전체 인터리빙 시퀀스 기준 (treble+staff-bass+bass)
+EOS_BOOST     = 1.5   # EOS logit 증폭 배율
+
 
 @torch.no_grad()
 def greedy_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
-                  device: torch.device, max_len: int = INFER_MAX_LEN) -> List[int]:
+                  device: torch.device,
+                  max_len: int = INFER_MAX_LEN) -> List[int]:
     tile_f = (canvas.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
     inp    = torch.from_numpy(tile_f).unsqueeze(0).unsqueeze(0).to(device)
     seq2seq.eval()
@@ -61,7 +63,7 @@ def greedy_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
     for _ in range(max_len):
         logits = seq2seq.decode_step(None, memory, past)
         logits[0, EOS_ID] *= EOS_BOOST
-        nxt    = int(logits.argmax(-1).item())
+        nxt = int(logits.argmax(-1).item())
         if nxt == EOS_ID: break
         if nxt != PAD_ID: result.append(nxt)
         past = torch.cat([past, torch.tensor([[nxt]], dtype=torch.long, device=device)], dim=1)
