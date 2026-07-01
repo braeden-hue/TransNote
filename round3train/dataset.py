@@ -233,6 +233,67 @@ def _has_grand_staff(token_strs: List[str]) -> bool:
     return 'staff-bass' in token_strs
 
 
+def _split_grand_staff_interleaved(
+    token_ids: List[int],
+    n_systems: int,
+    id2tok: Dict[int, str],
+    tok2id: Dict[str, int],
+) -> List[List[int]]:
+    """
+    대보표 인터리빙 시퀀스를 시스템별 전체 시퀀스로 균등 분배.
+
+    마디 구조: [treble_notes] staff-bass [bass_notes] barline
+    → barline 기준으로 마디 분리 후 n_systems에 균등 배분.
+    각 시스템은 header + 해당 시스템 마디들의 전체 인터리빙 시퀀스를 가짐.
+
+    Returns:
+        [sys0_ids, sys1_ids, ...]  길이 n_systems
+    """
+    if n_systems == 1:
+        return [list(token_ids)]
+
+    # 헤더 분리
+    header_ids: List[int] = []
+    body_start = len(token_ids)
+    for i, tok_id in enumerate(token_ids):
+        s = id2tok.get(tok_id, '')
+        is_hdr = (s in _HEADER_SPECIALS or
+                  any(s.startswith(p) for p in _HEADER_PREFIXES))
+        if is_hdr:
+            header_ids.append(tok_id)
+        else:
+            body_start = i
+            break
+
+    body = token_ids[body_start:]
+
+    # barline 기준 마디 분리 (staff-bass 포함 전체 인터리빙 유지)
+    measures: List[List[int]] = []
+    current: List[int] = []
+    for tok_id in body:
+        s = id2tok.get(tok_id, '')
+        current.append(tok_id)
+        if s in _BARLINE_STRS:
+            measures.append(list(current))
+            current = []
+    if current:
+        measures.append(current)
+
+    total = len(measures)
+    if total == 0:
+        return [list(token_ids)] * n_systems
+
+    result: List[List[int]] = []
+    for sys_i in range(n_systems):
+        start   = sys_i * total // n_systems
+        end     = (sys_i + 1) * total // n_systems
+        sys_ids = list(header_ids)
+        for m in measures[start:end]:
+            sys_ids.extend(m)
+        result.append(sys_ids if sys_ids else list(token_ids))
+    return result
+
+
 def _split_grand_staff_tokens(
     token_ids: List[int],
     n_systems: int,
@@ -502,17 +563,19 @@ class OMRDataset(Dataset):
             n_staffs = len(staffs)
 
             if is_grand and n_staffs >= 2 and n_staffs % 2 == 0:
-                # 대보표: 짝수 오선 → 쌍으로 분리
+                # 대보표: 시스템당 1샘플, 전체 인터리빙 시퀀스 + system canvas(384×1280)
                 n_systems = n_staffs // 2
-                system_tokens = _split_grand_staff_tokens(ids, n_systems, id2tok, tok2id)
+                sys_token_lists = _split_grand_staff_interleaved(
+                    ids, n_systems, id2tok, tok2id)
 
-                for sys_i, (treble_ids, bass_ids) in enumerate(system_tokens):
+                for sys_i, sys_ids in enumerate(sys_token_lists):
+                    if not sys_ids:
+                        continue
                     treble_staff = staffs[sys_i * 2]
                     bass_staff   = staffs[sys_i * 2 + 1]
-                    if treble_ids:   # 분리 실패 샘플 제외
-                        self.samples.append((img_path, treble_ids[:max_seq], treble_staff))
-                    if bass_ids:
-                        self.samples.append((img_path, bass_ids[:max_seq], bass_staff))
+                    self.samples.append(
+                        (img_path, sys_ids[:max_seq], [treble_staff, bass_staff])
+                    )
             else:
                 # 단일 오선 또는 홀수 오선: Round 2 방식 (행별 마디 분배)
                 row_token_lists = _split_token_ids_by_rows(ids, n_staffs, id2tok)
@@ -531,7 +594,10 @@ class OMRDataset(Dataset):
         if self.augment:
             gray = augment_image(gray)
 
-        tile     = extract_staff_canvas(gray, staff)
+        if isinstance(staff, list):
+            tile = extract_system_canvas(gray, staff)   # 대보표: 384×1280
+        else:
+            tile = extract_staff_canvas(gray, staff)    # 단일 오선: 256×1280
         canvas   = (tile.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
         canvas_t = torch.from_numpy(canvas).unsqueeze(0)
 
@@ -546,7 +612,20 @@ class OMRDataset(Dataset):
 
 def omr_collate(batch):
     canvases, tgt_ins, tgt_outs = zip(*batch)
-    canvases = torch.stack(canvases, dim=0)
+    # 단일 오선(256px)과 대보표(384px)가 섞일 수 있으므로 max_H로 white-pad
+    max_H = max(c.shape[1] for c in canvases)
+    max_W = max(c.shape[2] for c in canvases)
+    white = (1.0 - IMG_MEAN) / IMG_STD
+    padded = []
+    for c in canvases:
+        H, W = c.shape[1], c.shape[2]
+        if H < max_H or W < max_W:
+            p = torch.full((1, max_H, max_W), white, dtype=c.dtype)
+            p[:, :H, :W] = c
+            padded.append(p)
+        else:
+            padded.append(c)
+    canvases = torch.stack(padded, dim=0)
     max_T    = max(t.size(0) for t in tgt_ins)
     B        = len(tgt_ins)
     tgt_in_p  = torch.full((B, max_T), PAD_ID, dtype=torch.long)
