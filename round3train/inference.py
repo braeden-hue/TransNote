@@ -70,6 +70,84 @@ def greedy_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
     return result
 
 
+class _Beam:
+    __slots__ = ('seq', 'tokens', 'score', 'finished')
+
+    def __init__(self, seq, tokens, score, finished):
+        self.seq = seq            # [1, t] decoder input so far (incl. SOS)
+        self.tokens = tokens       # generated token ids, excl. SOS/EOS/PAD
+        self.score = score         # cumulative log-probability
+        self.finished = finished   # hit EOS already
+
+
+@torch.no_grad()
+def beam_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
+                device: torch.device,
+                beam_width: int = 4,
+                length_penalty: float = 0.7,
+                max_len: int = INFER_MAX_LEN) -> List[int]:
+    """
+    ml/omr/engine의 DecoderRunner::decode_beam()과 동일한 알고리즘의 파이썬/PyTorch
+    버전. C++ 쪽은 TFLite KV-cache라 빔마다 캐시를 복제해야 하지만, 이 PyTorch
+    모델은 매 스텝 시퀀스 전체를 다시 돌리는 방식(캐시 없음)이라 빔마다 그냥
+    누적된 입력 시퀀스(seq)를 들고 있으면 된다 — 로직은 동일:
+      1. 완료되지 않은 빔마다 다음 토큰 분포를 구해 자기 top-k 후보를 만든다.
+      2. 이미 끝난(EOS) 빔은 점수 고정한 채 그대로 다음 라운드 후보로 넘긴다.
+      3. 전체 후보 중 top beam_width만 남긴다.
+      4. 마지막에 길이 정규화 점수로 최선의 빔을 고른다.
+    beam_width=1이면 greedy_decode와 동일해야 한다(검증용).
+    """
+    if beam_width <= 1:
+        return greedy_decode(seq2seq, canvas, device, max_len)
+
+    tile_f = (canvas.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
+    inp    = torch.from_numpy(tile_f).unsqueeze(0).unsqueeze(0).to(device)
+    seq2seq.eval()
+    memory = seq2seq.encode(inp)
+
+    sos = torch.tensor([[SOS_ID]], dtype=torch.long, device=device)
+    beams = [_Beam(sos, [], 0.0, False)]
+
+    for _ in range(max_len):
+        if all(b.finished for b in beams):
+            break
+
+        candidates = []  # (score, parent_idx, token_id_or_None, advances)
+        for i, b in enumerate(beams):
+            if b.finished:
+                candidates.append((b.score, i, None, False))
+                continue
+            logits = seq2seq.decode_step(None, memory, b.seq)  # [1, vocab]
+            logits[0, EOS_ID] *= EOS_BOOST
+            logp = torch.log_softmax(logits[0], dim=-1)
+            logp[PAD_ID] = float('-inf')
+            topk_logp, topk_idx = logp.topk(beam_width)
+            for lp, idx in zip(topk_logp.tolist(), topk_idx.tolist()):
+                candidates.append((b.score + lp, i, idx, True))
+
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        candidates = candidates[:beam_width]
+
+        new_beams = []
+        for score, parent, tok, advances in candidates:
+            parent_beam = beams[parent]
+            if not advances:
+                new_beams.append(parent_beam)
+                continue
+            if tok == EOS_ID:
+                new_beams.append(_Beam(parent_beam.seq, parent_beam.tokens, score, True))
+            else:
+                new_seq = torch.cat(
+                    [parent_beam.seq, torch.tensor([[tok]], dtype=torch.long, device=device)],
+                    dim=1)
+                new_tokens = parent_beam.tokens + ([tok] if tok != PAD_ID else [])
+                new_beams.append(_Beam(new_seq, new_tokens, score, False))
+        beams = new_beams
+
+    best = max(beams, key=lambda b: b.score / max(len(b.tokens), 1) ** length_penalty)
+    return best.tokens
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  단일 이미지 추론
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,7 +243,7 @@ _SPAN_PAIRS = {
 }
 _SPAN_ENDS = frozenset(_SPAN_PAIRS.values())
 
-_NOTE_PREFIXES   = ('note-', 'chord-', 'rest-')
+_NOTE_PREFIXES   = ('note-', 'chord-', 'rest-', 'dur-')
 _HEADER_PREFIXES = ('clef-', 'key-', 'time-')
 
 
@@ -447,13 +525,14 @@ def run_analyze_dir(dir_path: str, seq2seq: OmrSeq2Seq,
 
 
 def fix_chord_tokens(token_ids: List[int], id2tok: dict) -> List[int]:
-    """고아 chord- 토큰 제거: note- 또는 chord- 바로 뒤에만 허용."""
+    """고아 chord- 토큰 제거: note-/dur-/chord- 바로 뒤에만 허용.
+    (note-{pitch} 뒤 dur-{dur}이 오고 그 다음에 chord-가 이어지는 구조)"""
     result = []
     for tid in token_ids:
         tok = id2tok.get(tid, '')
         if tok.startswith('chord-'):
             prev = id2tok.get(result[-1], '') if result else ''
-            if prev.startswith('note-') or prev.startswith('chord-'):
+            if prev.startswith('note-') or prev.startswith('dur-') or prev.startswith('chord-'):
                 result.append(tid)
         else:
             result.append(tid)

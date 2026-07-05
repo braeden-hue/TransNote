@@ -10,17 +10,22 @@ namespace omr {
  * TokenParser – loads the unified vocabulary and converts token IDs ↔ strings.
  *
  * Vocabulary file format (tokenizer.json):
- *   { "<PAD>": 0, "<SOS>": 1, "<EOS>": 2, "clef-G": 4, "note-C4-1/4": 372, ... }
+ *   { "<PAD>": 0, "<SOS>": 1, "<EOS>": 2, "clef-G": 4, "note-C4": 112, "dur-1/4": 117, ... }
  *
  * Token naming conventions (our DeepScore format):
- *   note-{pitch}{oct}-{dur}    e.g. note-C4-1/4, note-F#5-1/8
- *   chord-{pitch}{oct}         e.g. chord-E4          (continuation of prev note)
+ *   note-{pitch}{oct}          e.g. note-C4, note-F#5   (pitch only — no duration)
+ *   dur-{dur}                  e.g. dur-1/4             (always follows a note-* token)
+ *   chord-{pitch}{oct}         e.g. chord-E4            (continuation of prev note)
  *   rest-{dur}                 e.g. rest-1/4
  *   clef-{G|F|C}               e.g. clef-G
  *   key-{name}                 e.g. key-C, key-Bb
  *   time-{num}/{den}           e.g. time-4/4
  *   barline / barline-final / barline-double / ...
  *   <PAD> / <SOS> / <EOS> / <UNK>
+ *
+ * note was previously a single combined note-{pitch}-{dur} token; it was split
+ * into note-{pitch} + dur-{dur} to reduce vocab size (1013 -> 258) and improve
+ * pitch classification accuracy. See docs/round3-phase2-retrain.md.
  *
  * Duration tokens (fraction of whole note):
  *   1/1  3/4  1/2  3/8  1/4  3/16  1/8  3/32  1/16  1/32

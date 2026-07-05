@@ -29,12 +29,10 @@ struct StaffGroup {
 
 // ─── A tile ready for the encoder ────────────────────────────────────────────
 // Fixed canvas size that the encoder expects.
+// (The StaffCanvas class that actually builds these tiles lives in
+//  staff_canvas.hpp — see StaffCanvas::build_tiles().)
 static constexpr int CANVAS_H = 256;
 static constexpr int CANVAS_W = 1280;
-
-struct StaffCanvas {
-    uint8_t pixels[CANVAS_H][CANVAS_W];  // grayscale, range [0,255]
-};
 
 // ─── One decoded token from the unified DeepScore vocabulary ─────────────────
 struct OmrToken {

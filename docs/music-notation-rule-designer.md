@@ -20,7 +20,7 @@ DeepScore 커스텀 토큰 체계를 설계·관리하고, 일반 악보 기호�
 | 음자리표 | `clef-{G\|F\|C}` | `clef-G`, `clef-F` |
 | 조표 | `key-{name}` | `key-C`, `key-Bb` |
 | 박자표 | `time-{num}/{den}` | `time-4/4`, `time-6/8` |
-| 음표 | `note-{pitch}{oct}-{dur}` | `note-C4-1/4`, `note-F#5-1/8` |
+| 음표 | `note-{pitch}{oct}` (다음에 `dur-{dur}` 토큰이 이어짐) | `note-C4 dur-1/4`, `note-F#5 dur-1/8` |
 | 화음 추가음 | `chord-{pitch}{oct}` | `chord-E4`, `chord-G4` |
 | 쉼표 | `rest-{dur}` | `rest-1/4` |
 | 세로줄 | `barline`, `barline-double`, `barline-final`, `barline-start-repeat`, `barline-end-repeat` | — |

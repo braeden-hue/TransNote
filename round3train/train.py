@@ -98,13 +98,14 @@ _SPAN_ENDS = frozenset(_SPAN_PAIRS.values())
 
 
 def fix_chord_tokens(token_ids, id2tok):
-    """고아 chord- 토큰 제거: note- 또는 chord- 바로 뒤에만 허용."""
+    """고아 chord- 토큰 제거: note-/dur-/chord- 바로 뒤에만 허용.
+    (note-{pitch} 뒤 dur-{dur}이 오고 그 다음에 chord-가 이어지는 구조)"""
     result = []
     for tid in token_ids:
         tok = id2tok.get(tid, '')
         if tok.startswith('chord-'):
             prev = id2tok.get(result[-1], '') if result else ''
-            if prev.startswith('note-') or prev.startswith('chord-'):
+            if prev.startswith('note-') or prev.startswith('dur-') or prev.startswith('chord-'):
                 result.append(tid)
         else:
             result.append(tid)
@@ -178,31 +179,49 @@ def save_ckpt(model, path, extra=None):
     torch.save(state, path)
 
 
-def load_ckpt_vocab_expand(model, path):
+def load_ckpt_partial_vocab(model, path, old_tok2id, new_tok2id):
+    """
+    Vocab이 재구성된 체크포인트(예: note-{pitch}-{dur} 단일 토큰 →
+    note-{pitch} + dur-{dur} 분해)를 토큰 "문자열" 기준으로 이어받는다.
+
+    - 인코더/디코더 트랜스포머 레이어 등 vocab과 무관한 파라미터는 그대로 로드(워밍스타트).
+    - token_emb / head(weight-tied)는 old/new 양쪽에 동일한 토큰 문자열이 있는 행만 복사하고,
+      새로 생기거나 사라진 토큰의 행은 모델의 랜덤 초기값을 그대로 둔다.
+    - raw index 대응을 가정하던 기존 vocab-expand 로직(append-only)을 완전히 대체한다.
+    """
     ckpt        = torch.load(path, map_location='cpu', weights_only=False)
     state_dict  = ckpt['model']
     model_state = model.state_dict()
     VOCAB_KEYS  = {'decoder.token_emb.weight', 'decoder.head.weight'}
-    new_state   = {}
+    old_id2tok  = {v: k for k, v in old_tok2id.items()}
+
+    new_state = {}
     for key, old_t in state_dict.items():
+        if key not in model_state:
+            print(f"  Skip (no longer in model): {key}")
+            continue
         if key in VOCAB_KEYS:
-            new_t = model_state[key]
-            old_v = old_t.shape[0]
-            new_v = new_t.shape[0]
-            if old_v == new_v:
-                new_state[key] = old_t
-            elif old_v < new_v:
-                expanded       = new_t.clone()
-                expanded[:old_v] = old_t
-                nn.init.xavier_uniform_(expanded[old_v:])
-                new_state[key] = expanded
-                print(f"  Vocab expand: {key}  {old_v}→{new_v}")
-            else:
-                raise ValueError(f"Vocab shrink: {key}")
-        else:
+            new_t   = model_state[key].clone()
+            matched = 0
+            for old_id in range(old_t.shape[0]):
+                tok = old_id2tok.get(old_id)
+                new_id = new_tok2id.get(tok) if tok is not None else None
+                if new_id is None:
+                    continue   # 이 토큰은 새 vocab에 없음 (예: 옛 note-C4-1/4)
+                new_t[new_id] = old_t[old_id]
+                matched += 1
+            new_state[key] = new_t
+            print(f"  Vocab remap: {key}  {matched}/{new_t.shape[0]} rows carried over "
+                  f"(old vocab={old_t.shape[0]}, new vocab={new_t.shape[0]})")
+        elif old_t.shape == model_state[key].shape:
             new_state[key] = old_t
-    model.load_state_dict(new_state, strict=True)
-    print(f"  Loaded (vocab expand): {path}")
+        else:
+            print(f"  Skip (shape mismatch): {key}  {tuple(old_t.shape)} -> {tuple(model_state[key].shape)}")
+
+    missing = model.load_state_dict(new_state, strict=False)
+    print(f"  Loaded (partial vocab remap): {path}")
+    if missing.missing_keys:
+        print(f"  Missing (kept randomly-initialised): {missing.missing_keys}")
     return ckpt
 
 
@@ -300,7 +319,10 @@ def train_seq2seq(args, device, phase: int = 2):
 
     seq2seq = OmrSeq2Seq(vocab_size=len(tok2id)).to(device)
     if args.resume and os.path.isfile(args.resume):
-        load_ckpt_vocab_expand(seq2seq, args.resume)
+        resume_tok2id = tok2id
+        if args.resume_tokenizer:
+            resume_tok2id, _ = load_tokenizer(args.resume_tokenizer)
+        load_ckpt_partial_vocab(seq2seq, args.resume, resume_tok2id, tok2id)
 
     if phase == 2:
         for p in seq2seq.encoder.parameters():
@@ -413,7 +435,10 @@ def parse_args():
     p.add_argument('--workers',     type=int,   default=4)
     p.add_argument('--seed',        type=int,   default=42)
     p.add_argument('--resume',        default=None,
-                   help='Round 2 seq2seq_best.pt 경로')
+                   help='이전 라운드 seq2seq_best.pt 경로')
+    p.add_argument('--resume_tokenizer', default=None,
+                   help='--resume 체크포인트가 학습될 당시 사용한 tokenizer.json 경로 '
+                        '(--tokenizer와 vocab이 달라진 경우 지정, 예: note 토큰 분해 이전 버전)')
     p.add_argument('--segnet_ckpt',   default=None)
     p.add_argument('--device',        default='auto')
     # Scheduled Sampling

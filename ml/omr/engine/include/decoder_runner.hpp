@@ -44,6 +44,7 @@ public:
     static constexpr int MAX_SEQ     = 608;
     static constexpr int32_t EOS_ID  = 2;
     static constexpr int32_t SOS_ID  = 1;
+    static constexpr int32_t PAD_ID  = 0;
 
     /**
      * @param model_path   Path to decoder TFLite model.
@@ -60,6 +61,24 @@ public:
      */
     std::vector<int32_t> decode(const cv::Mat& encoder_out) const;
 
+    /**
+     * Beam-search decode a full token sequence for one staff canvas.
+     *
+     * Standard length-normalised beam search over the same autoregressive
+     * KV-cache decoder used by decode(). Each beam keeps its own KV cache
+     * (cloned on divergence, since sibling beams may pick different next
+     * tokens from a shared parent). beam_width=1 is equivalent to decode().
+     *
+     * @param encoder_out   [seq_len × EMBED_DIM] float32 mat (from EncoderRunner).
+     * @param beam_width    Number of parallel hypotheses to track (e.g. 4).
+     * @param length_penalty Divides final score by (token_count ^ length_penalty)
+     *                       when ranking finished beams (0 = no penalty).
+     * @return              Token IDs of the best beam, without SOS/EOS/PAD.
+     */
+    std::vector<int32_t> decode_beam(const cv::Mat& encoder_out,
+                                      int   beam_width     = 4,
+                                      float length_penalty  = 0.7f) const;
+
 private:
     // One step of the autoregressive loop.
     // Updates kv_cache in-place and returns argmax token ID.
@@ -68,8 +87,21 @@ private:
                  int            step_idx,
                  std::vector<cv::Mat>& kv_cache) const;
 
+    // Same underlying TFLite step as step(), but returns the full logit
+    // vector (size vocab_size_) instead of just the argmax. step() and
+    // decode_beam() both build on this.
+    void step_logits(int32_t                 prev_token,
+                      const cv::Mat&          context,
+                      int                     step_idx,
+                      std::vector<cv::Mat>&   kv_cache,
+                      std::vector<float>&     out_logits) const;
+
     // Initialise kv_cache to NUM_KV empty mats (zero rows).
     std::vector<cv::Mat> init_kv_cache() const;
+
+    // Deep-copy a KV cache (each per-layer cv::Mat cloned independently) so
+    // sibling beams can diverge from a shared parent without aliasing.
+    static std::vector<cv::Mat> clone_kv_cache(const std::vector<cv::Mat>& src);
 
     int vocab_size_;
     std::unique_ptr<tflite::FlatBufferModel> model_;

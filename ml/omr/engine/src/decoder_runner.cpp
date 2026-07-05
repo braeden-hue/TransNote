@@ -4,8 +4,10 @@
 #include <tensorflow/lite/model.h>
 #include <stdexcept>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
+#include <numeric>
 
 namespace omr {
 
@@ -98,6 +100,24 @@ int32_t DecoderRunner::step(int32_t            prev_token,
                              const cv::Mat&     context,
                              int                step_idx,
                              std::vector<cv::Mat>& kv_cache) const {
+    std::vector<float> logits;
+    step_logits(prev_token, context, step_idx, kv_cache, logits);
+
+    int32_t best_id = 0;
+    float best_val = -std::numeric_limits<float>::infinity();
+    for (int v = 0; v < vocab_size_; ++v) {
+        if (logits[v] > best_val) { best_val = logits[v]; best_id = v; }
+    }
+    return best_id;
+}
+
+// Shared TFLite step used by both step() (greedy) and decode_beam().
+// Fills out_logits (size vocab_size_) and updates kv_cache in-place.
+void DecoderRunner::step_logits(int32_t                 prev_token,
+                                 const cv::Mat&          context,
+                                 int                     step_idx,
+                                 std::vector<cv::Mat>&   kv_cache,
+                                 std::vector<float>&     out_logits) const {
     // Re-allocate tensors because cache shape changes each step.
     interp_->AllocateTensors();
 
@@ -131,14 +151,10 @@ int32_t DecoderRunner::step(int32_t            prev_token,
 
     interp_->Invoke();
 
-    // ── Output 0: logits → argmax ─────────────────────────────────────────────
-    int32_t best_id = 0;
+    // ── Output 0: logits ──────────────────────────────────────────────────────
     {
         const float* logits = interp_->typed_output_tensor<float>(0);
-        float best_val = -std::numeric_limits<float>::infinity();
-        for (int v = 0; v < vocab_size_; ++v) {
-            if (logits[v] > best_val) { best_val = logits[v]; best_id = v; }
-        }
+        out_logits.assign(logits, logits + vocab_size_);
     }
 
     // ── Outputs 1..32: update KV cache ───────────────────────────────────────
@@ -150,8 +166,147 @@ int32_t DecoderRunner::step(int32_t            prev_token,
         kv_cache[i].create(new_cache_len * NUM_HEADS, HEAD_DIM, CV_32FC1);
         std::memcpy(kv_cache[i].ptr<float>(0), kv_out_t->data.f, n * sizeof(float));
     }
+}
 
-    return best_id;
+std::vector<cv::Mat> DecoderRunner::clone_kv_cache(const std::vector<cv::Mat>& src) {
+    std::vector<cv::Mat> out;
+    out.reserve(src.size());
+    for (const auto& m : src) out.push_back(m.clone());
+    return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Beam-search autoregressive decoding
+//
+//  Each beam owns an independent KV cache. At every step, every not-yet-
+//  finished beam is advanced one token (one TFLite invoke per beam — the
+//  exported model has no batch dimension, so beams are processed
+//  sequentially rather than in one batched call). Its logits are turned into
+//  log-probabilities and the beam's own top `beam_width` continuations become
+//  candidates. Already-finished beams (hit EOS_ID) are carried forward
+//  unchanged as single candidates so they keep competing on equal footing.
+//  All candidates are merged and the global top `beam_width` become the next
+//  beam set. Ties for which candidates share a parent are resolved by
+//  cloning that parent's (already-updated) KV cache once per child.
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+struct Beam {
+    int32_t               last_token;
+    std::vector<cv::Mat>  kv;
+    double                score;      // cumulative log-probability
+    std::vector<int32_t>  tokens;     // generated so far, excl. SOS/EOS/PAD
+    bool                  finished;
+};
+
+// log-softmax over raw logits, written into out_logp (same size as logits).
+void log_softmax(const std::vector<float>& logits, std::vector<double>& out_logp) {
+    const float max_logit = *std::max_element(logits.begin(), logits.end());
+    double sum_exp = 0.0;
+    for (float v : logits) sum_exp += std::exp(static_cast<double>(v) - max_logit);
+    const double log_sum_exp = std::log(sum_exp) + max_logit;
+    out_logp.resize(logits.size());
+    for (size_t i = 0; i < logits.size(); ++i)
+        out_logp[i] = static_cast<double>(logits[i]) - log_sum_exp;
+}
+
+// Indices of the top-k values in `values`, descending. PAD (index 0) is
+// never a valid decode target and is excluded.
+std::vector<int> top_k_indices(const std::vector<double>& values, int k) {
+    std::vector<int> idx(values.size());
+    std::iota(idx.begin(), idx.end(), 0);
+    // +1 so there is always a spare slot to drop PAD if it lands in the top-k.
+    const int limit = std::min<int>(k + 1, static_cast<int>(idx.size()));
+    std::partial_sort(idx.begin(), idx.begin() + limit, idx.end(),
+                       [&](int a, int b) { return values[a] > values[b]; });
+    std::vector<int> out;
+    out.reserve(k);
+    for (int n = 0; n < limit; ++n) {
+        const int i = idx[n];
+        if (i == DecoderRunner::PAD_ID) continue;
+        out.push_back(i);
+        if (static_cast<int>(out.size()) == k) break;
+    }
+    return out;
+}
+
+} // namespace
+
+std::vector<int32_t> DecoderRunner::decode_beam(const cv::Mat& encoder_out,
+                                                  int   beam_width,
+                                                  float length_penalty) const {
+    if (beam_width <= 1) return decode(encoder_out);
+
+    std::vector<Beam> beams;
+    beams.push_back(Beam{SOS_ID, init_kv_cache(), 0.0, {}, false});
+
+    for (int t = 0; t < MAX_SEQ; ++t) {
+        const bool all_finished = std::all_of(beams.begin(), beams.end(),
+                                               [](const Beam& b) { return b.finished; });
+        if (all_finished) break;
+
+        cv::Mat context = (t == 0) ? encoder_out : encoder_out.rowRange(0, 1);
+
+        // (score, source-beam-index, chosen-token, is-new-token)
+        struct Candidate { double score; int parent; int32_t token; bool advances; };
+        std::vector<Candidate> candidates;
+        candidates.reserve(beams.size() * beam_width);
+
+        for (int i = 0; i < static_cast<int>(beams.size()); ++i) {
+            if (beams[i].finished) {
+                // Carry forward unchanged so it keeps competing fairly.
+                // (token value is unused when advances=false)
+                candidates.push_back({beams[i].score, i, DecoderRunner::PAD_ID, false});
+                continue;
+            }
+            std::vector<float> logits;
+            step_logits(beams[i].last_token, context, t, beams[i].kv, logits);
+            std::vector<double> logp;
+            log_softmax(logits, logp);
+
+            for (int tok : top_k_indices(logp, beam_width))
+                candidates.push_back({beams[i].score + logp[tok], i, tok, true});
+        }
+
+        const size_t keep = std::min(candidates.size(), static_cast<size_t>(beam_width));
+        std::partial_sort(candidates.begin(), candidates.begin() + keep, candidates.end(),
+                           [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
+        candidates.resize(keep);
+
+        std::vector<Beam> next_beams;
+        next_beams.reserve(candidates.size());
+        for (const auto& c : candidates) {
+            if (!c.advances) {
+                next_beams.push_back(beams[c.parent]);  // already-finished beam, unchanged
+                continue;
+            }
+            Beam nb;
+            nb.kv    = clone_kv_cache(beams[c.parent].kv);  // parent's post-step cache
+            nb.score = c.score;
+            nb.tokens = beams[c.parent].tokens;
+            if (c.token == EOS_ID) {
+                nb.finished   = true;
+                nb.last_token = EOS_ID;
+            } else {
+                nb.finished = false;
+                nb.tokens.push_back(c.token);
+                nb.last_token = c.token;
+            }
+            next_beams.push_back(std::move(nb));
+        }
+        beams = std::move(next_beams);
+    }
+
+    // Pick the best beam by length-normalised score.
+    const Beam* best = nullptr;
+    double best_norm = -std::numeric_limits<double>::infinity();
+    for (const auto& b : beams) {
+        const double len = std::max<size_t>(b.tokens.size(), 1);
+        const double norm = b.score / std::pow(len, length_penalty);
+        if (norm > best_norm) { best_norm = norm; best = &b; }
+    }
+    return best ? best->tokens : std::vector<int32_t>{};
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

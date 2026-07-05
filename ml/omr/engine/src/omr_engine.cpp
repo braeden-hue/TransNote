@@ -15,6 +15,12 @@
 #include <vector>
 #include <stdexcept>
 
+namespace {
+// Beam width for decoder_runner.cpp's DecoderRunner::decode_beam().
+// beam_width=1 would fall back to plain greedy decoding.
+constexpr int kBeamWidth = 4;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Internal engine struct
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,8 +95,8 @@ static omr::OmrResult run_pipeline(OmrEngine* eng,
             // 5b. Encoder: tile → [seq_len × 512] latent sequence.
             cv::Mat enc_out = eng->encoder.run(tile);
 
-            // 5c. Decoder: greedy autoregressive decoding.
-            std::vector<int32_t> ids = eng->decoder.decode(enc_out);
+            // 5c. Decoder: beam-search autoregressive decoding.
+            std::vector<int32_t> ids = eng->decoder.decode_beam(enc_out, kBeamWidth);
 
             // 5d. Convert IDs → OmrTokens and append.
             auto tokens = eng->parser.decode_ids(ids);
