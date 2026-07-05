@@ -3,6 +3,16 @@
 > 관련 코드: `round3train/`, `ml/omr/engine/`
 > 작성 시점: note vocab 분해 + beam search 도입 직후, Round3 Phase2 재학습 착수 전
 
+## 요약
+
+- note 토큰을 `note-{pitch}`+`dur-{dur}`로 분해(vocab 1013→258)해 음표 인식 병목을 코드 레벨에서 해결하고, 관련 코드는 push 완료(`1be1682`).
+- beam search(C++/Python 양쪽) 추가, StaffCanvas 중복 정의 버그 수정, `generate_scores.py` 두 사본 동기화까지 끝남.
+- 재학습은 **`omr_latest_weights/round3/seq2seq_best.pt`(epoch 25, TER 26.1%, 비교 대상 중 최고)**에서 이어받는다 — 구버전 tokenizer.json으로 `--resume_tokenizer` 워밍스타트 필요.
+- Round1/2는 다시 돌릴 필요 없음, Round3 지점에서만 vocab 전환.
+- 이 환경엔 GPU와 실제 Round3 학습 데이터가 없어 실학습은 팀원 GPU 환경에서 진행.
+- **Phase 2를 반드시 실행할 것**(지금까지 계속 누락되어 발산의 원인이었음).
+- 10-15 epoch 중간 지점에서 test 데이터 정확도 점검 후 그 시점 결과를 git push할 것.
+
 ## 배경
 
 Round3 음표(note) 인식률이 다른 카테고리(clef/barline/staff-bass 등)보다 현저히 낮다는 문제에서 출발했다.
@@ -84,28 +94,30 @@ Round1/Round2가 쌓은 인코더·디코더 구조 학습(vocab 포맷과 무�
 # 기존 라벨 재라벨링 (이미지 재렌더링 불필요)
 python round3train/relabel_notes.py --data_dir "<Round3 데이터 경로>" --in_place
 
-# Phase 2 — 반드시 실행 (지금까지 누락됐던 단계)
+# Phase 2 — 반드시 실행 (지금까지 누락됐던 단계). epochs 10-15로 먼저 중간 점검.
 python round3train/train.py --phase 2 \
     --data_dir "<Round3 데이터 경로>" \
     --tokenizer round3train/tokenizer.json \
-    --resume ml/models/round3/seq2seq_best.pt \
-    --resume_tokenizer "<구버전 tokenizer.json 경로, vocab=1013>" \
+    --resume omr_latest_weights/round3/seq2seq_best.pt \
+    --resume_tokenizer "<round3_custom_training_code_.../round3train/tokenizer.json, vocab=1013>" \
     --out_dir ml/models/round3_p2_new_vocab \
-    --epochs 80
+    --epochs 15
 
-# Phase 3
+# 중간 점검: test 데이터 정확도 확인
+python round3train/inference.py \
+    --seq2seq ml/models/round3_p2_new_vocab/seq2seq_best.pt \
+    --tokenizer round3train/tokenizer.json \
+    --analyze "<검증 데이터 경로>"
+
+# ↑ 중간 점검 결과가 나온 시점에 반드시 git push (체크포인트 대용량이면 코드/로그/리포트만이라도)
+
+# Phase 2를 필요한 만큼(80 epoch 목표) 이어서 계속한 뒤 Phase 3
 python round3train/train.py --phase 3 \
     --data_dir "<Round3 데이터 경로>" \
     --tokenizer round3train/tokenizer.json \
     --resume ml/models/round3_p2_new_vocab/seq2seq_best.pt \
     --out_dir ml/models/round3_p3_new_vocab \
     --epochs 30
-
-# 검증 (note/rest/dur 카테고리별 recall 확인)
-python round3train/inference.py \
-    --seq2seq ml/models/round3_p3_new_vocab/seq2seq_best.pt \
-    --tokenizer round3train/tokenizer.json \
-    --analyze "<검증 데이터 경로>"
 ```
 
 GPU(RTX 3080) 환경에서 실행 필요 — 이 세션은 CPU라 대규모 학습은 수행하지 못했다.
