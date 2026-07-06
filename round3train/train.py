@@ -426,7 +426,7 @@ def parse_args():
     p.add_argument('--phase',       type=int, required=True, choices=[1, 2, 3])
     p.add_argument('--data_dir',    required=True)
     p.add_argument('--tokenizer',
-                   default=str(_HERE / 'tokenizer.json'))
+                   default=str(_HERE / 'tokenizer258.json'))
     p.add_argument('--out_dir',     default=str(_HERE / 'models'))
     p.add_argument('--epochs',      type=int,   default=100)
     p.add_argument('--batch',       type=int,   default=8)

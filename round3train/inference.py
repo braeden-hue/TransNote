@@ -693,7 +693,7 @@ def main():
     p = argparse.ArgumentParser(description='Round 3 추론/평가 (Grand Staff)')
     p.add_argument('image',         nargs='?', help='단일 이미지')
     p.add_argument('--seq2seq',     required=True, help='seq2seq_best.pt')
-    p.add_argument('--tokenizer',   default=str(_HERE / 'tokenizer.json'))
+    p.add_argument('--tokenizer',   default=str(_HERE / 'tokenizer258.json'))
     p.add_argument('--eval_dir',    default=None,  help='배치 평가 디렉토리')
     p.add_argument('--n_eval',      type=int, default=200)
     p.add_argument('--analyze',     default=None,

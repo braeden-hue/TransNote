@@ -52,6 +52,9 @@ ml/models/**/*.pt.bak
 round1/models/
 round2/models/
 round3/models/
+round3train/*.pt
+round3train/**/*.pt
+round3train/checkpoints_by_epoch/
 *.onnx
 *.tflite
 
