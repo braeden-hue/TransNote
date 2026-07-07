@@ -101,6 +101,27 @@ TUPLET_PROB   = 0.12
 OTTAVA_PROB   = 0.08
 REPEAT_PROB   = 0.12
 
+MIN_MEASURES  = 2
+MAX_MEASURES  = 4
+
+# 커리큘럼 난이도 프로파일 — easy: 음표/쉼표 위주(그랜드 스태프 정렬 먼저 학습),
+# medium: 기호 절반 밀도, full: 위 기본값(기존 동작 그대로, --difficulty 미지정 시 기본).
+DIFFICULTY_PROFILES = {
+    'full': {},
+    'medium': {
+        'CHORD_PROB': 0.08, 'DYNAMIC_PROB': 0.20, 'HAIRPIN_PROB': 0.10,
+        'ARTIC_PROB': 0.10, 'ORNAMENT_PROB': 0.03, 'FERMATA_PROB': 0.02,
+        'SLUR_PROB': 0.06, 'TUPLET_PROB': 0.06, 'OTTAVA_PROB': 0.04,
+        'REPEAT_PROB': 0.12,
+    },
+    'easy': {
+        'CHORD_PROB': 0.0, 'DYNAMIC_PROB': 0.0, 'HAIRPIN_PROB': 0.0,
+        'ARTIC_PROB': 0.0, 'ORNAMENT_PROB': 0.0, 'FERMATA_PROB': 0.0,
+        'SLUR_PROB': 0.0, 'TUPLET_PROB': 0.0, 'OTTAVA_PROB': 0.0,
+        'REPEAT_PROB': 0.10,
+    },
+}
+
 
 def _pitch_pool(lo, hi):
     lo_m = Pitch(lo).midi; hi_m = Pitch(hi).midi
@@ -354,7 +375,7 @@ def build_score_r3(score_id: int) -> tuple:
     """
     ts_num, ts_den = random.choices(TIME_SIGS, weights=TS_WEIGHTS)[0]
     ks_sharps, ks_name = random.choices(KEY_SIGS, weights=KS_WEIGHTS)[0]
-    n_measures = random.randint(2, 4)
+    n_measures = random.randint(MIN_MEASURES, MAX_MEASURES)
 
     # 반복기호 (treble에만 적용, bass는 같은 barline 구조를 따름)
     use_repeat  = random.random() < REPEAT_PROB and n_measures >= 2
@@ -421,10 +442,19 @@ def main():
     p.add_argument('--musescore', default=None)
     p.add_argument('--no-png',    action='store_true')
     p.add_argument('--start-idx', type=int, default=1)
+    p.add_argument('--difficulty', choices=['easy', 'medium', 'full'], default='full',
+                    help='기호 등장 확률 프로파일 (커리큘럼 학습용). easy=음표/쉼표 위주, '
+                         'medium=절반 밀도, full=기존 기본값 (기본값)')
+    p.add_argument('--min-measures', type=int, default=2)
+    p.add_argument('--max-measures', type=int, default=4)
     args = p.parse_args()
 
     if args.seed is not None:
         random.seed(args.seed)
+
+    globals().update(DIFFICULTY_PROFILES[args.difficulty])
+    global MIN_MEASURES, MAX_MEASURES
+    MIN_MEASURES, MAX_MEASURES = args.min_measures, args.max_measures
 
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -438,7 +468,7 @@ def main():
             print("WARNING: MuseScore not found — XML+JSON만 생성")
 
     print(f"Round 3 생성: {args.count}개 → {out_dir.resolve()}")
-    print(f"대보표: treble + staff-bass + bass, MEASURES 2~4")
+    print(f"대보표: treble + staff-bass + bass, MEASURES {args.min_measures}~{args.max_measures}, difficulty={args.difficulty}")
 
     try:
         from tqdm import tqdm as _tqdm

@@ -58,6 +58,57 @@ input  { font-family: inherit; }
 .nav-tab:hover  { color: var(--text); background: var(--bg-hover); }
 .nav-tab.active { color: #fff; background: var(--primary); font-weight: 600; }
 
+/* ── Auth Area ─────────────────────────────────────────────── */
+.auth-area { margin-left: auto; flex-shrink: 0; }
+
+.btn-login {
+  padding: 6px 14px; border-radius: 20px;
+  background: var(--primary); color: #fff;
+  font-size: 13px; font-weight: 600;
+  transition: background 0.18s;
+  white-space: nowrap;
+}
+.btn-login:hover { background: var(--primary-dk); }
+
+.user-chip {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-panel); border-radius: 20px;
+  padding: 4px 12px 4px 6px;
+  border: 1px solid var(--border-hi);
+}
+.user-avatar {
+  width: 26px; height: 26px; border-radius: 50%;
+  object-fit: cover;
+}
+.user-name { font-size: 13px; font-weight: 500; color: var(--text); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.btn-logout {
+  font-size: 12px; color: var(--text-mute);
+  padding: 2px 8px; border-radius: 10px;
+  transition: all 0.15s;
+}
+.btn-logout:hover { background: #fee2e2; color: #c0392b; }
+
+/* ── Model Selector ────────────────────────────────────────── */
+.model-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 12px;
+}
+.model-row label { font-size: 13px; font-weight: 600; color: var(--text-dim); white-space: nowrap; }
+.model-select {
+  padding: 5px 10px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border-hi); background: var(--bg-card);
+  font-size: 13px; color: var(--text); cursor: pointer;
+}
+.model-select:focus { outline: none; border-color: var(--primary); }
+
+.server-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #ccc; flex-shrink: 0;
+  transition: background 0.3s;
+}
+.server-dot.connected { background: #2FAA6E; box-shadow: 0 0 0 3px rgba(47,170,110,.2); }
+
 /* ── Screens — fullpage scroll ─────────────────────────────── */
 .app-header { position: relative; z-index: 100; }
 

@@ -3,6 +3,8 @@ import { audio }                           from './audio.js';
 import { renderNotation, renderMiniNotation, renderGrandStaff } from './notation.js';
 import { buildPiano }                      from './piano.js';
 import { loadAll, saveNotation, deleteNotation, generateId } from './storage.js';
+import { signInWithGoogle, signOutUser, onAuthChange,
+         saveScoreCloud, loadScoresCloud, deleteScoreCloud } from './firebase.js';
 
 // ── 피아노 기준 화살표 — 가온다(C4, Middle C) ─────────────────────────────────
 const REF_ARROWS = [
@@ -12,6 +14,7 @@ const REF_ARROWS = [
 // ── 전역 상태 ──────────────────────────────────────────────────────────────────
 const state = {
   screen:            'tutorial',
+  user:              null,
   convertResult:     null,
   playNotation:      null,
   playNoteIdx:       -1,
@@ -338,19 +341,41 @@ function startConversion(sample) {
   setTimeout(() => showResult(data), 2200);
 }
 
-function handleUpload(file) {
+async function handleUpload(file) {
   if (!file.type.startsWith('image/')) { toast('이미지 파일을 선택해주세요'); return; }
   if (file.size > 10 * 1024 * 1024)   { toast('파일 크기가 10MB를 초과합니다'); return; }
   showLoading();
-  const demo = SAMPLES[Math.floor(Math.random() * SAMPLES.length)];
-  const data = demo.staves
-    ? { id: generateId(), title: file.name.replace(/\.[^.]+$/, ''),
-        tempo: demo.tempo, timeSignature: demo.timeSignature,
-        staves: demo.staves, notes: demo.staves[0].notes, createdAt: Date.now() }
-    : { id: generateId(), title: file.name.replace(/\.[^.]+$/, ''),
-        tempo: demo.tempo, timeSignature: demo.timeSignature,
-        notes: demo.notes, createdAt: Date.now() };
-  setTimeout(() => showResult(data), 2600);
+
+  const model = document.getElementById('model-select')?.value || 'andromr';
+  const form  = new FormData();
+  form.append('file', file);
+
+  try {
+    const res = await fetch(`/api/recognize?model=${model}`, { method: 'POST', body: form });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `서버 오류 (${res.status})`);
+    }
+    showResult(await res.json());
+  } catch (e) {
+    if (e instanceof TypeError) {
+      // 서버 미연결 → 샘플 데이터로 폴백
+      toast('⚠️ OMR 서버 미연결 — 샘플로 시연합니다');
+      const demo = SAMPLES[Math.floor(Math.random() * SAMPLES.length)];
+      const data = demo.staves
+        ? { id: generateId(), title: file.name.replace(/\.[^.]+$/, ''),
+            tempo: demo.tempo, timeSignature: demo.timeSignature,
+            staves: demo.staves, notes: demo.staves[0].notes, createdAt: Date.now() }
+        : { id: generateId(), title: file.name.replace(/\.[^.]+$/, ''),
+            tempo: demo.tempo, timeSignature: demo.timeSignature,
+            notes: demo.notes, createdAt: Date.now() };
+      setTimeout(() => showResult(data), 800);
+    } else {
+      document.getElementById('output-loading').classList.add('hidden');
+      document.getElementById('output-placeholder').classList.remove('hidden');
+      toast('❌ ' + e.message);
+    }
+  }
 }
 
 function showLoading() {
@@ -416,6 +441,7 @@ function saveCurrentResult() {
     toSave.notes = toSave.staves[0]?.notes ?? [];
   }
   saveNotation(toSave);
+  if (state.user) saveScoreCloud(toSave).catch(console.error);
   toast(`💾 "${toSave.title}" 저장 완료!`);
 }
 
@@ -800,10 +826,83 @@ function initLibraryScreen() {
     }
     if (e.target.classList.contains('btn-del')) {
       if (confirm('이 악보를 삭제할까요?')) {
-        deleteNotation(id); toast('삭제되었습니다'); initLibraryScreen();
+        deleteNotation(id);
+        if (state.user) deleteScoreCloud(id).catch(console.error);
+        toast('삭제되었습니다'); initLibraryScreen();
       }
     }
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Firebase Auth UI
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateAuthUI(user) {
+  state.user = user;
+  const area = document.getElementById('auth-area');
+  if (!area) return;
+
+  if (user) {
+    const avatar = user.photoURL
+      ? `<img src="${user.photoURL}" class="user-avatar" alt="" referrerpolicy="no-referrer">`
+      : '';
+    const name = user.displayName || user.email || '사용자';
+    area.innerHTML = `
+      <div class="user-chip">
+        ${avatar}
+        <span class="user-name">${name}</span>
+        <button class="btn-logout" id="btn-logout">로그아웃</button>
+      </div>`;
+    document.getElementById('btn-logout').addEventListener('click', () => {
+      signOutUser().catch(console.error);
+    });
+    syncFromCloud().catch(console.error);
+  } else {
+    area.innerHTML = `<button class="btn-login" id="btn-login">🔑 구글 로그인</button>`;
+    document.getElementById('btn-login').addEventListener('click', () => {
+      signInWithGoogle().catch(err => {
+        if (err.code !== 'auth/popup-closed-by-user') toast('로그인 실패: ' + err.message);
+      });
+    });
+  }
+}
+
+async function checkServerStatus() {
+  const dot    = document.getElementById('server-dot');
+  const badge  = document.getElementById('omr-badge');
+  const msg    = document.getElementById('omr-status-msg');
+  try {
+    const res  = await fetch('/api/status');
+    const s    = await res.json();
+    const both = s.andromr && s.custom;
+    const any  = s.andromr || s.custom;
+    if (dot)   { dot.classList.add('connected'); dot.title = '서버 연결됨'; }
+    if (badge) badge.textContent = '✅ OMR 서버 연결됨';
+    if (msg)   msg.textContent = `Andromr: ${s.andromr ? '✓' : '✗'}  커스텀: ${s.custom ? '✓' : '✗'}`;
+    // 연결된 모델만 select에 표시
+    const sel = document.getElementById('model-select');
+    if (sel) {
+      [...sel.options].forEach(opt => {
+        opt.disabled = !s[opt.value];
+        if (opt.disabled && sel.value === opt.value) sel.value = s.andromr ? 'andromr' : 'custom';
+      });
+    }
+  } catch {
+    if (dot)   dot.title = '서버 미연결';
+    if (badge) badge.textContent = '🔴 서버 미연결';
+    if (msg)   msg.textContent = 'python server.py 실행 후 새로고침하면 실제 OMR이 동작합니다';
+  }
+}
+
+async function syncFromCloud() {
+  try {
+    const cloudScores = await loadScoresCloud();
+    cloudScores.forEach(score => saveNotation(score));
+    if (state.screen === 'library') initLibraryScreen();
+  } catch (e) {
+    console.error('[Firebase] 동기화 오류:', e);
+  }
 }
 
 // ── 전역 이벤트 위임 ───────────────────────────────────────────────────────────
@@ -839,6 +938,8 @@ document.addEventListener('DOMContentLoaded', () => {
   notationNavUpdate.convert  = makeNotationNav('convert-notation',  'convert-notation-prev',  'convert-notation-next');
   notationNavUpdate.play     = makeNotationNav('play-notation',     'play-notation-prev',     'play-notation-next');
 
+  onAuthChange(updateAuthUI);
+  checkServerStatus();
   initTutorial();
   initConvert();
   // navigate는 이미 active를 설정했으므로 state만 맞춤

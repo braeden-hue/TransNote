@@ -362,6 +362,57 @@ class Decoder(nn.Module):
 
         return self.head(out)                                # [B, T, vocab_size]
 
+    def precompute_memory_kv(self, memory: torch.Tensor):
+        """Cross-attention 대상(memory)의 K,V를 레이어별로 한 번만 계산해서 캐싱한다.
+        memory(인코더 출력)는 디코딩 내내 고정이므로, decode_step마다 매번
+        재계산되던 K,V projection을 건너뛸 수 있다. 추론 전용 최적화 — forward()의
+        학습 경로는 그대로 두고 self-attention/FFN도 원본과 동일하게 재계산한다."""
+        B, S, D = memory.shape
+        H  = self.transformer.layers[0].multihead_attn.num_heads
+        Dh = D // H
+        cache = []
+        for layer in self.transformer.layers:
+            mha  = layer.multihead_attn
+            in_b = mha.in_proj_bias
+            k = F.linear(memory, mha.in_proj_weight[D:2*D],
+                         in_b[D:2*D] if in_b is not None else None)
+            v = F.linear(memory, mha.in_proj_weight[2*D:],
+                         in_b[2*D:] if in_b is not None else None)
+            k = k.view(B, S, H, Dh).transpose(1, 2)   # [B, H, S, Dh]
+            v = v.view(B, S, H, Dh).transpose(1, 2)
+            cache.append((k, v))
+        return cache
+
+    def forward_cached(self, tgt: torch.Tensor, memory_kv_cache) -> torch.Tensor:
+        """forward()와 동일한 계산 (bit-identical 결과), 다만 cross-attention의
+        K,V는 precompute_memory_kv()로 미리 계산된 캐시를 재사용한다."""
+        T = tgt.size(1)
+        D = self.embed_dim
+        emb = self.token_emb(tgt) * self.emb_scale
+        x   = self.dropout(emb + self.pos_enc[:, :T, :])
+        causal = nn.Transformer.generate_square_subsequent_mask(
+            T, device=tgt.device, dtype=x.dtype)
+
+        for layer, (k_mem, v_mem) in zip(self.transformer.layers, memory_kv_cache):
+            x = x + layer._sa_block(layer.norm1(x), causal, None)
+
+            x2   = layer.norm2(x)
+            mha  = layer.multihead_attn
+            H    = mha.num_heads
+            Dh   = D // H
+            B, Tt, _ = x2.shape
+            in_b = mha.in_proj_bias
+            q = F.linear(x2, mha.in_proj_weight[:D], in_b[:D] if in_b is not None else None)
+            q = q.view(B, Tt, H, Dh).transpose(1, 2)          # [B, H, Tt, Dh]
+            attn = F.scaled_dot_product_attention(q, k_mem, v_mem)
+            attn = attn.transpose(1, 2).reshape(B, Tt, D)
+            x = x + layer.dropout2(mha.out_proj(attn))
+
+            x = x + layer._ff_block(layer.norm3(x))
+
+        x = self.transformer.norm(x)
+        return self.head(x)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  4. Combined Seq2Seq model
@@ -408,6 +459,20 @@ class OmrSeq2Seq(nn.Module):
         tgt    = past_ids                                    # [B, t]
         logits = self.decoder(tgt, memory)                  # [B, t, vocab_size]
         return logits[:, -1, :]                              # [B, vocab_size]
+
+    def precompute_memory_kv(self, memory: torch.Tensor):
+        """decode_step_cached에서 쓸 cross-attention K,V 캐시를 준비한다 (encode() 직후 1회 호출)."""
+        return self.decoder.precompute_memory_kv(memory)
+
+    def decode_step_cached(self,
+                           memory_kv_cache,
+                           past_ids: torch.Tensor,   # [B, t] all tokens so far (incl. SOS)
+                           ) -> torch.Tensor:
+        """decode_step과 bit-identical한 결과를 내는 가속 버전. cross-attention의
+        K,V를 매 스텝 재계산하지 않고 precompute_memory_kv() 캐시를 재사용한다
+        (self-attention/FFN은 원본과 동일하게 매 스텝 전체 재계산 — Step1 범위)."""
+        logits = self.decoder.forward_cached(past_ids, memory_kv_cache)
+        return logits[:, -1, :]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

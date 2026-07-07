@@ -20,6 +20,7 @@
         <button class="nav-tab"        data-screen="play">🎹 연주하기</button>
         <button class="nav-tab"        data-screen="library">📁 내 악보함</button>
       </nav>
+      <div id="auth-area" class="auth-area"></div>
     </div>
   </header>
 
@@ -141,6 +142,14 @@
 
             <div class="input-section">
               <h3>📂 내 악보 업로드</h3>
+              <div class="model-row">
+                <label for="model-select">인식 모델</label>
+                <select id="model-select" class="model-select">
+                  <option value="andromr">Andromr</option>
+                  <option value="custom">커스텀 모델</option>
+                </select>
+                <span class="server-dot" id="server-dot" title="서버 연결 상태"></span>
+              </div>
               <div class="drop-zone" id="drop-zone">
                 <div class="drop-icon">🎼</div>
                 <p>악보 이미지를 드래그하거나</p>
@@ -148,14 +157,14 @@
                 <input type="file" id="file-input" accept="image/*" hidden>
                 <p class="hint">JPG, PNG · 최대 10MB</p>
               </div>
-              <p class="demo-notice">⚠️ 웹 데모: 샘플 결과로 시연됩니다. 실제 변환은 앱에서 카메라로 즉시 가능합니다.</p>
+              <p class="demo-notice" id="demo-notice">ℹ️ <code>python server.py</code> 실행 후 업로드하면 실제 OMR 변환됩니다</p>
             </div>
           </div>
 
           <div class="convert-output panel">
-            <div class="omr-coming-soon">
-              <span class="omr-badge">🚧 준비 중</span>
-              <span>실제 OMR 자동 변환은 앱 출시 후 이용 가능합니다 — 현재는 샘플로 시연합니다</span>
+            <div class="omr-coming-soon" id="omr-status-bar">
+              <span class="omr-badge" id="omr-badge">⏳ 서버 확인 중</span>
+              <span id="omr-status-msg">python server.py 를 실행하면 실제 OMR이 동작합니다</span>
             </div>
             <div class="output-placeholder" id="output-placeholder">
               <div class="placeholder-icon">🎵</div>

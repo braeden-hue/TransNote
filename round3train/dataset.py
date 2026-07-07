@@ -93,6 +93,36 @@ def preprocess(bgr: np.ndarray) -> np.ndarray:
     return gray
 
 
+def _cached_npy(cache_path: str, compute_fn):
+    """cache_path가 있으면 로드, 없으면 compute_fn()으로 계산 후 원자적으로 저장."""
+    if os.path.isfile(cache_path):
+        return np.load(cache_path)
+    result = compute_fn()
+    tmp_path = f'{cache_path}.tmp{os.getpid()}.npy'
+    np.save(tmp_path, result)
+    os.replace(tmp_path, cache_path)
+    return result
+
+
+def _read_image_composited(img_path: str) -> np.ndarray:
+    """RGBA(투명 배경) PNG를 흰 배경 위에 합성해서 BGR로 반환. MuseScore CLI PNG export는
+    기본적으로 투명 배경 + alpha에 실제 잉크가 들어있는 방식이라, 3채널로만 읽으면
+    RGB가 전부 (0,0,0)인 새까만 이미지가 된다."""
+    im = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+    if im.ndim == 3 and im.shape[2] == 4:
+        bgr   = im[:, :, :3].astype(np.float32)
+        alpha = im[:, :, 3:4].astype(np.float32) / 255.0
+        bgr   = bgr * alpha + 255.0 * (1.0 - alpha)
+        return bgr.astype(np.uint8)
+    return im
+
+
+def load_preprocessed(img_path: str) -> np.ndarray:
+    """이미지 경로 기준 preprocess() 결과를 캐싱 (Phase1/Phase2 공유, 에폭 간 재사용)."""
+    cache_path = os.path.splitext(img_path)[0] + '_pre.npy'
+    return _cached_npy(cache_path, lambda: preprocess(_read_image_composited(img_path)))
+
+
 def detect_staffs(gray: np.ndarray) -> List[Dict]:
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
     H, W = binary.shape
@@ -467,20 +497,25 @@ class SegnetDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = self.image_paths[idx // self.n_patches]
-        bgr  = cv2.imread(img_path)
-        gray = preprocess(bgr)
-        if self.augment:
-            gray = augment_image(gray, perspective=False)
-        stem     = os.path.splitext(img_path)[0]
+        stem  = os.path.splitext(img_path)[0]
+        gray0 = load_preprocessed(img_path)
+
         lab_path = stem + '_seg.png'
         if os.path.isfile(lab_path):
-            label = cv2.imread(lab_path, cv2.IMREAD_GRAYSCALE).astype(np.int64)
+            label0 = cv2.imread(lab_path, cv2.IMREAD_GRAYSCALE).astype(np.int64)
         else:
-            label = generate_weak_seg_labels(gray)
-        if label.shape != gray.shape:
-            label = cv2.resize(label.astype(np.uint8),
-                               (gray.shape[1], gray.shape[0]),
-                               interpolation=cv2.INTER_NEAREST).astype(np.int64)
+            weak_cache = stem + '_weak.npy'
+            label0 = _cached_npy(
+                weak_cache,
+                lambda: generate_weak_seg_labels(gray0).astype(np.uint8)
+            ).astype(np.int64)
+        if label0.shape != gray0.shape:
+            label0 = cv2.resize(label0.astype(np.uint8),
+                                (gray0.shape[1], gray0.shape[0]),
+                                interpolation=cv2.INTER_NEAREST).astype(np.int64)
+
+        gray  = augment_image(gray0, perspective=False) if self.augment else gray0.copy()
+        label = label0
         P  = self.patch_size
         H, W = gray.shape
         if H < P or W < P:
@@ -550,8 +585,7 @@ class OMRDataset(Dataset):
             is_grand = _has_grand_staff(token_strs)
 
             try:
-                bgr    = cv2.imread(img_path)
-                gray   = preprocess(bgr)
+                gray   = load_preprocessed(img_path)
                 staffs = detect_staffs(gray)
             except Exception:
                 skipped += 1
@@ -589,10 +623,8 @@ class OMRDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path, ids, staff = self.samples[idx]
-        bgr  = cv2.imread(img_path)
-        gray = preprocess(bgr)
-        if self.augment:
-            gray = augment_image(gray)
+        gray0 = load_preprocessed(img_path)
+        gray  = augment_image(gray0) if self.augment else gray0
 
         if isinstance(staff, list):
             tile = extract_system_canvas(gray, staff)   # 대보표: 384×1280

@@ -1,0 +1,876 @@
+﻿
+======================================================================
+  Checkpoint: round1/segnet
+  File      : /mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/ml/models/round1/segnet_best.pt
+  Size      : 31.1 MB
+
+  --- Training metadata ---
+  epoch               : 10
+  val_loss            : 0.0004
+
+  --- Weight statistics: round1/segnet ---
+  Layer                                                  mean      std   dead%  large%       max
+  -------------------------------------------------- -------- -------- ------- ------- ---------
+  enc1.c.0.block.0.weight                             -0.0023   0.0805    0.0%    0.0%    0.2195
+  enc1.c.0.block.1.weight                              1.0000   0.0067    0.0%    0.0%    1.0159
+  enc1.c.0.block.1.bias                                0.0042   0.0071    0.0%    0.0%    0.0240
+  enc1.c.1.block.0.weight                             -0.0009   0.0832    0.0%    0.0%    0.3488
+  enc1.c.1.block.1.weight                              0.9953   0.0078    0.0%    0.0%    1.0083
+  enc1.c.1.block.1.bias                                0.0031   0.0092    0.0%    0.0%    0.0295
+  enc2.c.0.block.0.weight                             -0.0012   0.0591    0.0%    0.0%    0.2112
+  enc2.c.0.block.1.weight                              1.0024   0.0067    0.0%    0.0%    1.0296
+  enc2.c.0.block.1.bias                                0.0056   0.0058    0.0%    0.0%    0.0259
+  enc2.c.1.block.0.weight                             -0.0008   0.0591    0.0%    0.0%    0.2266
+  enc2.c.1.block.1.weight                              0.9972   0.0067    0.0%    0.0%    1.0187
+  enc2.c.1.block.1.bias                                0.0032   0.0065    0.0%    0.0%    0.0222
+  enc3.c.0.block.0.weight                             -0.0001   0.0422    0.0%    0.0%    0.1722
+  enc3.c.0.block.1.weight                              1.0013   0.0068    0.0%    0.0%    1.0200
+  enc3.c.0.block.1.bias                                0.0051   0.0056    0.0%    0.0%    0.0173
+  enc3.c.1.block.0.weight                             -0.0008   0.0421    0.0%    0.0%    0.1926
+  enc3.c.1.block.1.weight                              0.9988   0.0090    0.0%    0.0%    1.0241
+  enc3.c.1.block.1.bias                                0.0015   0.0063    0.0%    0.0%    0.0202
+  enc4.c.0.block.0.weight                              0.0001   0.0301    0.0%    0.0%    0.1652
+  enc4.c.0.block.1.weight                              1.0001   0.0073    0.0%    0.0%    1.0208
+  enc4.c.0.block.1.bias                               -0.0023   0.0058    0.0%    0.0%    0.0129
+  enc4.c.1.block.0.weight                             -0.0002   0.0300    0.0%    0.0%    0.1439
+  enc4.c.1.block.1.weight                              1.0009   0.0084    0.0%    0.0%    1.0220
+  enc4.c.1.block.1.bias                               -0.0040   0.0057    0.0%    0.0%    0.0119
+  bot.c.0.block.0.weight                               0.0000   0.0216    0.0%    0.0%    0.1069
+  bot.c.0.block.1.weight                               0.9986   0.0086    0.0%    0.0%    1.0366
+  bot.c.0.block.1.bias                                -0.0106   0.0063    0.0%    0.0%    0.0052
+  bot.c.1.block.0.weight                              -0.0003   0.0214    0.0%    0.0%    0.1067
+  bot.c.1.block.1.weight                               0.9985   0.0068    0.0%    0.0%    1.0291
+  bot.c.1.block.1.bias                                -0.0110   0.0040    0.0%    0.0%    0.0019
+  up4.weight                                           0.0000   0.0187    0.0%    0.0%    0.0578
+  up4.bias                                            -0.0008   0.0216    0.0%    0.0%    0.0585
+  dec4.c.0.block.0.weight                             -0.0003   0.0299    0.0%    0.0%    0.1330
+  dec4.c.0.block.1.weight                              1.0003   0.0074    0.0%    0.0%    1.0254
+  dec4.c.0.block.1.bias                               -0.0084   0.0050    0.0%    0.0%    0.0050
+  dec4.c.1.block.0.weight                             -0.0003   0.0299    0.0%    0.0%    0.1386
+  dec4.c.1.block.1.weight                              1.0077   0.0072    0.0%    0.0%    1.0318
+  dec4.c.1.block.1.bias                               -0.0031   0.0040    0.0%    0.0%    0.0104
+  up3.weight                                          -0.0001   0.0265    0.0%    0.0%    0.0681
+  up3.bias                                             0.0009   0.0281    0.0%    0.0%    0.0548
+  dec3.c.0.block.0.weight                             -0.0002   0.0421    0.0%    0.0%    0.1976
+  dec3.c.0.block.1.weight                              1.0003   0.0082    0.0%    0.0%    1.0210
+  dec3.c.0.block.1.bias                               -0.0010   0.0061    0.0%    0.0%    0.0190
+  dec3.c.1.block.0.weight                             -0.0003   0.0418    0.0%    0.0%    0.1997
+  dec3.c.1.block.1.weight                              1.0164   0.0125    0.0%    0.0%    1.0707
+  dec3.c.1.block.1.bias                                0.0082   0.0066    0.0%    0.0%    0.0279
+  up2.weight                                           0.0000   0.0377    0.0%    0.0%    0.0966
+  up2.bias                                             0.0036   0.0388    0.0%    0.0%    0.0718
+  dec2.c.0.block.0.weight                             -0.0002   0.0594    0.0%    0.0%    0.2392
+  dec2.c.0.block.1.weight                              1.0010   0.0084    0.0%    0.0%    1.0262
+  dec2.c.0.block.1.bias                                0.0034   0.0078    0.0%    0.0%    0.0235
+  dec2.c.1.block.0.weight                              0.0010   0.0593    0.0%    0.0%    0.2327
+  dec2.c.1.block.1.weight                              1.0177   0.0197    0.0%    0.0%    1.0839
+  dec2.c.1.block.1.bias                                0.0123   0.0095    0.0%    0.0%    0.0434
+  up1.weight                                          -0.0012   0.0534    0.0%    0.0%    0.1458
+  up1.bias                                            -0.0024   0.0565    0.0%    0.0%    0.1152
+  dec1.c.0.block.0.weight                             -0.0003   0.0838    0.0%    0.0%    0.3277
+  dec1.c.0.block.1.weight                              1.0000   0.0068    0.0%    0.0%    1.0216
+  dec1.c.0.block.1.bias                                0.0054   0.0074    0.0%    0.0%    0.0296
+  dec1.c.1.block.0.weight                             -0.0023   0.0836    0.0%    0.0%    0.3212
+  dec1.c.1.block.1.weight                              1.0028   0.0283    0.0%    0.0%    1.1363
+  dec1.c.1.block.1.bias                                0.0260   0.0916    0.0%    0.0%    0.3270
+  head.weight                                         -0.0320   0.5931    0.0%    0.0%    1.4958
+  head.bias                                            0.0744   0.1151    0.0%    0.0%    0.2568
+
+  --- Summary for round1/segnet ---
+  Dead layers (>30% zeros) : 0
+  Exploding layers (>10)   : 0
+  Collapsed layers (std<1e-4): 0
+
+======================================================================
+  Checkpoint: round1/seq2seq
+  File      : /mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/ml/models/round1/seq2seq_best.pt
+  Size      : 195.1 MB
+
+  --- Training metadata ---
+  epoch               : 20
+  val_ter             : 0.2799  (Acc = 72.0%)
+
+  --- Weight statistics: round1/seq2seq ---
+  Layer                                                  mean      std   dead%  large%       max
+  -------------------------------------------------- -------- -------- ------- ------- ---------
+  encoder.pos_enc                                      0.2934   0.6434    0.2%    0.0%    1.0000
+  encoder.backbone.0.block.0.weight                   -0.0035   0.0590    0.0%    0.0%    0.1960
+  encoder.backbone.0.block.1.weight                    0.9988   0.0043    0.0%    0.0%    1.0119
+  encoder.backbone.0.block.1.bias                      0.0022   0.0051    0.0%    0.0%    0.0189
+  encoder.backbone.1.block.0.weight                   -0.0011   0.0590    0.0%    0.0%    0.2319
+  encoder.backbone.1.block.1.weight                    0.9995   0.0048    0.0%    0.0%    1.0133
+  encoder.backbone.1.block.1.bias                      0.0013   0.0042    0.0%    0.0%    0.0168
+  encoder.backbone.2.block.0.weight                   -0.0003   0.0418    0.0%    0.0%    0.1882
+  encoder.backbone.2.block.1.weight                    1.0000   0.0034    0.0%    0.0%    1.0108
+  encoder.backbone.2.block.1.bias                      0.0012   0.0032    0.0%    0.0%    0.0114
+  encoder.backbone.3.block.0.weight                   -0.0003   0.0418    0.0%    0.0%    0.1907
+  encoder.backbone.3.block.1.weight                    1.0001   0.0034    0.0%    0.0%    1.0074
+  encoder.backbone.3.block.1.bias                      0.0007   0.0029    0.0%    0.0%    0.0087
+  encoder.backbone.4.block.0.weight                   -0.0002   0.0297    0.0%    0.0%    0.1344
+  encoder.backbone.4.block.1.weight                    1.0003   0.0032    0.0%    0.0%    1.0111
+  encoder.backbone.4.block.1.bias                     -0.0000   0.0031    0.4%    0.0%    0.0078
+  encoder.backbone.5.block.0.weight                   -0.0003   0.0296    0.0%    0.0%    0.1417
+  encoder.backbone.5.block.1.weight                    1.0003   0.0038    0.0%    0.0%    1.0131
+  encoder.backbone.5.block.1.bias                     -0.0006   0.0032    0.0%    0.0%    0.0105
+  encoder.backbone.6.block.0.weight                   -0.0001   0.0211    0.0%    0.0%    0.1038
+  encoder.backbone.6.block.1.weight                    1.0004   0.0034    0.0%    0.0%    1.0128
+  encoder.backbone.6.block.1.bias                     -0.0016   0.0033    0.0%    0.0%    0.0102
+  encoder.backbone.7.block.0.weight                   -0.0001   0.0211    0.0%    0.0%    0.1099
+  encoder.backbone.7.block.1.weight                    1.0004   0.0032    0.0%    0.0%    1.0123
+  encoder.backbone.7.block.1.bias                     -0.0024   0.0030    0.0%    0.0%    0.0078
+  encoder.backbone.8.block.0.weight                   -0.0001   0.0211    0.0%    0.0%    0.1083
+  encoder.backbone.8.block.1.weight                    1.0004   0.0038    0.0%    0.0%    1.0119
+  encoder.backbone.8.block.1.bias                     -0.0031   0.0031    0.0%    0.0%    0.0071
+  encoder.backbone.9.block.0.weight                   -0.0001   0.0211    0.0%    0.0%    0.1013
+  encoder.backbone.9.block.1.weight                    1.0006   0.0039    0.0%    0.0%    1.0121
+  encoder.backbone.9.block.1.bias                     -0.0024   0.0034    0.0%    0.0%    0.0068
+  encoder.backbone.10.block.0.weight                  -0.0001   0.0211    0.0%    0.0%    0.0995
+  encoder.backbone.10.block.1.weight                   1.0007   0.0038    0.0%    0.0%    1.0119
+  encoder.backbone.10.block.1.bias                    -0.0018   0.0035    0.0%    0.0%    0.0084
+  encoder.backbone.11.block.0.weight                  -0.0001   0.0210    0.0%    0.0%    0.1004
+  encoder.backbone.11.block.1.weight                   1.0059   0.0062    0.0%    0.0%    1.0243
+  encoder.backbone.11.block.1.bias                     0.0014   0.0036    0.0%    0.0%    0.0143
+  decoder.pos_enc                                      0.2575   0.6585    0.1%    0.0%    1.0000
+  decoder.token_emb.weight                            -0.0003   0.0273    0.0%    0.0%    0.1154
+  oder.transformer.layers.0.self_attn.in_proj_weight  -0.0000   0.0318    0.0%    0.0%    0.0919
+  ecoder.transformer.layers.0.self_attn.in_proj_bias   0.0002   0.0082    0.1%    0.0%    0.0338
+  der.transformer.layers.0.self_attn.out_proj.weight   0.0001   0.0441    0.0%    0.0%    0.1006
+  coder.transformer.layers.0.self_attn.out_proj.bias  -0.0002   0.0034    0.0%    0.0%    0.0104
+  transformer.layers.0.multihead_attn.in_proj_weight  -0.0000   0.0322    0.0%    0.0%    0.0929
+  r.transformer.layers.0.multihead_attn.in_proj_bias   0.0001   0.0123    0.0%    0.0%    0.0504
+  ransformer.layers.0.multihead_attn.out_proj.weight  -0.0001   0.0443    0.0%    0.0%    0.1023
+  .transformer.layers.0.multihead_attn.out_proj.bias  -0.0003   0.0033    0.0%    0.0%    0.0103
+  decoder.transformer.layers.0.linear1.weight          0.0000   0.0290    0.0%    0.0%    0.0868
+  decoder.transformer.layers.0.linear1.bias           -0.0057   0.0032    0.0%    0.0%    0.0053
+  decoder.transformer.layers.0.linear2.weight         -0.0000   0.0288    0.0%    0.0%    0.0757
+  decoder.transformer.layers.0.linear2.bias            0.0000   0.0025    0.0%    0.0%    0.0065
+  decoder.transformer.layers.0.norm1.weight            0.9955   0.0147    0.0%    0.0%    1.0477
+  decoder.transformer.layers.0.norm1.bias             -0.0001   0.0101    0.0%    0.0%    0.0232
+  decoder.transformer.layers.0.norm2.weight            1.0052   0.0071    0.0%    0.0%    1.0274
+  decoder.transformer.layers.0.norm2.bias             -0.0001   0.0071    0.0%    0.0%    0.0194
+  decoder.transformer.layers.0.norm3.weight            1.0063   0.0098    0.0%    0.0%    1.0458
+  decoder.transformer.layers.0.norm3.bias             -0.0002   0.0060    0.0%    0.0%    0.0271
+  oder.transformer.layers.1.self_attn.in_proj_weight  -0.0000   0.0317    0.0%    0.0%    0.0823
+  ecoder.transformer.layers.1.self_attn.in_proj_bias   0.0001   0.0060    0.0%    0.0%    0.0291
+  der.transformer.layers.1.self_attn.out_proj.weight  -0.0001   0.0441    0.0%    0.0%    0.0985
+  coder.transformer.layers.1.self_attn.out_proj.bias  -0.0001   0.0032    0.0%    0.0%    0.0095
+  transformer.layers.1.multihead_attn.in_proj_weight  -0.0000   0.0327    0.0%    0.0%    0.1114
+  r.transformer.layers.1.multihead_attn.in_proj_bias   0.0001   0.0126    0.1%    0.0%    0.0455
+  ransformer.layers.1.multihead_attn.out_proj.weight  -0.0000   0.0448    0.0%    0.0%    0.1076
+  .transformer.layers.1.multihead_attn.out_proj.bias  -0.0001   0.0027    0.0%    0.0%    0.0083
+  decoder.transformer.layers.1.linear1.weight          0.0000   0.0290    0.0%    0.0%    0.0793
+  decoder.transformer.layers.1.linear1.bias           -0.0076   0.0035    0.0%    0.0%    0.0042
+  decoder.transformer.layers.1.linear2.weight          0.0000   0.0288    0.0%    0.0%    0.0803
+  decoder.transformer.layers.1.linear2.bias           -0.0000   0.0022    0.0%    0.0%    0.0063
+  decoder.transformer.layers.1.norm1.weight            0.9925   0.0070    0.0%    0.0%    1.0165
+  decoder.transformer.layers.1.norm1.bias              0.0000   0.0051    0.2%    0.0%    0.0198
+  decoder.transformer.layers.1.norm2.weight            1.0145   0.0092    0.0%    0.0%    1.0436
+  decoder.transformer.layers.1.norm2.bias              0.0005   0.0137    0.0%    0.0%    0.0341
+  decoder.transformer.layers.1.norm3.weight            1.0070   0.0077    0.0%    0.0%    1.0316
+  decoder.transformer.layers.1.norm3.bias             -0.0003   0.0099    0.0%    0.0%    0.0254
+  oder.transformer.layers.2.self_attn.in_proj_weight  -0.0000   0.0318    0.0%    0.0%    0.0827
+  ecoder.transformer.layers.2.self_attn.in_proj_bias   0.0000   0.0074    0.0%    0.0%    0.0274
+  der.transformer.layers.2.self_attn.out_proj.weight   0.0000   0.0442    0.0%    0.0%    0.0986
+  coder.transformer.layers.2.self_attn.out_proj.bias  -0.0000   0.0029    0.0%    0.0%    0.0093
+  transformer.layers.2.multihead_attn.in_proj_weight  -0.0001   0.0327    0.0%    0.0%    0.1084
+  r.transformer.layers.2.multihead_attn.in_proj_bias   0.0004   0.0143    0.0%    0.0%    0.0703
+  ransformer.layers.2.multihead_attn.out_proj.weight  -0.0001   0.0449    0.0%    0.0%    0.1166
+  .transformer.layers.2.multihead_attn.out_proj.bias  -0.0001   0.0026    0.0%    0.0%    0.0065
+  decoder.transformer.layers.2.linear1.weight          0.0000   0.0290    0.0%    0.0%    0.0830
+  decoder.transformer.layers.2.linear1.bias           -0.0083   0.0037    0.0%    0.0%    0.0028
+  decoder.transformer.layers.2.linear2.weight          0.0000   0.0287    0.0%    0.0%    0.0725
+  decoder.transformer.layers.2.linear2.bias            0.0001   0.0026    0.0%    0.0%    0.0080
+  decoder.transformer.layers.2.norm1.weight            0.9953   0.0067    0.0%    0.0%    1.0176
+  decoder.transformer.layers.2.norm1.bias              0.0000   0.0050    0.0%    0.0%    0.0142
+  decoder.transformer.layers.2.norm2.weight            1.0151   0.0088    0.0%    0.0%    1.0425
+  decoder.transformer.layers.2.norm2.bias              0.0004   0.0121    0.0%    0.0%    0.0314
+  decoder.transformer.layers.2.norm3.weight            1.0063   0.0076    0.0%    0.0%    1.0295
+  decoder.transformer.layers.2.norm3.bias             -0.0003   0.0108    0.0%    0.0%    0.0324
+  oder.transformer.layers.3.self_attn.in_proj_weight  -0.0000   0.0318    0.0%    0.0%    0.0816
+  ecoder.transformer.layers.3.self_attn.in_proj_bias   0.0000   0.0073    0.1%    0.0%    0.0335
+  der.transformer.layers.3.self_attn.out_proj.weight   0.0000   0.0441    0.0%    0.0%    0.0965
+  coder.transformer.layers.3.self_attn.out_proj.bias   0.0000   0.0031    0.2%    0.0%    0.0087
+  transformer.layers.3.multihead_attn.in_proj_weight   0.0000   0.0331    0.0%    0.0%    0.1264
+  r.transformer.layers.3.multihead_attn.in_proj_bias   0.0006   0.0194    0.0%    0.0%    0.0837
+  ransformer.layers.3.multihead_attn.out_proj.weight   0.0000   0.0454    0.0%    0.0%    0.1247
+  .transformer.layers.3.multihead_attn.out_proj.bias  -0.0001   0.0028    0.2%    0.0%    0.0081
+  decoder.transformer.layers.3.linear1.weight         -0.0000   0.0289    0.0%    0.0%    0.0804
+  decoder.transformer.layers.3.linear1.bias           -0.0088   0.0037    0.0%    0.0%    0.0040
+  decoder.transformer.layers.3.linear2.weight          0.0000   0.0287    0.0%    0.0%    0.0743
+  decoder.transformer.layers.3.linear2.bias            0.0001   0.0027    0.0%    0.0%    0.0074
+  decoder.transformer.layers.3.norm1.weight            0.9939   0.0066    0.0%    0.0%    1.0126
+  decoder.transformer.layers.3.norm1.bias             -0.0002   0.0051    0.0%    0.0%    0.0131
+  decoder.transformer.layers.3.norm2.weight            1.0233   0.0091    0.0%    0.0%    1.0518
+  decoder.transformer.layers.3.norm2.bias              0.0000   0.0108    0.0%    0.0%    0.0267
+  decoder.transformer.layers.3.norm3.weight            1.0059   0.0080    0.0%    0.0%    1.0345
+  decoder.transformer.layers.3.norm3.bias              0.0000   0.0107    0.0%    0.0%    0.0350
+  oder.transformer.layers.4.self_attn.in_proj_weight  -0.0000   0.0320    0.0%    0.0%    0.0818
+  ecoder.transformer.layers.4.self_attn.in_proj_bias  -0.0001   0.0074    0.0%    0.0%    0.0278
+  der.transformer.layers.4.self_attn.out_proj.weight  -0.0000   0.0442    0.0%    0.0%    0.0996
+  coder.transformer.layers.4.self_attn.out_proj.bias  -0.0000   0.0031    0.0%    0.0%    0.0090
+  transformer.layers.4.multihead_attn.in_proj_weight  -0.0000   0.0330    0.0%    0.0%    0.1050
+  r.transformer.layers.4.multihead_attn.in_proj_bias   0.0001   0.0177    0.1%    0.0%    0.0767
+  ransformer.layers.4.multihead_attn.out_proj.weight   0.0001   0.0451    0.0%    0.0%    0.1275
+  .transformer.layers.4.multihead_attn.out_proj.bias   0.0001   0.0029    0.0%    0.0%    0.0091
+  decoder.transformer.layers.4.linear1.weight         -0.0000   0.0290    0.0%    0.0%    0.0912
+  decoder.transformer.layers.4.linear1.bias           -0.0089   0.0038    0.0%    0.0%    0.0032
+  decoder.transformer.layers.4.linear2.weight          0.0000   0.0287    0.0%    0.0%    0.0771
+  decoder.transformer.layers.4.linear2.bias           -0.0000   0.0025    0.0%    0.0%    0.0079
+  decoder.transformer.layers.4.norm1.weight            0.9968   0.0062    0.0%    0.0%    1.0195
+  decoder.transformer.layers.4.norm1.bias             -0.0000   0.0050    0.0%    0.0%    0.0154
+  decoder.transformer.layers.4.norm2.weight            1.0231   0.0099    0.0%    0.0%    1.0501
+  decoder.transformer.layers.4.norm2.bias              0.0003   0.0083    0.0%    0.0%    0.0220
+  decoder.transformer.layers.4.norm3.weight            1.0057   0.0078    0.0%    0.0%    1.0351
+  decoder.transformer.layers.4.norm3.bias              0.0001   0.0110    0.0%    0.0%    0.0334
+  oder.transformer.layers.5.self_attn.in_proj_weight  -0.0000   0.0320    0.0%    0.0%    0.0852
+  ecoder.transformer.layers.5.self_attn.in_proj_bias   0.0001   0.0083    0.0%    0.0%    0.0310
+  der.transformer.layers.5.self_attn.out_proj.weight  -0.0002   0.0442    0.0%    0.0%    0.1035
+  coder.transformer.layers.5.self_attn.out_proj.bias  -0.0001   0.0029    0.0%    0.0%    0.0094
+  transformer.layers.5.multihead_attn.in_proj_weight   0.0000   0.0338    0.0%    0.0%    0.1311
+  r.transformer.layers.5.multihead_attn.in_proj_bias   0.0008   0.0213    0.0%    0.0%    0.0741
+  ransformer.layers.5.multihead_attn.out_proj.weight   0.0000   0.0463    0.0%    0.0%    0.1303
+  .transformer.layers.5.multihead_attn.out_proj.bias  -0.0001   0.0040    0.0%    0.0%    0.0110
+  decoder.transformer.layers.5.linear1.weight          0.0000   0.0292    0.0%    0.0%    0.0857
+  decoder.transformer.layers.5.linear1.bias           -0.0075   0.0041    0.0%    0.0%    0.0061
+  decoder.transformer.layers.5.linear2.weight         -0.0000   0.0289    0.0%    0.0%    0.0792
+  decoder.transformer.layers.5.linear2.bias            0.0002   0.0025    0.0%    0.0%    0.0079
+  decoder.transformer.layers.5.norm1.weight            0.9966   0.0068    0.0%    0.0%    1.0203
+  decoder.transformer.layers.5.norm1.bias             -0.0002   0.0054    0.0%    0.0%    0.0190
+  decoder.transformer.layers.5.norm2.weight            1.0275   0.0127    0.0%    0.0%    1.0672
+  decoder.transformer.layers.5.norm2.bias             -0.0000   0.0116    0.0%    0.0%    0.0304
+  decoder.transformer.layers.5.norm3.weight            1.0132   0.0080    0.0%    0.0%    1.0404
+  decoder.transformer.layers.5.norm3.bias             -0.0002   0.0081    0.0%    0.0%    0.0250
+  oder.transformer.layers.6.self_attn.in_proj_weight  -0.0000   0.0322    0.0%    0.0%    0.0866
+  ecoder.transformer.layers.6.self_attn.in_proj_bias   0.0001   0.0064    0.0%    0.0%    0.0285
+  der.transformer.layers.6.self_attn.out_proj.weight   0.0001   0.0444    0.0%    0.0%    0.1091
+  coder.transformer.layers.6.self_attn.out_proj.bias   0.0001   0.0033    0.0%    0.0%    0.0090
+  transformer.layers.6.multihead_attn.in_proj_weight   0.0000   0.0335    0.0%    0.0%    0.1260
+  r.transformer.layers.6.multihead_attn.in_proj_bias   0.0001   0.0200    0.0%    0.0%    0.0703
+  ransformer.layers.6.multihead_attn.out_proj.weight   0.0001   0.0459    0.0%    0.0%    0.1351
+  .transformer.layers.6.multihead_attn.out_proj.bias   0.0000   0.0030    0.0%    0.0%    0.0091
+  decoder.transformer.layers.6.linear1.weight         -0.0000   0.0298    0.0%    0.0%    0.0969
+  decoder.transformer.layers.6.linear1.bias           -0.0055   0.0049    0.0%    0.0%    0.0088
+  decoder.transformer.layers.6.linear2.weight          0.0000   0.0294    0.0%    0.0%    0.0811
+  decoder.transformer.layers.6.linear2.bias           -0.0001   0.0031    0.0%    0.0%    0.0101
+  decoder.transformer.layers.6.norm1.weight            1.0036   0.0069    0.0%    0.0%    1.0234
+  decoder.transformer.layers.6.norm1.bias             -0.0003   0.0051    0.0%    0.0%    0.0164
+  decoder.transformer.layers.6.norm2.weight            1.0269   0.0109    0.0%    0.0%    1.0679
+  decoder.transformer.layers.6.norm2.bias              0.0009   0.0137    0.0%    0.0%    0.0401
+  decoder.transformer.layers.6.norm3.weight            1.0291   0.0096    0.0%    0.0%    1.0600
+  decoder.transformer.layers.6.norm3.bias              0.0002   0.0063    0.0%    0.0%    0.0213
+  oder.transformer.layers.7.self_attn.in_proj_weight  -0.0000   0.0323    0.0%    0.0%    0.0903
+  ecoder.transformer.layers.7.self_attn.in_proj_bias  -0.0002   0.0058    0.0%    0.0%    0.0222
+  der.transformer.layers.7.self_attn.out_proj.weight   0.0002   0.0447    0.0%    0.0%    0.1042
+  coder.transformer.layers.7.self_attn.out_proj.bias   0.0001   0.0043    0.0%    0.0%    0.0121
+  transformer.layers.7.multihead_attn.in_proj_weight  -0.0000   0.0335    0.0%    0.0%    0.1368
+  r.transformer.layers.7.multihead_attn.in_proj_bias   0.0002   0.0212    0.0%    0.0%    0.0824
+  ransformer.layers.7.multihead_attn.out_proj.weight   0.0001   0.0458    0.0%    0.0%    0.1335
+  .transformer.layers.7.multihead_attn.out_proj.bias   0.0000   0.0032    0.0%    0.0%    0.0101
+  decoder.transformer.layers.7.linear1.weight          0.0000   0.0306    0.0%    0.0%    0.1070
+  decoder.transformer.layers.7.linear1.bias           -0.0028   0.0061    0.0%    0.0%    0.0145
+  decoder.transformer.layers.7.linear2.weight          0.0000   0.0301    0.0%    0.0%    0.0914
+  decoder.transformer.layers.7.linear2.bias            0.0001   0.0039    0.0%    0.0%    0.0100
+  decoder.transformer.layers.7.norm1.weight            1.0089   0.0082    0.0%    0.0%    1.0310
+  decoder.transformer.layers.7.norm1.bias             -0.0002   0.0056    0.0%    0.0%    0.0166
+  decoder.transformer.layers.7.norm2.weight            1.0287   0.0101    0.0%    0.0%    1.0686
+  decoder.transformer.layers.7.norm2.bias              0.0006   0.0173    0.0%    0.0%    0.0428
+  decoder.transformer.layers.7.norm3.weight            1.0489   0.0123    0.0%    0.0%    1.0902
+  decoder.transformer.layers.7.norm3.bias             -0.0002   0.0055    0.0%    0.0%    0.0162
+  decoder.transformer.norm.weight                      1.1430   0.0163    0.0%    0.0%    1.2131
+  decoder.transformer.norm.bias                       -0.0005   0.0284    0.0%    0.0%    0.0594
+  decoder.head.weight                                 -0.0003   0.0273    0.0%    0.0%    0.1154
+
+  --- Encoder backbone std trend ---
+  0.block.0.weight                              std=0.05901  [###########.........]
+  1.block.0.weight                              std=0.05904  [###########.........]
+  2.block.0.weight                              std=0.04180  [########............]
+  3.block.0.weight                              std=0.04183  [########............]
+  4.block.0.weight                              std=0.02967  [#####...............]
+  5.block.0.weight                              std=0.02964  [#####...............]
+  6.block.0.weight                              std=0.02107  [####................]
+  7.block.0.weight                              std=0.02108  [####................]
+  8.block.0.weight                              std=0.02108  [####................]
+  9.block.0.weight                              std=0.02109  [####................]
+  10.block.0.weight                             std=0.02109  [####................]
+  11.block.0.weight                             std=0.02100  [####................]
+
+  --- Decoder transformer layer std trend ---
+  Layer 0  attn_std=0.03184  ffn_std=0.02899  [###############]
+  Layer 1  attn_std=0.03171  ffn_std=0.02901  [###############]
+  Layer 2  attn_std=0.03183  ffn_std=0.02897  [###############]
+  Layer 3  attn_std=0.03179  ffn_std=0.02895  [###############]
+  Layer 4  attn_std=0.03197  ffn_std=0.02895  [###############]
+  Layer 5  attn_std=0.03199  ffn_std=0.02922  [###############]
+  Layer 6  attn_std=0.03219  ffn_std=0.02976  [################]
+  Layer 7  attn_std=0.03228  ffn_std=0.03055  [################]
+
+  --- Token embedding ---
+  shape      : [1013, 512]
+  norm mean  : 0.6181
+  norm std   : 0.0154
+  dead tokens (norm<0.01): 0
+  large tokens (norm>5.0): 0
+  extra tokens [1] norm mean: 0.6150
+
+  --- Summary for round1/seq2seq ---
+  Dead layers (>30% zeros) : 0
+  Exploding layers (>10)   : 0
+  Collapsed layers (std<1e-4): 0
+
+======================================================================
+  Checkpoint: round2/segnet
+  File      : /mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/ml/models/round2/segnet_best.pt
+  Size      : 31.1 MB
+
+  --- Training metadata ---
+  epoch               : 9
+  val_loss            : 0.0003
+
+  --- Weight statistics: round2/segnet ---
+  Layer                                                  mean      std   dead%  large%       max
+  -------------------------------------------------- -------- -------- ------- ------- ---------
+  enc1.c.0.block.0.weight                             -0.0023   0.0806    0.0%    0.0%    0.2204
+  enc1.c.0.block.1.weight                              1.0000   0.0091    0.0%    0.0%    1.0163
+  enc1.c.0.block.1.bias                                0.0051   0.0085    0.0%    0.0%    0.0283
+  enc1.c.1.block.0.weight                             -0.0009   0.0833    0.0%    0.0%    0.3472
+  enc1.c.1.block.1.weight                              0.9945   0.0096    0.0%    0.0%    1.0105
+  enc1.c.1.block.1.bias                                0.0044   0.0107    0.0%    0.0%    0.0362
+  enc2.c.0.block.0.weight                             -0.0014   0.0593    0.0%    0.0%    0.2115
+  enc2.c.0.block.1.weight                              1.0031   0.0086    0.0%    0.0%    1.0352
+  enc2.c.0.block.1.bias                                0.0068   0.0070    0.0%    0.0%    0.0293
+  enc2.c.1.block.0.weight                             -0.0010   0.0592    0.0%    0.0%    0.2285
+  enc2.c.1.block.1.weight                              0.9967   0.0089    0.0%    0.0%    1.0257
+  enc2.c.1.block.1.bias                                0.0038   0.0077    0.0%    0.0%    0.0212
+  enc3.c.0.block.0.weight                             -0.0001   0.0424    0.0%    0.0%    0.1726
+  enc3.c.0.block.1.weight                              1.0017   0.0083    0.0%    0.0%    1.0237
+  enc3.c.0.block.1.bias                                0.0059   0.0070    0.0%    0.0%    0.0226
+  enc3.c.1.block.0.weight                             -0.0008   0.0422    0.0%    0.0%    0.1910
+  enc3.c.1.block.1.weight                              0.9987   0.0112    0.0%    0.0%    1.0287
+  enc3.c.1.block.1.bias                                0.0022   0.0080    0.0%    0.0%    0.0252
+  enc4.c.0.block.0.weight                              0.0001   0.0303    0.0%    0.0%    0.1673
+  enc4.c.0.block.1.weight                              1.0002   0.0085    0.0%    0.0%    1.0232
+  enc4.c.0.block.1.bias                               -0.0031   0.0068    0.4%    0.0%    0.0136
+  enc4.c.1.block.0.weight                             -0.0002   0.0302    0.0%    0.0%    0.1476
+  enc4.c.1.block.1.weight                              1.0009   0.0096    0.0%    0.0%    1.0235
+  enc4.c.1.block.1.bias                               -0.0050   0.0066    0.0%    0.0%    0.0127
+  bot.c.0.block.0.weight                               0.0000   0.0218    0.0%    0.0%    0.1087
+  bot.c.0.block.1.weight                               0.9988   0.0095    0.0%    0.0%    1.0422
+  bot.c.0.block.1.bias                                -0.0136   0.0073    0.0%    0.0%    0.0042
+  bot.c.1.block.0.weight                              -0.0003   0.0216    0.0%    0.0%    0.1072
+  bot.c.1.block.1.weight                               0.9990   0.0082    0.0%    0.0%    1.0309
+  bot.c.1.block.1.bias                                -0.0138   0.0046    0.0%    0.0%   -0.0005
+  up4.weight                                           0.0000   0.0190    0.0%    0.0%    0.0606
+  up4.bias                                            -0.0006   0.0222    0.0%    0.0%    0.0589
+  dec4.c.0.block.0.weight                             -0.0003   0.0301    0.0%    0.0%    0.1347
+  dec4.c.0.block.1.weight                              1.0004   0.0083    0.0%    0.0%    1.0283
+  dec4.c.0.block.1.bias                               -0.0104   0.0058    0.0%    0.0%    0.0056
+  dec4.c.1.block.0.weight                             -0.0004   0.0301    0.0%    0.0%    0.1403
+  dec4.c.1.block.1.weight                              1.0086   0.0077    0.0%    0.0%    1.0340
+  dec4.c.1.block.1.bias                               -0.0047   0.0047    0.0%    0.0%    0.0105
+  up3.weight                                          -0.0001   0.0268    0.0%    0.0%    0.0730
+  up3.bias                                             0.0009   0.0293    0.0%    0.0%    0.0615
+  dec3.c.0.block.0.weight                             -0.0002   0.0423    0.0%    0.0%    0.1974
+  dec3.c.0.block.1.weight                              1.0001   0.0102    0.0%    0.0%    1.0284
+  dec3.c.0.block.1.bias                               -0.0026   0.0068    0.0%    0.0%    0.0218
+  dec3.c.1.block.0.weight                             -0.0003   0.0419    0.0%    0.0%    0.2015
+  dec3.c.1.block.1.weight                              1.0193   0.0125    0.0%    0.0%    1.0730
+  dec3.c.1.block.1.bias                                0.0084   0.0077    0.0%    0.0%    0.0286
+  up2.weight                                           0.0000   0.0383    0.0%    0.0%    0.0989
+  up2.bias                                             0.0040   0.0419    0.0%    0.0%    0.0911
+  dec2.c.0.block.0.weight                             -0.0004   0.0596    0.0%    0.0%    0.2392
+  dec2.c.0.block.1.weight                              1.0016   0.0096    0.0%    0.0%    1.0352
+  dec2.c.0.block.1.bias                                0.0040   0.0092    0.0%    0.0%    0.0304
+  dec2.c.1.block.0.weight                              0.0008   0.0595    0.0%    0.0%    0.2291
+  dec2.c.1.block.1.weight                              1.0221   0.0208    0.0%    0.0%    1.0901
+  dec2.c.1.block.1.bias                                0.0171   0.0115    0.0%    0.0%    0.0513
+  up1.weight                                          -0.0014   0.0542    0.0%    0.0%    0.1543
+  up1.bias                                            -0.0005   0.0719    0.0%    0.0%    0.1575
+  dec1.c.0.block.0.weight                             -0.0008   0.0840    0.0%    0.0%    0.3310
+  dec1.c.0.block.1.weight                              1.0007   0.0094    0.0%    0.0%    1.0283
+  dec1.c.0.block.1.bias                                0.0079   0.0090    0.0%    0.0%    0.0334
+  dec1.c.1.block.0.weight                             -0.0022   0.0840    0.0%    0.0%    0.3219
+  dec1.c.1.block.1.weight                              1.0016   0.0372    0.0%    0.0%    1.1575
+  dec1.c.1.block.1.bias                                0.0317   0.1087    0.0%    0.0%    0.3776
+  head.weight                                         -0.0393   0.6082    0.0%    0.0%    1.6951
+  head.bias                                            0.0507   0.1549    0.0%    0.0%    0.3282
+
+  --- Summary for round2/segnet ---
+  Dead layers (>30% zeros) : 0
+  Exploding layers (>10)   : 0
+  Collapsed layers (std<1e-4): 0
+
+======================================================================
+  Checkpoint: round2/seq2seq
+  File      : /mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/ml/models/round2/seq2seq_best.pt
+  Size      : 195.1 MB
+
+  --- Training metadata ---
+  epoch               : 18
+  val_ter             : 0.3426  (Acc = 65.7%)
+
+  --- Weight statistics: round2/seq2seq ---
+  Layer                                                  mean      std   dead%  large%       max
+  -------------------------------------------------- -------- -------- ------- ------- ---------
+  encoder.pos_enc                                      0.2934   0.6434    0.2%    0.0%    1.0000
+  encoder.backbone.0.block.0.weight                   -0.0033   0.0591    0.0%    0.0%    0.1977
+  encoder.backbone.0.block.1.weight                    0.9987   0.0058    0.0%    0.0%    1.0151
+  encoder.backbone.0.block.1.bias                      0.0038   0.0074    0.0%    0.0%    0.0292
+  encoder.backbone.1.block.0.weight                   -0.0013   0.0591    0.0%    0.0%    0.2311
+  encoder.backbone.1.block.1.weight                    0.9997   0.0060    0.0%    0.0%    1.0150
+  encoder.backbone.1.block.1.bias                      0.0023   0.0059    0.0%    0.0%    0.0215
+  encoder.backbone.2.block.0.weight                   -0.0004   0.0419    0.0%    0.0%    0.1901
+  encoder.backbone.2.block.1.weight                    1.0002   0.0045    0.0%    0.0%    1.0127
+  encoder.backbone.2.block.1.bias                      0.0019   0.0044    0.0%    0.0%    0.0146
+  encoder.backbone.3.block.0.weight                   -0.0004   0.0419    0.0%    0.0%    0.1891
+  encoder.backbone.3.block.1.weight                    1.0003   0.0046    0.0%    0.0%    1.0099
+  encoder.backbone.3.block.1.bias                      0.0009   0.0039    0.0%    0.0%    0.0126
+  encoder.backbone.4.block.0.weight                   -0.0003   0.0298    0.0%    0.0%    0.1310
+  encoder.backbone.4.block.1.weight                    1.0005   0.0043    0.0%    0.0%    1.0129
+  encoder.backbone.4.block.1.bias                     -0.0004   0.0042    0.0%    0.0%    0.0111
+  encoder.backbone.5.block.0.weight                   -0.0004   0.0298    0.0%    0.0%    0.1426
+  encoder.backbone.5.block.1.weight                    1.0006   0.0049    0.0%    0.0%    1.0152
+  encoder.backbone.5.block.1.bias                     -0.0012   0.0041    0.0%    0.0%    0.0094
+  encoder.backbone.6.block.0.weight                   -0.0002   0.0213    0.0%    0.0%    0.1046
+  encoder.backbone.6.block.1.weight                    1.0007   0.0043    0.0%    0.0%    1.0138
+  encoder.backbone.6.block.1.bias                     -0.0028   0.0044    0.0%    0.0%    0.0129
+  encoder.backbone.7.block.0.weight                   -0.0002   0.0213    0.0%    0.0%    0.1135
+  encoder.backbone.7.block.1.weight                    1.0008   0.0041    0.0%    0.0%    1.0141
+  encoder.backbone.7.block.1.bias                     -0.0044   0.0040    0.0%    0.0%    0.0088
+  encoder.backbone.8.block.0.weight                   -0.0002   0.0213    0.0%    0.0%    0.1083
+  encoder.backbone.8.block.1.weight                    1.0006   0.0051    0.0%    0.0%    1.0162
+  encoder.backbone.8.block.1.bias                     -0.0056   0.0041    0.0%    0.0%    0.0076
+  encoder.backbone.9.block.0.weight                   -0.0001   0.0213    0.0%    0.0%    0.1020
+  encoder.backbone.9.block.1.weight                    1.0010   0.0051    0.0%    0.0%    1.0166
+  encoder.backbone.9.block.1.bias                     -0.0045   0.0043    0.0%    0.0%    0.0063
+  encoder.backbone.10.block.0.weight                  -0.0002   0.0213    0.0%    0.0%    0.1011
+  encoder.backbone.10.block.1.weight                   1.0011   0.0048    0.0%    0.0%    1.0155
+  encoder.backbone.10.block.1.bias                    -0.0029   0.0045    0.0%    0.0%    0.0098
+  encoder.backbone.11.block.0.weight                  -0.0002   0.0211    0.0%    0.0%    0.1002
+  encoder.backbone.11.block.1.weight                   1.0086   0.0086    0.0%    0.0%    1.0307
+  encoder.backbone.11.block.1.bias                     0.0013   0.0046    0.0%    0.0%    0.0179
+  decoder.pos_enc                                      0.2575   0.6585    0.1%    0.0%    1.0000
+  decoder.token_emb.weight                            -0.0005   0.0245    0.0%    0.0%    0.1369
+  oder.transformer.layers.0.self_attn.in_proj_weight  -0.0000   0.0319    0.0%    0.0%    0.1085
+  ecoder.transformer.layers.0.self_attn.in_proj_bias   0.0001   0.0182    0.0%    0.0%    0.0785
+  der.transformer.layers.0.self_attn.out_proj.weight   0.0001   0.0437    0.0%    0.0%    0.1175
+  coder.transformer.layers.0.self_attn.out_proj.bias  -0.0002   0.0056    0.0%    0.0%    0.0156
+  transformer.layers.0.multihead_attn.in_proj_weight  -0.0000   0.0330    0.0%    0.0%    0.1022
+  r.transformer.layers.0.multihead_attn.in_proj_bias   0.0004   0.0245    0.0%    0.0%    0.0975
+  ransformer.layers.0.multihead_attn.out_proj.weight  -0.0001   0.0443    0.0%    0.0%    0.1090
+  .transformer.layers.0.multihead_attn.out_proj.bias  -0.0003   0.0054    0.0%    0.0%    0.0167
+  decoder.transformer.layers.0.linear1.weight          0.0000   0.0301    0.0%    0.0%    0.1012
+  decoder.transformer.layers.0.linear1.bias           -0.0105   0.0039    0.0%    0.0%    0.0029
+  decoder.transformer.layers.0.linear2.weight         -0.0000   0.0296    0.0%    0.0%    0.0914
+  decoder.transformer.layers.0.linear2.bias           -0.0001   0.0057    0.0%    0.0%    0.0181
+  decoder.transformer.layers.0.norm1.weight            0.9759   0.0247    0.0%    0.0%    1.0527
+  decoder.transformer.layers.0.norm1.bias             -0.0006   0.0198    0.0%    0.0%    0.0391
+  decoder.transformer.layers.0.norm2.weight            1.0062   0.0117    0.0%    0.0%    1.0475
+  decoder.transformer.layers.0.norm2.bias             -0.0001   0.0085    0.0%    0.0%    0.0295
+  decoder.transformer.layers.0.norm3.weight            1.0127   0.0190    0.0%    0.0%    1.0866
+  decoder.transformer.layers.0.norm3.bias             -0.0000   0.0165    0.0%    0.0%    0.0671
+  oder.transformer.layers.1.self_attn.in_proj_weight  -0.0000   0.0320    0.0%    0.0%    0.1021
+  ecoder.transformer.layers.1.self_attn.in_proj_bias   0.0004   0.0123    0.0%    0.0%    0.0568
+  der.transformer.layers.1.self_attn.out_proj.weight  -0.0001   0.0438    0.0%    0.0%    0.1063
+  coder.transformer.layers.1.self_attn.out_proj.bias  -0.0000   0.0058    0.0%    0.0%    0.0175
+  transformer.layers.1.multihead_attn.in_proj_weight  -0.0000   0.0339    0.0%    0.0%    0.1239
+  r.transformer.layers.1.multihead_attn.in_proj_bias   0.0001   0.0220    0.0%    0.0%    0.1023
+  ransformer.layers.1.multihead_attn.out_proj.weight  -0.0000   0.0453    0.0%    0.0%    0.1241
+  .transformer.layers.1.multihead_attn.out_proj.bias  -0.0000   0.0049    0.0%    0.0%    0.0163
+  decoder.transformer.layers.1.linear1.weight          0.0000   0.0304    0.0%    0.0%    0.1005
+  decoder.transformer.layers.1.linear1.bias           -0.0138   0.0045    0.0%    0.0%    0.0012
+  decoder.transformer.layers.1.linear2.weight          0.0000   0.0298    0.0%    0.0%    0.0915
+  decoder.transformer.layers.1.linear2.bias           -0.0001   0.0048    0.0%    0.0%    0.0176
+  decoder.transformer.layers.1.norm1.weight            0.9742   0.0116    0.0%    0.0%    1.0094
+  decoder.transformer.layers.1.norm1.bias             -0.0001   0.0115    0.0%    0.0%    0.0405
+  decoder.transformer.layers.1.norm2.weight            1.0226   0.0124    0.0%    0.0%    1.0620
+  decoder.transformer.layers.1.norm2.bias              0.0005   0.0163    0.0%    0.0%    0.0433
+  decoder.transformer.layers.1.norm3.weight            1.0229   0.0146    0.0%    0.0%    1.0647
+  decoder.transformer.layers.1.norm3.bias             -0.0002   0.0292    0.0%    0.0%    0.0748
+  oder.transformer.layers.2.self_attn.in_proj_weight  -0.0000   0.0324    0.0%    0.0%    0.1006
+  ecoder.transformer.layers.2.self_attn.in_proj_bias   0.0002   0.0132    0.0%    0.0%    0.0555
+  der.transformer.layers.2.self_attn.out_proj.weight   0.0000   0.0441    0.0%    0.0%    0.1124
+  coder.transformer.layers.2.self_attn.out_proj.bias  -0.0001   0.0054    0.2%    0.0%    0.0180
+  transformer.layers.2.multihead_attn.in_proj_weight  -0.0001   0.0340    0.0%    0.0%    0.1392
+  r.transformer.layers.2.multihead_attn.in_proj_bias   0.0008   0.0255    0.0%    0.0%    0.1233
+  ransformer.layers.2.multihead_attn.out_proj.weight  -0.0001   0.0454    0.0%    0.0%    0.1307
+  .transformer.layers.2.multihead_attn.out_proj.bias   0.0000   0.0046    0.0%    0.0%    0.0136
+  decoder.transformer.layers.2.linear1.weight          0.0001   0.0305    0.0%    0.0%    0.0984
+  decoder.transformer.layers.2.linear1.bias           -0.0146   0.0049    0.0%    0.0%    0.0008
+  decoder.transformer.layers.2.linear2.weight          0.0000   0.0299    0.0%    0.0%    0.0945
+  decoder.transformer.layers.2.linear2.bias           -0.0001   0.0047    0.0%    0.0%    0.0191
+  decoder.transformer.layers.2.norm1.weight            0.9857   0.0105    0.0%    0.0%    1.0181
+  decoder.transformer.layers.2.norm1.bias              0.0001   0.0102    0.0%    0.0%    0.0271
+  decoder.transformer.layers.2.norm2.weight            1.0259   0.0120    0.0%    0.0%    1.0680
+  decoder.transformer.layers.2.norm2.bias              0.0003   0.0165    0.0%    0.0%    0.0418
+  decoder.transformer.layers.2.norm3.weight            1.0294   0.0143    0.0%    0.0%    1.0751
+  decoder.transformer.layers.2.norm3.bias             -0.0008   0.0311    0.0%    0.0%    0.0803
+  oder.transformer.layers.3.self_attn.in_proj_weight  -0.0000   0.0324    0.0%    0.0%    0.0981
+  ecoder.transformer.layers.3.self_attn.in_proj_bias   0.0001   0.0127    0.1%    0.0%    0.0575
+  der.transformer.layers.3.self_attn.out_proj.weight   0.0000   0.0440    0.0%    0.0%    0.1090
+  coder.transformer.layers.3.self_attn.out_proj.bias   0.0001   0.0051    0.0%    0.0%    0.0150
+  transformer.layers.3.multihead_attn.in_proj_weight   0.0000   0.0345    0.0%    0.0%    0.1596
+  r.transformer.layers.3.multihead_attn.in_proj_bias   0.0010   0.0312    0.1%    0.0%    0.1483
+  ransformer.layers.3.multihead_attn.out_proj.weight   0.0000   0.0462    0.0%    0.0%    0.1380
+  .transformer.layers.3.multihead_attn.out_proj.bias  -0.0001   0.0046    0.0%    0.0%    0.0114
+  decoder.transformer.layers.3.linear1.weight         -0.0000   0.0306    0.0%    0.0%    0.1009
+  decoder.transformer.layers.3.linear1.bias           -0.0156   0.0050    0.0%    0.0%    0.0030
+  decoder.transformer.layers.3.linear2.weight          0.0000   0.0301    0.0%    0.0%    0.0957
+  decoder.transformer.layers.3.linear2.bias            0.0002   0.0046    0.0%    0.0%    0.0180
+  decoder.transformer.layers.3.norm1.weight            0.9870   0.0103    0.0%    0.0%    1.0196
+  decoder.transformer.layers.3.norm1.bias             -0.0002   0.0096    0.0%    0.0%    0.0243
+  decoder.transformer.layers.3.norm2.weight            1.0368   0.0124    0.0%    0.0%    1.0745
+  decoder.transformer.layers.3.norm2.bias             -0.0002   0.0143    0.0%    0.0%    0.0396
+  decoder.transformer.layers.3.norm3.weight            1.0353   0.0137    0.0%    0.0%    1.0766
+  decoder.transformer.layers.3.norm3.bias              0.0001   0.0313    0.0%    0.0%    0.1026
+  oder.transformer.layers.4.self_attn.in_proj_weight  -0.0000   0.0328    0.0%    0.0%    0.1003
+  ecoder.transformer.layers.4.self_attn.in_proj_bias  -0.0001   0.0122    0.1%    0.0%    0.0544
+  der.transformer.layers.4.self_attn.out_proj.weight  -0.0000   0.0442    0.0%    0.0%    0.1162
+  coder.transformer.layers.4.self_attn.out_proj.bias   0.0001   0.0050    0.0%    0.0%    0.0160
+  transformer.layers.4.multihead_attn.in_proj_weight  -0.0001   0.0345    0.0%    0.0%    0.1355
+  r.transformer.layers.4.multihead_attn.in_proj_bias   0.0005   0.0264    0.0%    0.0%    0.1199
+  ransformer.layers.4.multihead_attn.out_proj.weight   0.0001   0.0458    0.0%    0.0%    0.1306
+  .transformer.layers.4.multihead_attn.out_proj.bias   0.0000   0.0047    0.0%    0.0%    0.0133
+  decoder.transformer.layers.4.linear1.weight         -0.0000   0.0308    0.0%    0.0%    0.1069
+  decoder.transformer.layers.4.linear1.bias           -0.0157   0.0052    0.0%    0.0%    0.0023
+  decoder.transformer.layers.4.linear2.weight          0.0000   0.0302    0.0%    0.0%    0.0997
+  decoder.transformer.layers.4.linear2.bias            0.0000   0.0046    0.0%    0.0%    0.0165
+  decoder.transformer.layers.4.norm1.weight            0.9955   0.0102    0.0%    0.0%    1.0246
+  decoder.transformer.layers.4.norm1.bias             -0.0001   0.0090    0.0%    0.0%    0.0226
+  decoder.transformer.layers.4.norm2.weight            1.0388   0.0134    0.0%    0.0%    1.0790
+  decoder.transformer.layers.4.norm2.bias              0.0004   0.0120    0.0%    0.0%    0.0307
+  decoder.transformer.layers.4.norm3.weight            1.0389   0.0132    0.0%    0.0%    1.0844
+  decoder.transformer.layers.4.norm3.bias             -0.0001   0.0319    0.0%    0.0%    0.0779
+  oder.transformer.layers.5.self_attn.in_proj_weight  -0.0000   0.0329    0.0%    0.0%    0.0971
+  ecoder.transformer.layers.5.self_attn.in_proj_bias   0.0003   0.0153    0.0%    0.0%    0.0723
+  der.transformer.layers.5.self_attn.out_proj.weight  -0.0002   0.0442    0.0%    0.0%    0.1146
+  coder.transformer.layers.5.self_attn.out_proj.bias  -0.0001   0.0049    0.0%    0.0%    0.0150
+  transformer.layers.5.multihead_attn.in_proj_weight   0.0000   0.0355    0.0%    0.0%    0.1935
+  r.transformer.layers.5.multihead_attn.in_proj_bias   0.0013   0.0317    0.0%    0.0%    0.1416
+  ransformer.layers.5.multihead_attn.out_proj.weight   0.0000   0.0476    0.0%    0.0%    0.1447
+  .transformer.layers.5.multihead_attn.out_proj.bias  -0.0001   0.0057    0.0%    0.0%    0.0169
+  decoder.transformer.layers.5.linear1.weight          0.0000   0.0312    0.0%    0.0%    0.1024
+  decoder.transformer.layers.5.linear1.bias           -0.0155   0.0057    0.0%    0.0%    0.0057
+  decoder.transformer.layers.5.linear2.weight         -0.0000   0.0307    0.0%    0.0%    0.1041
+  decoder.transformer.layers.5.linear2.bias            0.0003   0.0038    0.0%    0.0%    0.0108
+  decoder.transformer.layers.5.norm1.weight            0.9958   0.0105    0.0%    0.0%    1.0242
+  decoder.transformer.layers.5.norm1.bias             -0.0000   0.0083    0.2%    0.0%    0.0244
+  decoder.transformer.layers.5.norm2.weight            1.0432   0.0153    0.0%    0.0%    1.0986
+  decoder.transformer.layers.5.norm2.bias              0.0000   0.0177    0.2%    0.0%    0.0521
+  decoder.transformer.layers.5.norm3.weight            1.0506   0.0119    0.0%    0.0%    1.0883
+  decoder.transformer.layers.5.norm3.bias             -0.0002   0.0273    0.0%    0.0%    0.0865
+  oder.transformer.layers.6.self_attn.in_proj_weight  -0.0000   0.0334    0.0%    0.0%    0.1069
+  ecoder.transformer.layers.6.self_attn.in_proj_bias  -0.0000   0.0105    0.0%    0.0%    0.0454
+  der.transformer.layers.6.self_attn.out_proj.weight   0.0001   0.0447    0.0%    0.0%    0.1250
+  coder.transformer.layers.6.self_attn.out_proj.bias   0.0000   0.0053    0.0%    0.0%    0.0147
+  transformer.layers.6.multihead_attn.in_proj_weight  -0.0000   0.0351    0.0%    0.0%    0.1388
+  r.transformer.layers.6.multihead_attn.in_proj_bias   0.0005   0.0284    0.0%    0.0%    0.1181
+  ransformer.layers.6.multihead_attn.out_proj.weight   0.0001   0.0470    0.0%    0.0%    0.1481
+  .transformer.layers.6.multihead_attn.out_proj.bias  -0.0000   0.0053    0.0%    0.0%    0.0140
+  decoder.transformer.layers.6.linear1.weight         -0.0000   0.0322    0.0%    0.0%    0.1140
+  decoder.transformer.layers.6.linear1.bias           -0.0127   0.0073    0.0%    0.0%    0.0144
+  decoder.transformer.layers.6.linear2.weight         -0.0000   0.0318    0.0%    0.0%    0.1082
+  decoder.transformer.layers.6.linear2.bias           -0.0001   0.0049    0.2%    0.0%    0.0131
+  decoder.transformer.layers.6.norm1.weight            1.0140   0.0114    0.0%    0.0%    1.0501
+  decoder.transformer.layers.6.norm1.bias             -0.0002   0.0089    0.0%    0.0%    0.0271
+  decoder.transformer.layers.6.norm2.weight            1.0438   0.0135    0.0%    0.0%    1.0938
+  decoder.transformer.layers.6.norm2.bias              0.0014   0.0166    0.0%    0.0%    0.0504
+  decoder.transformer.layers.6.norm3.weight            1.0766   0.0134    0.0%    0.0%    1.1171
+  decoder.transformer.layers.6.norm3.bias              0.0003   0.0212    0.0%    0.0%    0.0628
+  oder.transformer.layers.7.self_attn.in_proj_weight  -0.0000   0.0335    0.0%    0.0%    0.1116
+  ecoder.transformer.layers.7.self_attn.in_proj_bias  -0.0001   0.0112    0.1%    0.0%    0.0378
+  der.transformer.layers.7.self_attn.out_proj.weight   0.0002   0.0453    0.0%    0.0%    0.1300
+  coder.transformer.layers.7.self_attn.out_proj.bias  -0.0001   0.0073    0.0%    0.0%    0.0174
+  transformer.layers.7.multihead_attn.in_proj_weight  -0.0000   0.0352    0.0%    0.0%    0.1321
+  r.transformer.layers.7.multihead_attn.in_proj_bias   0.0004   0.0283    0.0%    0.0%    0.1399
+  ransformer.layers.7.multihead_attn.out_proj.weight   0.0001   0.0469    0.0%    0.0%    0.1482
+  .transformer.layers.7.multihead_attn.out_proj.bias   0.0000   0.0062    0.0%    0.0%    0.0151
+  decoder.transformer.layers.7.linear1.weight          0.0000   0.0340    0.0%    0.0%    0.1284
+  decoder.transformer.layers.7.linear1.bias           -0.0090   0.0103    0.0%    0.0%    0.0386
+  decoder.transformer.layers.7.linear2.weight         -0.0000   0.0339    0.0%    0.0%    0.1686
+  decoder.transformer.layers.7.linear2.bias            0.0002   0.0082    0.0%    0.0%    0.0236
+  decoder.transformer.layers.7.norm1.weight            1.0220   0.0130    0.0%    0.0%    1.0619
+  decoder.transformer.layers.7.norm1.bias             -0.0003   0.0111    0.0%    0.0%    0.0308
+  decoder.transformer.layers.7.norm2.weight            1.0470   0.0132    0.0%    0.0%    1.0855
+  decoder.transformer.layers.7.norm2.bias              0.0009   0.0170    0.0%    0.0%    0.0426
+  decoder.transformer.layers.7.norm3.weight            1.1144   0.0173    0.0%    0.0%    1.1794
+  decoder.transformer.layers.7.norm3.bias             -0.0003   0.0158    0.0%    0.0%    0.0478
+  decoder.transformer.norm.weight                      1.3355   0.0377    0.0%    0.0%    1.4586
+  decoder.transformer.norm.bias                       -0.0002   0.0361    0.0%    0.0%    0.0970
+  decoder.head.weight                                 -0.0005   0.0245    0.0%    0.0%    0.1369
+
+  --- Encoder backbone std trend ---
+  0.block.0.weight                              std=0.05909  [###########.........]
+  1.block.0.weight                              std=0.05911  [###########.........]
+  2.block.0.weight                              std=0.04189  [########............]
+  3.block.0.weight                              std=0.04192  [########............]
+  4.block.0.weight                              std=0.02981  [#####...............]
+  5.block.0.weight                              std=0.02978  [#####...............]
+  6.block.0.weight                              std=0.02126  [####................]
+  7.block.0.weight                              std=0.02127  [####................]
+  8.block.0.weight                              std=0.02127  [####................]
+  9.block.0.weight                              std=0.02127  [####................]
+  10.block.0.weight                             std=0.02128  [####................]
+  11.block.0.weight                             std=0.02112  [####................]
+
+  --- Decoder transformer layer std trend ---
+  Layer 0  attn_std=0.03195  ffn_std=0.03013  [###############]
+  Layer 1  attn_std=0.03197  ffn_std=0.03038  [###############]
+  Layer 2  attn_std=0.03240  ffn_std=0.03049  [################]
+  Layer 3  attn_std=0.03243  ffn_std=0.03064  [################]
+  Layer 4  attn_std=0.03281  ffn_std=0.03075  [################]
+  Layer 5  attn_std=0.03285  ffn_std=0.03120  [################]
+  Layer 6  attn_std=0.03344  ffn_std=0.03217  [################]
+  Layer 7  attn_std=0.03354  ffn_std=0.03400  [################]
+
+  --- Token embedding ---
+  shape      : [1013, 512]
+  norm mean  : 0.5436
+  norm std   : 0.1125
+  dead tokens (norm<0.01): 0
+  large tokens (norm>5.0): 0
+  extra tokens [1] norm mean: 0.4798
+
+  --- Summary for round2/seq2seq ---
+  Dead layers (>30% zeros) : 0
+  Exploding layers (>10)   : 0
+  Collapsed layers (std<1e-4): 0
+
+======================================================================
+  Checkpoint: round3/seq2seq
+  File      : /mnt/c/Users/kyutae/AndroidStudioProjects/musicscore_flutter/ml/models/round3/seq2seq_best.pt
+  Size      : 195.1 MB
+
+  --- Training metadata ---
+  epoch               : 8
+  val_ter             : 0.5124  (Acc = 48.8%)
+
+  --- Weight statistics: round3/seq2seq ---
+  Layer                                                  mean      std   dead%  large%       max
+  -------------------------------------------------- -------- -------- ------- ------- ---------
+  encoder.pos_enc                                      0.2934   0.6434    0.2%    0.0%    1.0000
+  encoder.backbone.0.block.0.weight                   -0.0035   0.0591    0.0%    0.0%    0.1976
+  encoder.backbone.0.block.1.weight                    0.9967   0.0099    0.0%    0.0%    1.0232
+  encoder.backbone.0.block.1.bias                      0.0046   0.0079    0.0%    0.0%    0.0237
+  encoder.backbone.1.block.0.weight                   -0.0012   0.0590    0.0%    0.0%    0.2347
+  encoder.backbone.1.block.1.weight                    0.9989   0.0069    0.0%    0.0%    1.0162
+  encoder.backbone.1.block.1.bias                      0.0035   0.0057    0.0%    0.0%    0.0203
+  encoder.backbone.2.block.0.weight                   -0.0005   0.0418    0.0%    0.0%    0.1910
+  encoder.backbone.2.block.1.weight                    0.9997   0.0047    0.0%    0.0%    1.0155
+  encoder.backbone.2.block.1.bias                      0.0020   0.0044    0.0%    0.0%    0.0134
+  encoder.backbone.3.block.0.weight                   -0.0003   0.0418    0.0%    0.0%    0.1941
+  encoder.backbone.3.block.1.weight                    1.0000   0.0037    0.0%    0.0%    1.0092
+  encoder.backbone.3.block.1.bias                      0.0013   0.0036    0.0%    0.0%    0.0086
+  encoder.backbone.4.block.0.weight                   -0.0002   0.0297    0.0%    0.0%    0.1352
+  encoder.backbone.4.block.1.weight                    1.0000   0.0033    0.0%    0.0%    1.0102
+  encoder.backbone.4.block.1.bias                      0.0002   0.0036    0.4%    0.0%    0.0095
+  encoder.backbone.5.block.0.weight                   -0.0002   0.0296    0.0%    0.0%    0.1348
+  encoder.backbone.5.block.1.weight                    1.0003   0.0039    0.0%    0.0%    1.0136
+  encoder.backbone.5.block.1.bias                     -0.0008   0.0033    0.0%    0.0%    0.0081
+  encoder.backbone.6.block.0.weight                   -0.0001   0.0211    0.0%    0.0%    0.1076
+  encoder.backbone.6.block.1.weight                    1.0005   0.0036    0.0%    0.0%    1.0108
+  encoder.backbone.6.block.1.bias                     -0.0022   0.0032    0.0%    0.0%    0.0055
+  encoder.backbone.7.block.0.weight                   -0.0001   0.0211    0.0%    0.0%    0.1035
+  encoder.backbone.7.block.1.weight                    1.0008   0.0037    0.0%    0.0%    1.0136
+  encoder.backbone.7.block.1.bias                     -0.0037   0.0031    0.0%    0.0%    0.0039
+  encoder.backbone.8.block.0.weight                   -0.0001   0.0211    0.0%    0.0%    0.1107
+  encoder.backbone.8.block.1.weight                    1.0007   0.0037    0.0%    0.0%    1.0134
+  encoder.backbone.8.block.1.bias                     -0.0046   0.0034    0.0%    0.0%    0.0050
+  encoder.backbone.9.block.0.weight                   -0.0001   0.0211    0.0%    0.0%    0.1007
+  encoder.backbone.9.block.1.weight                    1.0008   0.0035    0.0%    0.0%    1.0123
+  encoder.backbone.9.block.1.bias                     -0.0048   0.0038    0.0%    0.0%    0.0052
+  encoder.backbone.10.block.0.weight                  -0.0001   0.0211    0.0%    0.0%    0.1014
+  encoder.backbone.10.block.1.weight                   1.0006   0.0041    0.0%    0.0%    1.0201
+  encoder.backbone.10.block.1.bias                    -0.0042   0.0050    0.2%    0.0%    0.0153
+  encoder.backbone.11.block.0.weight                  -0.0001   0.0210    0.0%    0.0%    0.1000
+  encoder.backbone.11.block.1.weight                   1.0246   0.0084    0.0%    0.0%    1.0484
+  encoder.backbone.11.block.1.bias                     0.0101   0.0045    0.0%    0.0%    0.0274
+  decoder.pos_enc                                      0.2575   0.6585    0.1%    0.0%    1.0000
+  decoder.token_emb.weight                            -0.0006   0.0277    0.0%    0.0%    0.1280
+  oder.transformer.layers.0.self_attn.in_proj_weight  -0.0000   0.0319    0.0%    0.0%    0.0946
+  ecoder.transformer.layers.0.self_attn.in_proj_bias   0.0006   0.0095    0.1%    0.0%    0.0382
+  der.transformer.layers.0.self_attn.out_proj.weight   0.0001   0.0440    0.0%    0.0%    0.1019
+  coder.transformer.layers.0.self_attn.out_proj.bias  -0.0001   0.0037    0.0%    0.0%    0.0114
+  transformer.layers.0.multihead_attn.in_proj_weight  -0.0000   0.0327    0.0%    0.0%    0.0955
+  r.transformer.layers.0.multihead_attn.in_proj_bias  -0.0003   0.0098    0.0%    0.0%    0.0315
+  ransformer.layers.0.multihead_attn.out_proj.weight  -0.0001   0.0445    0.0%    0.0%    0.1025
+  .transformer.layers.0.multihead_attn.out_proj.bias  -0.0002   0.0034    0.0%    0.0%    0.0092
+  decoder.transformer.layers.0.linear1.weight          0.0000   0.0290    0.0%    0.0%    0.0848
+  decoder.transformer.layers.0.linear1.bias           -0.0070   0.0033    0.0%    0.0%    0.0055
+  decoder.transformer.layers.0.linear2.weight         -0.0000   0.0287    0.0%    0.0%    0.0803
+  decoder.transformer.layers.0.linear2.bias           -0.0000   0.0032    0.0%    0.0%    0.0087
+  decoder.transformer.layers.0.norm1.weight            0.9961   0.0156    0.0%    0.0%    1.0448
+  decoder.transformer.layers.0.norm1.bias             -0.0001   0.0094    0.0%    0.0%    0.0196
+  decoder.transformer.layers.0.norm2.weight            1.0166   0.0085    0.0%    0.0%    1.0434
+  decoder.transformer.layers.0.norm2.bias              0.0002   0.0131    0.0%    0.0%    0.0295
+  decoder.transformer.layers.0.norm3.weight            1.0078   0.0143    0.0%    0.0%    1.0667
+  decoder.transformer.layers.0.norm3.bias             -0.0002   0.0088    0.0%    0.0%    0.0310
+  oder.transformer.layers.1.self_attn.in_proj_weight  -0.0000   0.0319    0.0%    0.0%    0.0919
+  ecoder.transformer.layers.1.self_attn.in_proj_bias   0.0001   0.0081    0.0%    0.0%    0.0313
+  der.transformer.layers.1.self_attn.out_proj.weight  -0.0001   0.0441    0.0%    0.0%    0.0994
+  coder.transformer.layers.1.self_attn.out_proj.bias   0.0000   0.0036    0.0%    0.0%    0.0110
+  transformer.layers.1.multihead_attn.in_proj_weight  -0.0001   0.0330    0.0%    0.0%    0.1055
+  r.transformer.layers.1.multihead_attn.in_proj_bias   0.0001   0.0153    0.0%    0.0%    0.0615
+  ransformer.layers.1.multihead_attn.out_proj.weight  -0.0001   0.0448    0.0%    0.0%    0.1058
+  .transformer.layers.1.multihead_attn.out_proj.bias   0.0000   0.0033    0.0%    0.0%    0.0088
+  decoder.transformer.layers.1.linear1.weight         -0.0000   0.0292    0.0%    0.0%    0.0840
+  decoder.transformer.layers.1.linear1.bias           -0.0089   0.0039    0.0%    0.0%    0.0045
+  decoder.transformer.layers.1.linear2.weight          0.0000   0.0288    0.0%    0.0%    0.0771
+  decoder.transformer.layers.1.linear2.bias           -0.0000   0.0027    0.0%    0.0%    0.0090
+  decoder.transformer.layers.1.norm1.weight            0.9978   0.0088    0.0%    0.0%    1.0278
+  decoder.transformer.layers.1.norm1.bias              0.0000   0.0055    0.0%    0.0%    0.0181
+  decoder.transformer.layers.1.norm2.weight            1.0225   0.0098    0.0%    0.0%    1.0505
+  decoder.transformer.layers.1.norm2.bias              0.0008   0.0190    0.0%    0.0%    0.0440
+  decoder.transformer.layers.1.norm3.weight            1.0137   0.0102    0.0%    0.0%    1.0480
+  decoder.transformer.layers.1.norm3.bias             -0.0001   0.0142    0.0%    0.0%    0.0401
+  oder.transformer.layers.2.self_attn.in_proj_weight  -0.0000   0.0321    0.0%    0.0%    0.0894
+  ecoder.transformer.layers.2.self_attn.in_proj_bias  -0.0001   0.0084    0.0%    0.0%    0.0344
+  der.transformer.layers.2.self_attn.out_proj.weight   0.0000   0.0442    0.0%    0.0%    0.1083
+  coder.transformer.layers.2.self_attn.out_proj.bias  -0.0001   0.0033    0.0%    0.0%    0.0106
+  transformer.layers.2.multihead_attn.in_proj_weight  -0.0000   0.0335    0.0%    0.0%    0.1254
+  r.transformer.layers.2.multihead_attn.in_proj_bias  -0.0003   0.0238    0.0%    0.0%    0.1383
+  ransformer.layers.2.multihead_attn.out_proj.weight  -0.0001   0.0454    0.0%    0.0%    0.1380
+  .transformer.layers.2.multihead_attn.out_proj.bias   0.0001   0.0027    0.0%    0.0%    0.0084
+  decoder.transformer.layers.2.linear1.weight          0.0000   0.0292    0.0%    0.0%    0.0861
+  decoder.transformer.layers.2.linear1.bias           -0.0100   0.0040    0.0%    0.0%    0.0023
+  decoder.transformer.layers.2.linear2.weight         -0.0000   0.0288    0.0%    0.0%    0.0801
+  decoder.transformer.layers.2.linear2.bias            0.0000   0.0026    0.0%    0.0%    0.0073
+  decoder.transformer.layers.2.norm1.weight            1.0017   0.0078    0.0%    0.0%    1.0256
+  decoder.transformer.layers.2.norm1.bias              0.0001   0.0051    0.2%    0.0%    0.0131
+  decoder.transformer.layers.2.norm2.weight            1.0353   0.0115    0.0%    0.0%    1.0643
+  decoder.transformer.layers.2.norm2.bias              0.0001   0.0186    0.0%    0.0%    0.0423
+  decoder.transformer.layers.2.norm3.weight            1.0153   0.0094    0.0%    0.0%    1.0425
+  decoder.transformer.layers.2.norm3.bias             -0.0005   0.0154    0.0%    0.0%    0.0427
+  oder.transformer.layers.3.self_attn.in_proj_weight  -0.0000   0.0321    0.0%    0.0%    0.0909
+  ecoder.transformer.layers.3.self_attn.in_proj_bias  -0.0001   0.0086    0.0%    0.0%    0.0417
+  der.transformer.layers.3.self_attn.out_proj.weight   0.0000   0.0442    0.0%    0.0%    0.1040
+  coder.transformer.layers.3.self_attn.out_proj.bias   0.0000   0.0034    0.2%    0.0%    0.0111
+  transformer.layers.3.multihead_attn.in_proj_weight   0.0000   0.0339    0.0%    0.0%    0.1628
+  r.transformer.layers.3.multihead_attn.in_proj_bias   0.0011   0.0275    0.0%    0.0%    0.1156
+  ransformer.layers.3.multihead_attn.out_proj.weight   0.0000   0.0462    0.0%    0.0%    0.1461
+  .transformer.layers.3.multihead_attn.out_proj.bias  -0.0001   0.0026    0.0%    0.0%    0.0089
+  decoder.transformer.layers.3.linear1.weight         -0.0000   0.0292    0.0%    0.0%    0.0830
+  decoder.transformer.layers.3.linear1.bias           -0.0107   0.0041    0.0%    0.0%    0.0027
+  decoder.transformer.layers.3.linear2.weight          0.0000   0.0289    0.0%    0.0%    0.0823
+  decoder.transformer.layers.3.linear2.bias            0.0001   0.0025    0.0%    0.0%    0.0083
+  decoder.transformer.layers.3.norm1.weight            1.0036   0.0076    0.0%    0.0%    1.0264
+  decoder.transformer.layers.3.norm1.bias             -0.0001   0.0051    0.0%    0.0%    0.0139
+  decoder.transformer.layers.3.norm2.weight            1.0439   0.0117    0.0%    0.0%    1.0786
+  decoder.transformer.layers.3.norm2.bias              0.0001   0.0150    0.0%    0.0%    0.0436
+  decoder.transformer.layers.3.norm3.weight            1.0162   0.0088    0.0%    0.0%    1.0394
+  decoder.transformer.layers.3.norm3.bias             -0.0001   0.0150    0.0%    0.0%    0.0496
+  oder.transformer.layers.4.self_attn.in_proj_weight  -0.0000   0.0324    0.0%    0.0%    0.0885
+  ecoder.transformer.layers.4.self_attn.in_proj_bias   0.0002   0.0079    0.1%    0.0%    0.0307
+  der.transformer.layers.4.self_attn.out_proj.weight  -0.0001   0.0444    0.0%    0.0%    0.1055
+  coder.transformer.layers.4.self_attn.out_proj.bias  -0.0001   0.0037    0.0%    0.0%    0.0109
+  transformer.layers.4.multihead_attn.in_proj_weight  -0.0000   0.0338    0.0%    0.0%    0.1404
+  r.transformer.layers.4.multihead_attn.in_proj_bias   0.0003   0.0272    0.0%    0.0%    0.1198
+  ransformer.layers.4.multihead_attn.out_proj.weight   0.0001   0.0459    0.0%    0.0%    0.1302
+  .transformer.layers.4.multihead_attn.out_proj.bias  -0.0001   0.0029    0.0%    0.0%    0.0084
+  decoder.transformer.layers.4.linear1.weight         -0.0000   0.0293    0.0%    0.0%    0.0873
+  decoder.transformer.layers.4.linear1.bias           -0.0103   0.0041    0.0%    0.0%    0.0033
+  decoder.transformer.layers.4.linear2.weight          0.0000   0.0290    0.0%    0.0%    0.0818
+  decoder.transformer.layers.4.linear2.bias           -0.0001   0.0023    0.0%    0.0%    0.0068
+  decoder.transformer.layers.4.norm1.weight            1.0099   0.0080    0.0%    0.0%    1.0351
+  decoder.transformer.layers.4.norm1.bias             -0.0002   0.0050    0.0%    0.0%    0.0126
+  decoder.transformer.layers.4.norm2.weight            1.0414   0.0116    0.0%    0.0%    1.0734
+  decoder.transformer.layers.4.norm2.bias             -0.0001   0.0126    0.0%    0.0%    0.0316
+  decoder.transformer.layers.4.norm3.weight            1.0193   0.0088    0.0%    0.0%    1.0462
+  decoder.transformer.layers.4.norm3.bias             -0.0001   0.0141    0.0%    0.0%    0.0432
+  oder.transformer.layers.5.self_attn.in_proj_weight  -0.0000   0.0325    0.0%    0.0%    0.0958
+  ecoder.transformer.layers.5.self_attn.in_proj_bias   0.0000   0.0080    0.1%    0.0%    0.0288
+  der.transformer.layers.5.self_attn.out_proj.weight  -0.0002   0.0443    0.0%    0.0%    0.1072
+  coder.transformer.layers.5.self_attn.out_proj.bias   0.0000   0.0031    0.0%    0.0%    0.0101
+  transformer.layers.5.multihead_attn.in_proj_weight   0.0000   0.0341    0.0%    0.0%    0.1433
+  r.transformer.layers.5.multihead_attn.in_proj_bias   0.0002   0.0195    0.0%    0.0%    0.0975
+  ransformer.layers.5.multihead_attn.out_proj.weight   0.0000   0.0462    0.0%    0.0%    0.1327
+  .transformer.layers.5.multihead_attn.out_proj.bias  -0.0001   0.0031    0.0%    0.0%    0.0094
+  decoder.transformer.layers.5.linear1.weight          0.0000   0.0296    0.0%    0.0%    0.0853
+  decoder.transformer.layers.5.linear1.bias           -0.0083   0.0045    0.0%    0.0%    0.0060
+  decoder.transformer.layers.5.linear2.weight         -0.0000   0.0292    0.0%    0.0%    0.0847
+  decoder.transformer.layers.5.linear2.bias            0.0001   0.0024    0.2%    0.0%    0.0063
+  decoder.transformer.layers.5.norm1.weight            1.0097   0.0077    0.0%    0.0%    1.0307
+  decoder.transformer.layers.5.norm1.bias             -0.0000   0.0050    0.2%    0.0%    0.0210
+  decoder.transformer.layers.5.norm2.weight            1.0440   0.0130    0.0%    0.0%    1.0838
+  decoder.transformer.layers.5.norm2.bias              0.0002   0.0174    0.0%    0.0%    0.0492
+  decoder.transformer.layers.5.norm3.weight            1.0274   0.0087    0.0%    0.0%    1.0519
+  decoder.transformer.layers.5.norm3.bias             -0.0002   0.0095    0.0%    0.0%    0.0335
+  oder.transformer.layers.6.self_attn.in_proj_weight  -0.0000   0.0325    0.0%    0.0%    0.0888
+  ecoder.transformer.layers.6.self_attn.in_proj_bias   0.0001   0.0086    0.0%    0.0%    0.0280
+  der.transformer.layers.6.self_attn.out_proj.weight   0.0001   0.0445    0.0%    0.0%    0.1062
+  coder.transformer.layers.6.self_attn.out_proj.bias  -0.0000   0.0032    0.0%    0.0%    0.0090
+  transformer.layers.6.multihead_attn.in_proj_weight   0.0000   0.0338    0.0%    0.0%    0.1342
+  r.transformer.layers.6.multihead_attn.in_proj_bias   0.0004   0.0192    0.0%    0.0%    0.0638
+  ransformer.layers.6.multihead_attn.out_proj.weight   0.0001   0.0459    0.0%    0.0%    0.1264
+  .transformer.layers.6.multihead_attn.out_proj.bias   0.0000   0.0026    0.0%    0.0%    0.0069
+  decoder.transformer.layers.6.linear1.weight         -0.0000   0.0300    0.0%    0.0%    0.1005
+  decoder.transformer.layers.6.linear1.bias           -0.0055   0.0049    0.0%    0.0%    0.0106
+  decoder.transformer.layers.6.linear2.weight         -0.0000   0.0297    0.0%    0.0%    0.0915
+  decoder.transformer.layers.6.linear2.bias           -0.0002   0.0027    0.0%    0.0%    0.0076
+  decoder.transformer.layers.6.norm1.weight            1.0124   0.0085    0.0%    0.0%    1.0380
+  decoder.transformer.layers.6.norm1.bias             -0.0000   0.0054    0.0%    0.0%    0.0172
+  decoder.transformer.layers.6.norm2.weight            1.0382   0.0107    0.0%    0.0%    1.0743
+  decoder.transformer.layers.6.norm2.bias              0.0012   0.0137    0.0%    0.0%    0.0387
+  decoder.transformer.layers.6.norm3.weight            1.0398   0.0093    0.0%    0.0%    1.0651
+  decoder.transformer.layers.6.norm3.bias              0.0003   0.0063    0.0%    0.0%    0.0212
+  oder.transformer.layers.7.self_attn.in_proj_weight  -0.0000   0.0325    0.0%    0.0%    0.0912
+  ecoder.transformer.layers.7.self_attn.in_proj_bias   0.0001   0.0071    0.0%    0.0%    0.0260
+  der.transformer.layers.7.self_attn.out_proj.weight   0.0002   0.0446    0.0%    0.0%    0.1104
+  coder.transformer.layers.7.self_attn.out_proj.bias   0.0001   0.0042    0.0%    0.0%    0.0156
+  transformer.layers.7.multihead_attn.in_proj_weight  -0.0001   0.0337    0.0%    0.0%    0.1232
+  r.transformer.layers.7.multihead_attn.in_proj_bias   0.0005   0.0191    0.1%    0.0%    0.0852
+  ransformer.layers.7.multihead_attn.out_proj.weight   0.0001   0.0459    0.0%    0.0%    0.1230
+  .transformer.layers.7.multihead_attn.out_proj.bias   0.0000   0.0030    0.0%    0.0%    0.0088
+  decoder.transformer.layers.7.linear1.weight         -0.0000   0.0308    0.0%    0.0%    0.1000
+  decoder.transformer.layers.7.linear1.bias           -0.0010   0.0063    0.0%    0.0%    0.0220
+  decoder.transformer.layers.7.linear2.weight         -0.0000   0.0305    0.0%    0.0%    0.1010
+  decoder.transformer.layers.7.linear2.bias            0.0000   0.0035    0.0%    0.0%    0.0094
+  decoder.transformer.layers.7.norm1.weight            1.0137   0.0082    0.0%    0.0%    1.0426
+  decoder.transformer.layers.7.norm1.bias             -0.0001   0.0058    0.0%    0.0%    0.0222
+  decoder.transformer.layers.7.norm2.weight            1.0347   0.0102    0.0%    0.0%    1.0688
+  decoder.transformer.layers.7.norm2.bias              0.0003   0.0167    0.0%    0.0%    0.0406
+  decoder.transformer.layers.7.norm3.weight            1.0589   0.0116    0.0%    0.0%    1.0904
+  decoder.transformer.layers.7.norm3.bias              0.0001   0.0055    0.0%    0.0%    0.0188
+  decoder.transformer.norm.weight                      1.2526   0.0241    0.0%    0.0%    1.3032
+  decoder.transformer.norm.bias                       -0.0010   0.0421    0.0%    0.0%    0.1029
+  decoder.head.weight                                 -0.0006   0.0277    0.0%    0.0%    0.1280
+
+  --- Encoder backbone std trend ---
+  0.block.0.weight                              std=0.05909  [###########.........]
+  1.block.0.weight                              std=0.05900  [###########.........]
+  2.block.0.weight                              std=0.04179  [########............]
+  3.block.0.weight                              std=0.04181  [########............]
+  4.block.0.weight                              std=0.02966  [#####...............]
+  5.block.0.weight                              std=0.02963  [#####...............]
+  6.block.0.weight                              std=0.02106  [####................]
+  7.block.0.weight                              std=0.02107  [####................]
+  8.block.0.weight                              std=0.02107  [####................]
+  9.block.0.weight                              std=0.02108  [####................]
+  10.block.0.weight                             std=0.02108  [####................]
+  11.block.0.weight                             std=0.02100  [####................]
+
+  --- Decoder transformer layer std trend ---
+  Layer 0  attn_std=0.03188  ffn_std=0.02902  [###############]
+  Layer 1  attn_std=0.03193  ffn_std=0.02915  [###############]
+  Layer 2  attn_std=0.03208  ffn_std=0.02916  [################]
+  Layer 3  attn_std=0.03215  ffn_std=0.02917  [################]
+  Layer 4  attn_std=0.03243  ffn_std=0.02927  [################]
+  Layer 5  attn_std=0.03246  ffn_std=0.02956  [################]
+  Layer 6  attn_std=0.03251  ffn_std=0.03001  [################]
+  Layer 7  attn_std=0.03246  ffn_std=0.03085  [################]
+
+  --- Token embedding ---
+  shape      : [1013, 512]
+  norm mean  : 0.6254
+  norm std   : 0.0493
+  dead tokens (norm<0.01): 0
+  large tokens (norm>5.0): 0
+  extra tokens [1] norm mean: 0.7152
+
+  --- Summary for round3/seq2seq ---
+  Dead layers (>30% zeros) : 0
+  Exploding layers (>10)   : 0
+  Collapsed layers (std<1e-4): 0
+
+======================================================================
+  Analysis complete.
+======================================================================

@@ -73,7 +73,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Project Overview
 
-Flutter-based Optical Music Recognition (OMR) app that captures sheet music images and converts them to structured data. The core OMR logic lives in a sibling C++ project (`MusicScore/`) and is exposed via JNI to the Flutter app.
+Flutter-based Optical Music Recognition (OMR) app that captures sheet music images and converts them to structured data. The OMR engine (`ml/omr/engine/`) is a self-authored C++ pipeline that lives entirely inside this repo — there is no dependency on any sibling repository.
+
+An earlier prototype linked a sibling `MusicScore/` repo (JNI bridge, based on the AGPLv3-licensed `homr` project). That path has been removed: AGPL is incompatible with the planned commercial release, so `ml/omr/engine/` was built from scratch with its own architecture and its own single unified "DeepScore" token vocabulary instead of reusing homr's code, model weights, or its rhythm/pitch/lift/note tokenizer split. See `docs/project-orchestrator.md` ("상업 라이선스 확인 완료") and `project.md` (기술 스택 표) for the decision record.
 
 ## Build & Run Commands
 
@@ -83,21 +85,31 @@ flutter pub get
 flutter run                        # run on connected device
 flutter build apk                  # Android release APK
 flutter build ios                  # iOS (requires macOS)
-flutter build web                  # Web (not yet configured)
+flutter build web                  # Web (not yet configured; OMR is unavailable on web — see Platform Notes)
 ```
 
-### Desktop C++ Test Binary (WSL / Linux)
+### Desktop C++ Test Binaries (`ml/omr/engine/`, Linux / WSL / Windows)
 ```bash
-cd desktop
-bash build_flutter_desktop.sh build
-bash build_flutter_desktop.sh run desktop/num2.png output.xml
-bash build_flutter_desktop.sh clean
+cd ml/omr/engine
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DTFLITE_ROOT=/path/to/tflite -DOpenCV_DIR=/usr/include/opencv4
+cmake --build build -j$(nproc)
+
+./build/omr_test <image.jpg> <segnet.tflite> <encoder.tflite> <decoder.tflite> <tokenizer.json>
+./build/omr_eval <test_dir> <segnet.tflite> <encoder.tflite> <decoder.tflite> <tokenizer.json> [--threshold 0.90] [--report report.csv]
 ```
 
 ### Python Validation
 ```bash
-python desktop/compare_musicxml.py desktop/ground_truth/num2.musicxml desktop/output.xml
-python desktop/inspect_tflite.py    # inspect TFLite model tensor shapes
+python ml/omr/utils/compare_musicxml.py <ground_truth.musicxml> <output.xml>
+python ml/omr/utils/inspect_tflite.py    # inspect TFLite model tensor shapes
+```
+
+### ML Training (Round 3 / grand staff — `round3train/`)
+```bash
+python round3train/train.py --phase 2 --data_dir <dir> --tokenizer round3train/tokenizer.json \
+    --resume <old_ckpt.pt> --resume_tokenizer <old_tokenizer.json>   # only needed when the vocab changed since <old_ckpt.pt>
+python round3train/train.py --phase 3 --data_dir <dir> --tokenizer round3train/tokenizer.json --resume <ckpt.pt>
+python round3train/inference.py --seq2seq <ckpt.pt> --tokenizer round3train/tokenizer.json --analyze <dir>
 ```
 
 ## Architecture
@@ -105,48 +117,59 @@ python desktop/inspect_tflite.py    # inspect TFLite model tensor shapes
 ### Layer Stack
 ```
 Flutter UI (Dart)
-  ↓ MethodChannel "com.example.musicscore/omr"
-Kotlin (MainActivity.kt, OmrPipeline.kt)
-  ↓ JNI
-C++ flutter_jni.cpp  →  homr::OmrPipeline  (from MusicScore/app/src/main/cpp)
+  ↓ dart:ffi — DynamicLibrary.open("libomr_engine.so")
+C++ OmrEngine (ml/omr/engine/, self-authored, TFLite-only)
 ```
+No JNI, no MethodChannel, no sibling repo involved. `MainActivity.kt` is a bare `FlutterActivity` — Dart loads the native library directly.
 
 ### Key Files
 | File | Role |
 |------|------|
 | `lib/main.dart` | Entire Flutter UI — init, image pick, result display |
-| `lib/omr_service.dart` | MethodChannel bridge (2 methods: `initialize`, `processImageBytes`) |
-| `android/app/src/main/kotlin/.../MainActivity.kt` | MethodChannel handler, calls JNI |
-| `android/app/src/main/kotlin/.../OmrPipeline.kt` | `external fun` JNI declarations |
-| `android/app/src/main/cpp/flutter_jni.cpp` | JNI entrypoint — decodes image bytes, calls pipeline |
-| `android/app/src/main/cpp/CMakeLists.txt` | Links to `../../../../../../MusicScore/app/src/main/cpp` |
-| `desktop/test_main.cpp` | Standalone C++ test harness (no Flutter required) |
-| `desktop/asset_manager_impl.cpp` | Mock Android AssetManager for desktop testing |
+| `lib/omr_service.dart` | `dart:ffi` bridge to `libomr_engine` — `init(modelDir)`, `process(bytes) -> List<OmrToken>` |
+| `android/app/src/main/kotlin/.../MainActivity.kt` | Bare `FlutterActivity`, no OMR-specific code |
+| `android/app/build.gradle.kts` | `externalNativeBuild.cmake.path` → `ml/omr/engine/CMakeLists.txt` (builds `libomr_engine.so` straight into the APK) |
+| `ml/omr/engine/` | Self-authored C++ OMR engine (pipeline stages below) |
+| `round3train/` | Round 3 (grand staff) PyTorch training pipeline — see "ML Training Pipelines" note below |
 
-### Native Libraries (Android NDK, C++20)
-- **OpenCV 4.9.0** — image decode & preprocessing
-- **TensorFlow Lite 2.16.1** — segmentation model (`segnet_308_int8.tflite`) + encoder (`encoder_331_int8.tflite`)
-- **ONNX Runtime 1.18.0** — transformer decoder (`decoder_331_int8.onnx`)
-- **tinyxml2 10.0.0** — MusicXML output generation
+### Native Library (Android NDK, C++20) — `ml/omr/engine/`
+- **OpenCV** — image decode & preprocessing
+- **TensorFlow Lite** — segnet + encoder + decoder; all three stages are unified on TFLite. (No ONNX Runtime — that was only needed by the removed homr-based prototype.)
+- No third-party OMR/ML source is vendored or linked in.
 
-### Model Assets (loaded via Android AssetManager)
+### Model Assets
 ```
-assets/
-  segnet_308_int8.tflite
-  encoder_331_int8.tflite
-  decoder_331_int8.onnx
-  tokenizer_{rhythm,pitch,lift,note}.json
+<modelDir>/
+  segnet.tflite
+  encoder.tflite
+  decoder.tflite
+  tokenizer.json      -- single unified DeepScore vocabulary (round3train/tokenizer.json)
 ```
+Not yet bundled as Flutter assets — model export (`ml/omr/training/export_tflite.py`) hasn't been run against a finished Round 3 checkpoint yet. `OmrService.init(modelDir)` takes a plain filesystem directory path; copying the models out of the Flutter asset bundle onto disk is still open (see Known Gaps).
 
-### OMR Pipeline Stages (C++, lives in MusicScore repo)
-1. Preprocessing: autocrop → resize → color_adjust → noise_filtering
-2. Detection: staff_detection → staff_dewarping → note_detection → bar_line_detection
-3. Inference: TFLite segmentation → TFLite encoder → ONNX decoder
-4. Post-processing: tr_omr_parser → rhythm_rules → accidental_rules → music_xml_generator
+### OMR Pipeline Stages (C++, `ml/omr/engine/src/`)
+1. `preprocessor` → `perspective_corrector` → `noise_filter` — image cleanup
+2. `segnet_runner` (TFLite) → `staff_detector` → `staff_canvas` → `page_dewarper` — staff geometry
+3. `encoder_runner` (TFLite) → `decoder_runner` (TFLite, autoregressive) — seq2seq inference
+4. `token_parser` — token IDs ↔ strings via `tokenizer.json`
+
+## ML Training Pipelines (two parallel implementations — read before touching)
+
+There are **two** separate PyTorch training pipelines in this repo implementing roughly the same architecture:
+- `ml/omr/training/` + `ml/omr/data_gen/round{1,2,3}/` — what `ml/scripts/train_round.py` actually invokes for every round, defaulting to the shared `ml/data/tokenizer.json`.
+- `round3train/` — a separately-built Round 3 (grand staff) fork used for the actual recent Round 3 experiments; has its own `round3train/tokenizer.json`.
+
+These have drifted: `round3train/tokenizer.json` was recently changed to fix low note-pitch recognition accuracy (`note-{pitch}-{dur}` split into `note-{pitch}` + `dur-{dur}`, vocab 1013 → 258 — see `round3train/relabel_notes.py` for migrating existing labels without re-rendering images). `ml/data/tokenizer.json` and `ml/omr/training/` were **not** updated to match, so `train_round.py --round 3` currently still uses the old, un-split vocab. Decide whether to consolidate onto one pipeline before running more Round 3 training.
 
 ## iOS Status
 
-iOS has only a stub `AppDelegate.swift`. There is no native OMR bridge implemented for iOS yet.
+iOS has only a stub `AppDelegate.swift`. No native OMR bridge yet — planned as Dart FFI + a statically-linked `libomr_engine.a` (no ObjC/Swift bridge code needed, since `dart:ffi` works the same way on iOS). See `docs/flutter-integration-architect.md`.
+
+## Known Gaps / Follow-ups
+
+- `android/app/build.gradle.kts` now points `externalNativeBuild` at `ml/omr/engine/CMakeLists.txt`, but that CMake file's Android branch expects `-DOPENCV_ANDROID_SDK=` / `-DTFLITE_ROOT=` cache variables (classic `find_package`/`find_library`), while Gradle currently supplies OpenCV/TensorFlow Lite via **prefab** AARs (`buildFeatures.prefab = true`). This mismatch has not been reconciled or build-tested — no Android SDK/NDK toolchain was available to verify a real `flutter build apk` after this change; resolve and test on a machine with the Android toolchain before relying on it.
+- `OmrService.init(modelDir)` expects real filesystem paths; nothing yet copies the model files out of the Flutter asset bundle onto disk (native code can't read directly into the asset bundle on Android/iOS). Likely needs `path_provider` + a one-time copy step once models are actually exported.
+- Two training pipelines and their tokenizers have diverged — see "ML Training Pipelines" above.
 
 ## Platform Notes
 
@@ -154,4 +177,4 @@ iOS has only a stub `AppDelegate.swift`. There is no native OMR bridge implement
 - **C++ Standard:** C++20
 - **Java/Kotlin:** Java 17
 - **Gradle JVM heap:** 8 GB (`gradle.properties`)
-- The C++ source is NOT inside this repo — it is referenced by relative path from `CMakeLists.txt`: `../../../../../../MusicScore/app/src/main/cpp`. Both repos must be siblings on disk.
+- `ml/omr/engine/` builds standalone on Linux/WSL/Windows too (`omr_test`/`omr_eval` desktop binaries) — no Android-only code paths in the C++ itself.

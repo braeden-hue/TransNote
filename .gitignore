@@ -55,6 +55,7 @@ round3/models/
 round3train/*.pt
 round3train/**/*.pt
 round3train/checkpoints_by_epoch/
+round3train/data/
 *.onnx
 *.tflite
 
@@ -75,3 +76,10 @@ __pycache__/
 
 # Export temp dirs
 assets/_export_tmp/
+
+# Large model weights / prototype leftovers (2026-07-07 review)
+omr_latest_weights/
+andromr/
+
+# Word lock files
+~$*

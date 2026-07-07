@@ -98,6 +98,86 @@ def token_error_rate(pred: List[int], gt: List[int]) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  포스트프로세싱 + 마디 단위 TER (OMR-NED 방식, 수정 1~4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_BARLINE_TOKEN_STRS = frozenset({
+    'barline', 'barline-final', 'barline-start-repeat', 'barline-end-repeat',
+})
+
+_SPAN_PAIRS = {
+    'slur-start':           'slur-end',
+    'hairpin-cresc-start':  'hairpin-cresc-end',
+    'hairpin-dim-start':    'hairpin-dim-end',
+    'ottava-8va-start':     'ottava-8va-end',
+    'ottava-8vb-start':     'ottava-8vb-end',
+    'tuplet-3-start':       'tuplet-3-end',
+}
+_SPAN_ENDS = frozenset(_SPAN_PAIRS.values())
+
+
+def fix_chord_tokens(token_ids: List[int], id2tok: dict) -> List[int]:
+    """고아 chord- 토큰 제거: note- 또는 chord- 바로 뒤에만 허용."""
+    result = []
+    for tid in token_ids:
+        tok = id2tok.get(tid, '')
+        if tok.startswith('chord-'):
+            prev = id2tok.get(result[-1], '') if result else ''
+            if prev.startswith('note-') or prev.startswith('chord-'):
+                result.append(tid)
+        else:
+            result.append(tid)
+    return result
+
+
+def fix_span_tokens(token_ids: List[int], id2tok: dict) -> List[int]:
+    """짝 없는 span start/end 토큰 제거 (stack 기반)."""
+    remove = set()
+    stacks: dict = {s: [] for s in _SPAN_PAIRS}
+    for idx, tid in enumerate(token_ids):
+        tok = id2tok.get(tid, '')
+        if tok in _SPAN_PAIRS:
+            stacks[tok].append(idx)
+        elif tok in _SPAN_ENDS:
+            start = next(s for s, e in _SPAN_PAIRS.items() if e == tok)
+            if stacks[start]:
+                stacks[start].pop()
+            else:
+                remove.add(idx)
+    for indices in stacks.values():
+        remove.update(indices)
+    return [tid for i, tid in enumerate(token_ids) if i not in remove]
+
+
+def _split_measures(token_ids: List[int], barline_ids: set) -> List[List[int]]:
+    """barline ID로 마디 분리 (barline 포함)."""
+    measures, cur = [], []
+    for tid in token_ids:
+        cur.append(tid)
+        if tid in barline_ids:
+            measures.append(cur); cur = []
+    if cur:
+        measures.append(cur)
+    return measures
+
+
+def measure_segmented_ter(pred: List[int], gt: List[int],
+                           barline_ids: set) -> float:
+    """마디 단위 TER (OMR-NED 방식). 마디 간 오류 전파 차단."""
+    if not gt:
+        return 0.0 if not pred else 1.0
+    pred_m = _split_measures(pred, barline_ids)
+    gt_m   = _split_measures(gt,   barline_ids)
+    total_err = total_len = 0
+    for i in range(max(len(pred_m), len(gt_m))):
+        p = pred_m[i] if i < len(pred_m) else []
+        g = gt_m[i]   if i < len(gt_m)   else []
+        total_err += levenshtein(p, g)
+        total_len += len(g)
+    return total_err / max(total_len, 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Greedy decode (inference-mode, for validation TER)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -361,6 +441,7 @@ def train_seq2seq(args: argparse.Namespace,
 
     # ── Tokenizer ─────────────────────────────────────────────────────────────
     tok2id, id2tok = load_tokenizer(args.tokenizer)
+    barline_ids = {tok2id[t] for t in _BARLINE_TOKEN_STRS if t in tok2id}
     vocab_size = len(tok2id)
     print(f"  Vocabulary: {vocab_size} tokens")
 
@@ -473,7 +554,8 @@ def train_seq2seq(args: argparse.Namespace,
             gt_ids = [t for t in gt_ids if t not in (PAD_ID, EOS_ID)]
 
             pred_ids = greedy_decode(seq2seq, canvas, max_len=MAX_SEQ)
-            val_ter_sum += token_error_rate(pred_ids, gt_ids)
+            pred_ids = fix_span_tokens(fix_chord_tokens(pred_ids, id2tok), id2tok)
+            val_ter_sum += measure_segmented_ter(pred_ids, gt_ids, barline_ids)
             n_val       += 1
 
         val_ter = val_ter_sum / max(n_val, 1)

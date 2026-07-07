@@ -17,6 +17,37 @@
 
 ---
 
+## 진행 현황 업데이트 (2026-06-22)
+
+### 완료: 수정 1~4 — 카스케이딩 TER 오류 차단
+
+**배경**: 앞 토큰 오인식 시 이후 토큰이 연속 실패하는 문제(Cascading TER). TrOMR, OMR-NED 논문 참조.
+
+**구현된 함수 3종** (모든 대상 파일에 공통 삽입):
+- `fix_chord_tokens(token_ids, id2tok)` — 고아 `chord-` 토큰 제거 (앞에 `note-` / `chord-` 없으면 삭제)
+- `fix_span_tokens(token_ids, id2tok)` — stack 기반 짝 없는 span 토큰 제거 (slur, hairpin, ottava, tuplet)
+- `measure_segmented_ter(pred, gt, barline_ids)` — OMR-NED 방식 마디 단위 TER (barline으로 분리 → 마디 간 오류 전파 차단)
+
+**수정된 파일 (7개)**:
+| 파일 | 변경 내용 |
+|---|---|
+| `Modify_Round/round1train/train.py` | 헬퍼 블록 추가, validation loop에 fix + measure_segmented_ter |
+| `Modify_Round/round2train/train.py` | 동일 |
+| `Modify_Round/round3train/train.py` | 동일 (greedy_decode device 파라미터 포함) |
+| `ml/omr/training/train.py` | 동일 (pred_ids 변수명, greedy_decode max_len 파라미터) |
+| `Modify_Round/round1train/inference.py` | fix 함수 + measure_segmented_ter + barline_ids |
+| `Modify_Round/round2train/inference.py` | 동일 |
+| `Modify_Round/round3train/inference.py` | 동일 (treble/bass/else 3개 greedy_decode 호출 모두 패치) |
+
+**추가된 파일 (generate_scores.py 이전)**:
+- `ml/omr/data_gen/round1/generate_scores.py` — Round 1 기호 (clef-G/F, key 5종, time 3종, note/rest, barline)
+- `ml/omr/data_gen/round2/generate_scores.py` — Round 2 추가 (dynamics, hairpin, artic, ornament, slur, tuplet, ottava, chord)
+- `ml/omr/data_gen/round3/generate_scores.py` — Round 3 추가 (grand staff, staff-bass 토큰)
+
+**다음 단계**: Round 2 재학습 준비 완료 — `data_dir` = Round1+Round2 누적, tokenizer = round2train/tokenizer.json, `--resume` = root seq2seq_best.pt (val_TER 0.29, vocab 1012)
+
+---
+
 ### 우선순위 높은 TODO (학습 외)
 
 #### Flutter NotationWidget 미구현 — 데모 전 필수
@@ -56,13 +87,13 @@
 
 ---
 
-> 최종 수정: 2026-06-08  
-> **현재 단계**: Phase 2 완료 — Round 1/2 학습 완료 (팀원 `team_ml` 결과물 병합)  
-> **다음 실행**: Round 2 재학습 (누적 데이터 + 증강 강화) → Round 3 IMSLP 실사 fine-tuning  
+> 최종 수정: 2026-06-22  
+> **현재 단계**: 수정 1~4 완료 (fix_chord_tokens, fix_span_tokens, measure_segmented_ter) — Round 2 재학습 준비 완료  
+> **다음 실행**: Round 2 재학습 (누적 데이터 + 증강 강화, 목표 val_acc 75%+)  
 >  
 > **학습 현황**: Round 1 val_acc **72%** (TER 0.28), 평가 84~92% / Round 2 val_acc **64%** (Round 1보다 하락)  
-> 가중치 위치: `ml/models/round1/`, `ml/models/round2/`  
-> 개선 방안: `docs/score-training-agent.md` 참조
+> 가중치 위치: `segnet_best.pt`, `seq2seq_best.pt` (루트 — Round 1 기준)  
+> 개선 방안: `docs/score-training-agent.md` 참조 / 상세 구현: 본 문서 "진행 현황 업데이트 (2026-06-22)" 섹션
 
 ---
 

@@ -42,7 +42,9 @@ android {
 
     externalNativeBuild {
         cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
+            // ml/omr/engine — 자체 구현 C++ OMR 엔진 (Dart FFI 대상, libomr_engine.so).
+            // 예전 MusicScore/ 형제 저장소를 링크하던 android/app/src/main/cpp/CMakeLists.txt는 제거됨.
+            path = file("../../ml/omr/engine/CMakeLists.txt")
             version = "3.22.1"
         }
     }
@@ -68,10 +70,8 @@ dependencies {
     // OpenCV (prefab)
     implementation("org.opencv:opencv:4.9.0")
 
-    // TensorFlow Lite
+    // TensorFlow Lite — ml/omr/engine은 segnet/encoder/decoder 전부 TFLite로 통일되어
+    // 있으므로(homr 기반 구엔진과 달리) ONNX Runtime 의존성은 더 이상 필요 없다.
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
-
-    // ONNX Runtime (prefab)
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
 }

@@ -161,16 +161,81 @@ def measure_segmented_ter(pred, gt, barline_ids):
 @torch.no_grad()
 def greedy_decode(seq2seq, canvas, device, max_len=MAX_SEQ):
     seq2seq.eval()
-    memory = seq2seq.encode(canvas)
+    memory   = seq2seq.encode(canvas)
+    kv_cache = seq2seq.precompute_memory_kv(memory)  # cross-attention K,V 1회 계산 (Step1 가속)
     past   = torch.tensor([[SOS_ID]], dtype=torch.long, device=device)
     result = []
     for _ in range(max_len):
-        logits = seq2seq.decode_step(None, memory, past)
+        logits = seq2seq.decode_step_cached(kv_cache, past)
         nxt    = int(logits.argmax(-1).item())
         if nxt == EOS_ID: break
         if nxt != PAD_ID: result.append(nxt)
         past = torch.cat([past, torch.tensor([[nxt]], dtype=torch.long, device=device)], dim=1)
     return result
+
+
+class _Beam:
+    __slots__ = ('seq', 'tokens', 'score', 'finished')
+
+    def __init__(self, seq, tokens, score, finished):
+        self.seq = seq            # [1, t] decoder input so far (incl. SOS)
+        self.tokens = tokens       # generated token ids, excl. SOS/EOS/PAD
+        self.score = score         # cumulative log-probability
+        self.finished = finished   # hit EOS already
+
+
+@torch.no_grad()
+def beam_decode(seq2seq, canvas, device, beam_width=4, length_penalty=0.7, max_len=MAX_SEQ):
+    """Phase 3 검증용 beam search. inference.py의 beam_decode와 동일한 알고리즘
+    (KV-cache 없이 매 스텝 시퀀스 전체 재계산) — 다만 canvas가 val_loader에서 이미
+    정규화된 텐서로 나오므로 여기선 재정규화하지 않고 바로 encode한다.
+    cross-attention K,V는 precompute_memory_kv로 1회 계산해서 재사용한다(Step1 가속)."""
+    if beam_width <= 1:
+        return greedy_decode(seq2seq, canvas, device, max_len)
+
+    seq2seq.eval()
+    memory   = seq2seq.encode(canvas)
+    kv_cache = seq2seq.precompute_memory_kv(memory)
+    sos    = torch.tensor([[SOS_ID]], dtype=torch.long, device=device)
+    beams  = [_Beam(sos, [], 0.0, False)]
+
+    for _ in range(max_len):
+        if all(b.finished for b in beams):
+            break
+
+        candidates = []  # (score, parent_idx, token_id_or_None, advances)
+        for i, b in enumerate(beams):
+            if b.finished:
+                candidates.append((b.score, i, None, False))
+                continue
+            logits = seq2seq.decode_step_cached(kv_cache, b.seq)  # [1, vocab]
+            logp   = torch.log_softmax(logits[0], dim=-1)
+            logp[PAD_ID] = float('-inf')
+            topk_logp, topk_idx = logp.topk(beam_width)
+            for lp, idx in zip(topk_logp.tolist(), topk_idx.tolist()):
+                candidates.append((b.score + lp, i, idx, True))
+
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        candidates = candidates[:beam_width]
+
+        new_beams = []
+        for score, parent, tok, advances in candidates:
+            parent_beam = beams[parent]
+            if not advances:
+                new_beams.append(parent_beam)
+                continue
+            if tok == EOS_ID:
+                new_beams.append(_Beam(parent_beam.seq, parent_beam.tokens, score, True))
+            else:
+                new_seq = torch.cat(
+                    [parent_beam.seq, torch.tensor([[tok]], dtype=torch.long, device=device)],
+                    dim=1)
+                new_tokens = parent_beam.tokens + ([tok] if tok != PAD_ID else [])
+                new_beams.append(_Beam(new_seq, new_tokens, score, False))
+        beams = new_beams
+
+    best = max(beams, key=lambda b: b.score / max(len(b.tokens), 1) ** length_penalty)
+    return best.tokens
 
 
 def save_ckpt(model, path, extra=None):
@@ -400,7 +465,8 @@ def train_seq2seq(args, device, phase: int = 2):
             if n_val >= 50: break
             canvas = canvases[0:1].to(device)
             gt     = [t for t in tgt_out[0].tolist() if t not in (PAD_ID, EOS_ID)]
-            pred   = greedy_decode(seq2seq, canvas, device)
+            pred   = (beam_decode(seq2seq, canvas, device) if phase == 3
+                      else greedy_decode(seq2seq, canvas, device))
             pred   = fix_span_tokens(fix_chord_tokens(pred, id2tok), id2tok)
             ter_sum += measure_segmented_ter(pred, gt, barline_ids)
             n_val   += 1

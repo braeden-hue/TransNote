@@ -57,11 +57,12 @@ def greedy_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
     tile_f = (canvas.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
     inp    = torch.from_numpy(tile_f).unsqueeze(0).unsqueeze(0).to(device)
     seq2seq.eval()
-    memory = seq2seq.encode(inp)
+    memory   = seq2seq.encode(inp)
+    kv_cache = seq2seq.precompute_memory_kv(memory)  # cross-attention K,V 1회 계산 (Step1 가속)
     past   = torch.tensor([[SOS_ID]], dtype=torch.long, device=device)
     result = []
     for _ in range(max_len):
-        logits = seq2seq.decode_step(None, memory, past)
+        logits = seq2seq.decode_step_cached(kv_cache, past)
         logits[0, EOS_ID] *= EOS_BOOST
         nxt = int(logits.argmax(-1).item())
         if nxt == EOS_ID: break
@@ -103,7 +104,8 @@ def beam_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
     tile_f = (canvas.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
     inp    = torch.from_numpy(tile_f).unsqueeze(0).unsqueeze(0).to(device)
     seq2seq.eval()
-    memory = seq2seq.encode(inp)
+    memory   = seq2seq.encode(inp)
+    kv_cache = seq2seq.precompute_memory_kv(memory)  # cross-attention K,V 1회 계산 (Step1 가속)
 
     sos = torch.tensor([[SOS_ID]], dtype=torch.long, device=device)
     beams = [_Beam(sos, [], 0.0, False)]
@@ -117,7 +119,7 @@ def beam_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
             if b.finished:
                 candidates.append((b.score, i, None, False))
                 continue
-            logits = seq2seq.decode_step(None, memory, b.seq)  # [1, vocab]
+            logits = seq2seq.decode_step_cached(kv_cache, b.seq)  # [1, vocab]
             logits[0, EOS_ID] *= EOS_BOOST
             logp = torch.log_softmax(logits[0], dim=-1)
             logp[PAD_ID] = float('-inf')
@@ -255,13 +257,13 @@ def _extract_treble_bass(toks: List[str]) -> Tuple[List[str], List[str]]:
     """
     인터리빙 시퀀스 → (treble_toks, bass_toks) 분리.
 
-    GT 구조: [treble_m0] staff-bass [bass_m0] barline [treble_m1] staff-bass ...
+    구조 (GT/PRED 동일 — 모델이 GT와 같은 인터리빙 포맷으로 학습·예측함,
+    run_image()가 개별 오선을 따로 디코딩하지 않고 system canvas 하나로
+    전체 인터리빙 시퀀스를 한 번에 생성하기 때문):
+      [treble_m0] staff-bass [bass_m0] barline [treble_m1] staff-bass ...
       → barline은 bass 쪽에 포함, barline 이후 treble 모드로 복귀.
 
-    PRED 구조: [treble 전체] staff-bass [bass 전체]
-      → treble에 barline 포함, bass에 barline 포함.
-
-    두 경우 모두 동일한 로직으로 처리됨.
+    staff-bass/barline 토글을 반복 처리하므로 마디 수와 무관하게 동작한다.
     """
     treble: List[str] = []
     bass:   List[str] = []

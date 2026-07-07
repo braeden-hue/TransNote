@@ -63,7 +63,7 @@ class OmrInference:
     PATCH_SIZE    = 320
     STRIDE        = 160       # 50 % overlap
     NUM_CLASSES   = 6
-    SEG_STAFF_IDX = 3         # SEG_STAFF_LINE - 1 = index 3 in seg_maps list
+    SEG_STAFF_IDX = 4         # verified: class 4 = staff (both custom and Andromr models)
     IMG_MEAN      = 0.7931
     IMG_STD       = 0.1738
 
