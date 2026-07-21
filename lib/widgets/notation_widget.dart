@@ -8,9 +8,13 @@ const _marginL = 88.0;  // H/L 음자리표 + 박자표 공간 확보 (72 → 88
 const _marginY = 10.0;
 const _annotH  = 24.0;  // 상단 어노테이션 행 (셈여림·헤어핀·도돌이표)
 
-const _zoneBg      = [Color(0xFF0f0f22), Color(0xFF121230), Color(0xFF0f0f22)];
-const _dividerColor = Color(0xFF252550);
-const _bgCell      = Color(0xFF16162e);
+const _zoneBg      = [Color(0xFFFFFFFF), Color(0xFFF7F0E9), Color(0xFFFFFFFF)];
+const _dividerColor = Color(0xFFE4D6C6);
+const _bgCell      = Color(0x14222222);
+const _canvasBorder = Color(0xFFE4D6C6);
+const _labelColor  = Color(0xFF6E6259);
+const _zoneLabelColor = Color(0xFF9C9086);
+const _expectedColor = Color(0xFFC99400);
 
 class NotationWidget extends StatefulWidget {
   final List<ScoreNote> notes;
@@ -123,9 +127,11 @@ class _NotationWidgetState extends State<NotationWidget>
     return Container(
       height: _totalH,
       decoration: BoxDecoration(
-        color: const Color(0xFF0a0a1a),
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _canvasBorder),
       ),
+      clipBehavior: Clip.antiAlias,
       child: SingleChildScrollView(
         controller: _scrollCtrl,
         scrollDirection: Axis.horizontal,
@@ -236,7 +242,7 @@ class _NotationPainter extends CustomPainter {
       text: TextSpan(
         text: label,
         style: const TextStyle(
-          color: Color(0xFFCCCCCC),
+          color: _labelColor,
           fontSize: 20,
           fontWeight: FontWeight.bold,
           fontFamily: 'sans-serif',
@@ -252,7 +258,7 @@ class _NotationPainter extends CustomPainter {
   void _drawTimeSig(Canvas canvas) {
     if (timeSignature == null || timeSignature!.length < 2) return;
     const style = TextStyle(
-      color: Color(0xFFCCCCCC),
+      color: _labelColor,
       fontSize: 16,
       fontWeight: FontWeight.bold,
       fontFamily: 'sans-serif',
@@ -285,7 +291,7 @@ class _NotationPainter extends CustomPainter {
       text: TextSpan(
         text: text,
         style: const TextStyle(
-          color: Color(0xFF3c3c60),
+          color: _zoneLabelColor,
           fontSize: 10,
           fontFamily: 'sans-serif',
         ),
@@ -328,7 +334,7 @@ class _NotationPainter extends CustomPainter {
           ..lineTo(cx + 6, arrowY)
           ..close();
         canvas.drawPath(path,
-            Paint()..color = Color.fromARGB(arrowAlpha, 0xFF, 0xD7, 0x00));
+            Paint()..color = Color.fromARGB(arrowAlpha, 0xC9, 0x94, 0x00));
       }
 
       _drawAnnotations(canvas, note, x, w);
@@ -336,16 +342,16 @@ class _NotationPainter extends CustomPainter {
     }
   }
 
-  // 쉼표: 흰색 반투명 테두리만 있는 빈 박스
+  // 쉼표: 옅은 잉크 톤의 빈 박스
   void _drawRestCell(Canvas canvas, double x, double y, double w, Color beatColor) {
     final rRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(x + 2, y + 2, w - 4, _cellH - 4),
       const Radius.circular(4),
     );
-    canvas.drawRRect(rRect, Paint()..color = const Color(0x18FFFFFF));
+    canvas.drawRRect(rRect, Paint()..color = _bgCell);
     canvas.drawRRect(rRect,
         Paint()
-          ..color = beatColor.withAlpha(70)
+          ..color = beatColor.withAlpha(90)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5);
   }
@@ -354,9 +360,9 @@ class _NotationPainter extends CustomPainter {
       double x, double y, double w,
       Color beatColor, bool isHL, bool isExp) {
     final textColor = isHL
-        ? Colors.white
+        ? const Color(0xFF222222)
         : isExp
-            ? const Color(0xFFFFD700)
+            ? _expectedColor
             : beatColor;
     final fs = w < 26 ? 10.0 : w < 42 ? 12.0 : 14.0;
     final tp = TextPainter(
@@ -384,13 +390,13 @@ class _NotationPainter extends CustomPainter {
 
     if (isHL) {
       fillColor   = beatColor.withAlpha(80);
-      strokeColor = Colors.white.withAlpha(220);
+      strokeColor = const Color(0xFF222222).withAlpha(220);
       strokeW     = 3.0;
     } else if (isExp) {
       final alpha = (25 + pulseValue * 55).round();
-      fillColor   = const Color(0xFFFFD700).withAlpha(alpha);
+      fillColor   = _expectedColor.withAlpha(alpha);
       final strokeAlpha = (160 + pulseValue * 95).round();
-      strokeColor = Color.fromARGB(strokeAlpha, 0xFF, 0xD7, 0x00);
+      strokeColor = Color.fromARGB(strokeAlpha, 0xC9, 0x94, 0x00);
       strokeW     = 2.5;
     } else {
       fillColor   = _bgCell;
@@ -423,9 +429,9 @@ class _NotationPainter extends CustomPainter {
 
     final allNotes  = [note.pitch, ...note.chordNotes];
     final textColor = isHL
-        ? Colors.white
+        ? const Color(0xFF222222)
         : isExp
-            ? const Color(0xFFFFD700)
+            ? _expectedColor
             : beatColor;
     final fs    = allNotes.length <= 2 ? 10.0 : 8.5;
     final label = allNotes.map(formatNoteName).join('\n');
@@ -452,14 +458,14 @@ class _NotationPainter extends CustomPainter {
     if (note.dynamicMark != null) {
       _drawAnnotText(
         canvas, _dynText(note.dynamicMark!), x, w,
-        _dynSize(note.dynamicMark!), const Color(0xFFFF9966),
+        _dynSize(note.dynamicMark!), const Color(0xFFCC6A3D),
       );
     } else if (note.hairpin != null) {
       final text = note.hairpin == 'cresc' ? '점점 세게' : '점점 약하게';
-      _drawAnnotText(canvas, text, x, w, 9.0, const Color(0xFF99CCFF));
+      _drawAnnotText(canvas, text, x, w, 9.0, const Color(0xFF3E7FBF));
     } else if (note.repeatMark != null) {
       final text = note.repeatMark == 'end-repeat' ? '반복' : '여기부터';
-      _drawAnnotText(canvas, text, x, w, 10.0, const Color(0xFFFFCC44));
+      _drawAnnotText(canvas, text, x, w, 10.0, _expectedColor);
     }
   }
 

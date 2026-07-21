@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/glory_theme.dart';
 
 const _wkW = 36.0;
 const _wkH = 148.0;
@@ -138,7 +139,7 @@ class _PianoWidgetState extends State<PianoWidget>
       final r = Color.lerp(const Color(0xFFFF8888), const Color(0xFFFF2222), blinkVal)!;
       return r;
     }
-    if (note == widget.highlightNote) return const Color(0xFF5BC0EB);
+    if (note == widget.highlightNote) return const Color(0xFFE0B98C);
     return const Color(0xFFF4EFE6);
   }
 
@@ -147,7 +148,7 @@ class _PianoWidgetState extends State<PianoWidget>
     if (note == widget.wrongNote) {
       return Color.lerp(const Color(0xFF660000), const Color(0xFFCC0000), blinkVal)!;
     }
-    if (note == widget.highlightNote) return const Color(0xFF1a6080);
+    if (note == widget.highlightNote) return const Color(0xFF7A4A20);
     return const Color(0xFF1C1C1C);
   }
 
@@ -156,7 +157,7 @@ class _PianoWidgetState extends State<PianoWidget>
       return [BoxShadow(color: Colors.red.withAlpha(180), blurRadius: 14, spreadRadius: 3)];
     }
     if (note == widget.highlightNote) {
-      return [BoxShadow(color: const Color(0xFF5BC0EB).withAlpha(140), blurRadius: 10, spreadRadius: 2)];
+      return [BoxShadow(color: gloryAccent.withValues(alpha: .55), blurRadius: 10, spreadRadius: 2)];
     }
     return null;
   }
@@ -185,7 +186,7 @@ class _PianoWidgetState extends State<PianoWidget>
 
     return Container(
       height: _wkH + 8,
-      color: const Color(0xFF111111),
+      color: glorySurface,
       child: SingleChildScrollView(
         controller: _scrollCtrl,
         scrollDirection: Axis.horizontal,
@@ -229,7 +230,7 @@ class _PianoWidgetState extends State<PianoWidget>
                                 color: k.note == widget.wrongNote
                                     ? Colors.white
                                     : k.note == widget.highlightNote
-                                        ? Colors.white
+                                        ? gloryInk
                                         : const Color(0xFFB0A090),
                                 fontWeight: (k.note == widget.wrongNote || k.note == widget.highlightNote)
                                     ? FontWeight.bold

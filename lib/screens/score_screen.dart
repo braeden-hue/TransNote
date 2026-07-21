@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/samples.dart';
 import '../services/audio_service.dart';
+import '../theme/glory_theme.dart';
 import '../widgets/notation_widget.dart';
 import '../widgets/piano_widget.dart';
 
@@ -15,8 +16,17 @@ class ScoreScreen extends StatefulWidget {
 
 class _ScoreScreenState extends State<ScoreScreen> {
   SampleScore? _selected;
+  bool _practiceMode = false;
+
+  // ── 감상 모드 ────────────────────────────────────────────────────────────
   int _hlIdx = -1;
   String? _pianoNote;
+
+  // ── 연주 모드 ────────────────────────────────────────────────────────────
+  int _expectedIdx = 0;
+  int _practiceHlIdx = -1;
+  String? _wrongNote;
+  bool _done = false;
 
   final _trebleCtrl = ScrollController();
   final _bassCtrl   = ScrollController();
@@ -53,8 +63,26 @@ class _ScoreScreenState extends State<ScoreScreen> {
   void _selectSample(SampleScore s) {
     setState(() {
       _selected = s;
+      _practiceMode = false;
       _hlIdx = -1;
       _pianoNote = null;
+      _resetPractice();
+    });
+  }
+
+  void _resetPractice() {
+    _expectedIdx = 0;
+    _practiceHlIdx = -1;
+    _wrongNote = null;
+    _done = false;
+  }
+
+  void _setMode(bool practice) {
+    setState(() {
+      _practiceMode = practice;
+      _hlIdx = -1;
+      _pianoNote = null;
+      _resetPractice();
     });
   }
 
@@ -67,30 +95,75 @@ class _ScoreScreenState extends State<ScoreScreen> {
     });
   }
 
+  void _onPracticeKeyDown(String note) {
+    if (_selected == null || _done) return;
+    _audio.unlock();
+    _audio.playNote(note);
+    final expected = _selected!.notes[_expectedIdx];
+    if (note == expected.pitch) {
+      setState(() {
+        _wrongNote = null;
+        _practiceHlIdx = _expectedIdx;
+      });
+    } else {
+      setState(() => _wrongNote = note);
+    }
+  }
+
+  void _onPracticeKeyUp(String note) {
+    if (note == _wrongNote) setState(() => _wrongNote = null);
+    if (_selected != null && !_done) {
+      final expected = _selected!.notes[_expectedIdx];
+      if (note == expected.pitch && _practiceHlIdx == _expectedIdx) {
+        final next = _expectedIdx + 1;
+        setState(() {
+          if (next >= _selected!.notes.length) {
+            _done = true;
+            _practiceHlIdx = -1;
+          } else {
+            _expectedIdx = next;
+            _practiceHlIdx = -1;
+          }
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0d0d1f),
+      backgroundColor: gloryBg,
       body: SafeArea(
-        child: _selected == null ? _buildGrid() : _buildNotationView(),
+        child: _selected == null ? _buildGrid(context) : _buildDetail(),
       ),
     );
   }
 
-  Widget _buildGrid() {
+  Widget _buildGrid(BuildContext context) {
     return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text('악보 선택',
-                    style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                SizedBox(height: 4),
-                Text('샘플 악보를 골라 커스텀 표기법으로 확인하세요',
-                    style: TextStyle(color: Color(0xFF6060a0), fontSize: 13)),
+            padding: const EdgeInsets.fromLTRB(8, 12, 20, 12),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, color: gloryInk),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('예시 악보 체험',
+                          style: TextStyle(color: gloryInk, fontSize: 20, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 2),
+                      Text('샘플 악보를 감상하거나 직접 연주해보세요',
+                          style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12)),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -117,72 +190,56 @@ class _ScoreScreenState extends State<ScoreScreen> {
     );
   }
 
-  Widget _buildNotationView() {
+  Widget _buildDetail() {
     final s = _selected!;
     return Column(
       children: [
-        // Top bar
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          color: const Color(0xFF12122a),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(4, 8, 12, 10),
+          decoration: const BoxDecoration(
+            color: glorySurface,
+            border: Border(bottom: BorderSide(color: gloryBorder)),
+          ),
+          child: Column(
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => setState(() {
-                  _selected = null;
-                  _hlIdx = -1;
-                  _pianoNote = null;
-                }),
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: gloryInk),
+                    onPressed: () => setState(() {
+                      _selected = null;
+                      _practiceMode = false;
+                    }),
+                  ),
+                  Expanded(
+                    child: Text('${s.emoji} ${s.title}',
+                        style: const TextStyle(color: gloryInk, fontSize: 15, fontWeight: FontWeight.bold),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+                  if (_practiceMode)
+                    IconButton(
+                      icon: Icon(Icons.refresh, color: gloryInk.withValues(alpha: .5)),
+                      tooltip: '처음부터',
+                      onPressed: () => setState(_resetPractice),
+                    ),
+                ],
               ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('${s.emoji} ${s.title}',
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                    Text('${s.tempo} BPM · ${s.timeSignature[0]}/${s.timeSignature[1]}박자 · ${s.notes.length}음',
-                        style: const TextStyle(color: Color(0xFF6060a0), fontSize: 11)),
-                  ],
-                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                child: _ModeToggle(practiceMode: _practiceMode, onChanged: _setMode),
               ),
             ],
           ),
         ),
-        // Notation area
         Expanded(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('음표를 눌러보세요',
-                      style: TextStyle(color: Color(0xFF6060a0), fontSize: 12)),
-                  const SizedBox(height: 8),
-                  NotationWidget(
-                    notes: s.notes,
-                    highlightIdx: _hlIdx,
-                    onNoteTap: _onNoteTap,
-                    timeSignature: s.timeSignature,
-                    scrollController: _trebleCtrl,
-                  ),
-                  if (_pianoNote != null) ...[
-                    const SizedBox(height: 12),
-                    _NoteInfoBar(pitch: _pianoNote!),
-                  ],
-                  const SizedBox(height: 12),
-                  _buildBeatLegend(),
-                ],
-              ),
-            ),
-          ),
+          child: _practiceMode
+              ? (_done ? _buildDoneView() : _buildPracticeView(s))
+              : _buildListenView(s),
         ),
-        // Piano at bottom
         Container(
           decoration: const BoxDecoration(
-            color: Color(0xFF0a0a1a),
-            border: Border(top: BorderSide(color: Color(0xFF252550), width: 1)),
+            color: glorySurface,
+            border: Border(top: BorderSide(color: gloryBorder, width: 1)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -190,37 +247,164 @@ class _ScoreScreenState extends State<ScoreScreen> {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Row(
-                  children: [
-                    const Text('피아노',
-                        style: TextStyle(color: Color(0xFF6060a0), fontSize: 11, fontWeight: FontWeight.bold)),
-                    const SizedBox(width: 8),
-                    if (_pianoNote != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF4444).withAlpha(40),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFFF4444), width: 1),
-                        ),
-                        child: Text(_pianoNote!,
-                            style: const TextStyle(color: Color(0xFFFF4444), fontSize: 11, fontWeight: FontWeight.bold)),
-                      ),
-                  ],
-                ),
+                child: _practiceMode ? _buildPracticeBadgeRow(s) : _buildListenBadgeRow(),
               ),
               PianoWidget(
-                highlightNote: _pianoNote,
-                onKeyTap: (note) {
-                  _audio.unlock();
-                  _audio.playNote(note);
-                  setState(() => _pianoNote = note);
-                },
+                highlightNote: _practiceMode
+                    ? (_done ? null : (_practiceHlIdx >= 0 && _practiceHlIdx < s.notes.length ? s.notes[_practiceHlIdx].pitch : null))
+                    : _pianoNote,
+                wrongNote: _practiceMode ? _wrongNote : null,
+                onKeyDown: _practiceMode ? _onPracticeKeyDown : null,
+                onKeyUp: _practiceMode ? _onPracticeKeyUp : null,
+                onKeyTap: _practiceMode
+                    ? (_) {}
+                    : (note) {
+                        _audio.unlock();
+                        _audio.playNote(note);
+                        setState(() => _pianoNote = note);
+                      },
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildListenBadgeRow() {
+    return Row(
+      children: [
+        Text('피아노',
+            style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11, fontWeight: FontWeight.bold)),
+        const SizedBox(width: 8),
+        if (_pianoNote != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF4444).withAlpha(30),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFFF4444), width: 1),
+            ),
+            child: Text(_pianoNote!,
+                style: const TextStyle(color: Color(0xFFFF4444), fontSize: 11, fontWeight: FontWeight.bold)),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPracticeBadgeRow(SampleScore s) {
+    final total = s.notes.length;
+    return Row(
+      children: [
+        Text('피아노 건반',
+            style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11, fontWeight: FontWeight.bold)),
+        const SizedBox(width: 10),
+        if (!_done && _expectedIdx < total) _ExpectedBadge(pitch: s.notes[_expectedIdx].pitch),
+        if (_wrongNote != null) ...[
+          const SizedBox(width: 8),
+          _WrongBadge(pitch: _wrongNote!),
+        ],
+        const Spacer(),
+        Text('${_done ? total : _expectedIdx} / $total',
+            style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _buildListenView(SampleScore s) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('음표를 눌러보세요',
+                style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12)),
+            const SizedBox(height: 8),
+            NotationWidget(
+              notes: s.notes,
+              highlightIdx: _hlIdx,
+              onNoteTap: _onNoteTap,
+              timeSignature: s.timeSignature,
+              scrollController: _trebleCtrl,
+            ),
+            if (_pianoNote != null) ...[
+              const SizedBox(height: 12),
+              _NoteInfoBar(pitch: _pianoNote!),
+            ],
+            const SizedBox(height: 12),
+            _buildBeatLegend(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPracticeView(SampleScore s) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.arrow_upward, color: Color(0xFFC99400), size: 14),
+              const SizedBox(width: 4),
+              Text('금색 화살표 음을 피아노에서 찾아 누르세요',
+                  style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 12)),
+            ],
+          ),
+          if (_wrongNote != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.close, color: Color(0xFFFF4444), size: 14),
+                const SizedBox(width: 4),
+                Text('$_wrongNote 는 틀린 음입니다',
+                    style: const TextStyle(color: Color(0xFFE64545), fontSize: 12)),
+              ],
+            ),
+          ],
+          const SizedBox(height: 8),
+          NotationWidget(
+            notes: s.notes,
+            highlightIdx: _practiceHlIdx,
+            expectedIdx: _expectedIdx,
+            timeSignature: s.timeSignature,
+            scrollController: _trebleCtrl,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDoneView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('🎉', style: TextStyle(fontSize: 64)),
+          const SizedBox(height: 16),
+          const Text('연주 완료!',
+              style: TextStyle(color: gloryInk, fontSize: 28, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text('${_selected!.title} 를 완주했습니다',
+              style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 15)),
+          const SizedBox(height: 32),
+          FilledButton.icon(
+            onPressed: () => setState(_resetPractice),
+            icon: const Icon(Icons.refresh),
+            label: const Text('다시 연주하기'),
+            style: gloryFilledButtonStyle(background: const Color(0xFF7BC67E)),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: () => _setMode(false),
+            style: gloryOutlinedButtonStyle(),
+            child: const Text('감상하기로 전환'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -242,10 +426,53 @@ class _ScoreScreenState extends State<ScoreScreen> {
               decoration: BoxDecoration(color: e.$1, borderRadius: BorderRadius.circular(2)),
             ),
             const SizedBox(width: 4),
-            Text(e.$2, style: const TextStyle(color: Color(0xFF6060a0), fontSize: 11)),
+            Text(e.$2, style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11)),
           ],
         ),
       )).toList(),
+    );
+  }
+}
+
+class _ModeToggle extends StatelessWidget {
+  final bool practiceMode;
+  final ValueChanged<bool> onChanged;
+  const _ModeToggle({required this.practiceMode, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(color: gloryBg, borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        children: [
+          Expanded(child: _segment('감상하기', !practiceMode, () => onChanged(false))),
+          Expanded(child: _segment('연주하기', practiceMode, () => onChanged(true))),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment(String label, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? gloryInk : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? gloryBg : gloryInk.withValues(alpha: .5),
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -267,17 +494,16 @@ class _SampleCard extends StatelessWidget {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF12122a),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF252550), width: 1),
+          color: glorySurface,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: gloryInk.withValues(alpha: .06), blurRadius: 10, offset: const Offset(0, 4))],
         ),
         child: Stack(
           children: [
-            // Mini beat preview at bottom
             Positioned(
               bottom: 0, left: 0, right: 0,
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
                 child: SizedBox(
                   height: 6,
                   child: Row(
@@ -298,11 +524,11 @@ class _SampleCard extends StatelessWidget {
                   Text(sample.emoji, style: const TextStyle(fontSize: 28)),
                   const SizedBox(height: 6),
                   Text(sample.title,
-                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: gloryInk, fontSize: 13, fontWeight: FontWeight.bold),
                       maxLines: 2, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
                   Text('${sample.notes.length}음 · ${sample.tempo}BPM',
-                      style: TextStyle(color: color.withAlpha(180), fontSize: 11)),
+                      style: TextStyle(color: color.withAlpha(220), fontSize: 11)),
                 ],
               ),
             ),
@@ -331,25 +557,77 @@ class _NoteInfoBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1a1a35),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF252550)),
+        color: glorySurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: gloryBorder),
       ),
       child: Row(
         children: [
           Text(pitch,
-              style: const TextStyle(color: Color(0xFFFF6B35), fontSize: 18, fontWeight: FontWeight.bold)),
+              style: const TextStyle(color: gloryAccent, fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(width: 12),
           Text(solfege,
-              style: const TextStyle(color: Colors.white, fontSize: 16)),
+              style: const TextStyle(color: gloryInk, fontSize: 16)),
           const SizedBox(width: 8),
           Text('($oct옥타브)',
-              style: const TextStyle(color: Color(0xFF6060a0), fontSize: 12)),
+              style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12)),
           const Spacer(),
-          const Icon(Icons.touch_app, color: Color(0xFF5BC0EB), size: 16),
+          const Icon(Icons.touch_app, color: gloryAccent, size: 16),
           const SizedBox(width: 4),
           const Text('건반에 표시됨',
-              style: TextStyle(color: Color(0xFF5BC0EB), fontSize: 11)),
+              style: TextStyle(color: gloryAccent, fontSize: 11)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpectedBadge extends StatelessWidget {
+  final String pitch;
+  const _ExpectedBadge({required this.pitch});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFC99400).withAlpha(25),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFC99400), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('▲ ', style: TextStyle(color: Color(0xFFC99400), fontSize: 10)),
+          Text(pitch,
+              style: const TextStyle(
+                  color: Color(0xFFC99400), fontSize: 11, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+}
+
+class _WrongBadge extends StatelessWidget {
+  final String pitch;
+  const _WrongBadge({required this.pitch});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF4444).withAlpha(25),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFF4444), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('✕ ', style: TextStyle(color: Color(0xFFFF4444), fontSize: 10)),
+          Text(pitch,
+              style: const TextStyle(
+                  color: Color(0xFFFF4444), fontSize: 11, fontWeight: FontWeight.bold)),
         ],
       ),
     );
