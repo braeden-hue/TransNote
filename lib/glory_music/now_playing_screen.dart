@@ -54,30 +54,33 @@ class _GloryNowPlayingScreenState extends State<GloryNowPlayingScreen> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new, color: gloryInk, size: 20),
+                    icon: Icon(Icons.arrow_back_ios_new, color: gloryInk, size: 20),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Now Playing',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: gloryInk),
                     ),
                   ),
-                  IconButton(icon: const Icon(Icons.more_horiz, color: gloryInk), onPressed: () {}),
+                  IconButton(icon: Icon(Icons.more_horiz, color: gloryInk), onPressed: () {}),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            Container(
-              width: 218,
-              height: 258,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                gradient: LinearGradient(colors: widget.album.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .25), blurRadius: 30, offset: const Offset(0, 16))],
+            Hero(
+              tag: 'track-art-${widget.album.title}-${widget.trackIndex}',
+              child: Container(
+                width: 258,
+                height: 258,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  gradient: LinearGradient(colors: widget.album.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .25), blurRadius: 30, offset: const Offset(0, 16))],
+                ),
+                child: const Icon(Icons.person, color: Colors.white24, size: 96),
               ),
-              child: const Icon(Icons.person, color: Colors.white24, size: 96),
             ),
             const SizedBox(height: 28),
             Padding(
@@ -87,7 +90,7 @@ class _GloryNowPlayingScreenState extends State<GloryNowPlayingScreen> {
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w500, color: gloryInk),
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w500, color: gloryInk),
               ),
             ),
             const SizedBox(height: 8),
@@ -117,9 +120,9 @@ class _GloryNowPlayingScreenState extends State<GloryNowPlayingScreen> {
                     data: SliderTheme.of(context).copyWith(
                       trackHeight: 6,
                       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                      activeTrackColor: gloryInk,
-                      inactiveTrackColor: gloryInk.withValues(alpha: .15),
-                      thumbColor: gloryInk,
+                      activeTrackColor: gloryAccent,
+                      inactiveTrackColor: gloryAccent.withValues(alpha: .15),
+                      thumbColor: gloryAccent,
                       overlayShape: SliderComponentShape.noOverlay,
                     ),
                     child: Slider(
@@ -153,7 +156,7 @@ class _GloryNowPlayingScreenState extends State<GloryNowPlayingScreen> {
                     onPressed: () => setState(() => _shuffle = !_shuffle),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.skip_previous, color: gloryInk, size: 34),
+                    icon: Icon(Icons.skip_previous, color: gloryInk, size: 34),
                     onPressed: () => _skip(-1),
                   ),
                   GestureDetector(
@@ -161,12 +164,16 @@ class _GloryNowPlayingScreenState extends State<GloryNowPlayingScreen> {
                     child: Container(
                       width: 72,
                       height: 72,
-                      decoration: const BoxDecoration(shape: BoxShape.circle, color: gloryInk),
-                      child: Icon(_playing ? Icons.pause : Icons.play_arrow, color: gloryBg, size: 34),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: gloryAccent,
+                        boxShadow: [BoxShadow(color: gloryAccent.withValues(alpha: .35), blurRadius: 20, offset: const Offset(0, 8))],
+                      ),
+                      child: Icon(_playing ? Icons.pause : Icons.play_arrow, color: Colors.white, size: 34),
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.skip_next, color: gloryInk, size: 34),
+                    icon: Icon(Icons.skip_next, color: gloryInk, size: 34),
                     onPressed: () => _skip(1),
                   ),
                   IconButton(

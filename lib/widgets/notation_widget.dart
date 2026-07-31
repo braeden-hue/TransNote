@@ -8,13 +8,23 @@ const _marginL = 88.0;  // H/L 음자리표 + 박자표 공간 확보 (72 → 88
 const _marginY = 10.0;
 const _annotH  = 24.0;  // 상단 어노테이션 행 (셈여림·헤어핀·도돌이표)
 
-const _zoneBg      = [Color(0xFFFFFFFF), Color(0xFFF7F0E9), Color(0xFFFFFFFF)];
+// 규칙1(세로 위치=음높이) 범례 색과 반드시 일치해야 함 — 높음(파랑끼)/중간(중립)/낮음(브라운끼).
+const _zoneBg      = [Color(0xFFEBF0F8), Color(0xFFF7F2EC), Color(0xFFF7EAD9)];
 const _dividerColor = Color(0xFFE4D6C6);
 const _bgCell      = Color(0x14222222);
 const _canvasBorder = Color(0xFFE4D6C6);
 const _labelColor  = Color(0xFF6E6259);
 const _zoneLabelColor = Color(0xFF9C9086);
 const _expectedColor = Color(0xFFC99400);
+
+// 마디 중간 클렙 전환 배경 틴트 — 같은 note 리스트 안에 서로 다른 active clef가 실제로
+// 섞여 있을 때만(hasMixedClef) 그린다. ~12% opacity (0x1F/255). docs/music-notation-rule-designer.md 참고.
+const _clefTintTreble = Color(0x1F6C63FF); // #6C63FF
+const _clefTintBass   = Color(0x1FFFB347); // #FFB347
+
+// 마디 시작 기준점 점(●)을 표시할 존 인덱스 — online_webpage/js/notation.js의 REF_ZONE과 동일해야 함.
+// treble: 가온다(4옥) = 삼등분 중 최하단(2) / bass: 가온다 기준점 = 삼등분 중 중간(1)
+const _refZone = {'treble': 2, 'bass': 1};
 
 class NotationWidget extends StatefulWidget {
   final List<ScoreNote> notes;
@@ -104,7 +114,7 @@ class _NotationWidgetState extends State<NotationWidget>
         continue;
       }
       final w    = note.duration * _unitW - 4;
-      final zone = pitchToZone(note.pitch, clef: widget.clef);
+      final zone = pitchToZone(note.pitch, clef: effectiveClef(note, widget.clef));
       final y    = _annotH + _marginY + zone * _zoneH + 5;
       if (local.dx >= x && local.dx <= x + w &&
           local.dy >= y && local.dy <= y + _cellH) {
@@ -305,6 +315,9 @@ class _NotationPainter extends CustomPainter {
   // ─────────────────────────────────────────────────────────────────────────
 
   void _drawNotes(Canvas canvas) {
+    // 마디 중간 클렙 전환 배경 틴트는 이 note 리스트 안에 실제로 서로 다른 active clef가
+    // 섞여 있을 때만 켠다 — 단일 클렙 리스트의 기존 렌더링은 절대 바뀌지 않아야 함.
+    final mixedClef = hasMixedClef(notes, clef);
     double x = _marginL + 4;
     for (int i = 0; i < notes.length; i++) {
       final note      = notes[i];
@@ -312,8 +325,11 @@ class _NotationPainter extends CustomPainter {
       final beatColor = Color(beatColorValues[note.beat] ?? 0xFF888888);
       final isHL      = i == highlightIdx;
       final isExp     = i == expectedIdx;
-      final zone      = note.isRest ? 1 : pitchToZone(note.pitch, clef: clef);
+      final effClef   = effectiveClef(note, clef);
+      final zone      = note.isRest ? 1 : pitchToZone(note.pitch, clef: effClef);
       final y         = _staffY(zone) + 5;
+
+      if (mixedClef) _drawClefTint(canvas, x, y, w, effClef);
 
       if (note.isRest) {
         _drawRestCell(canvas, x, y, w, beatColor);
@@ -342,6 +358,19 @@ class _NotationPainter extends CustomPainter {
     }
   }
 
+  // 마디 중간 클렙 전환 배경 틴트 — 텍스트/테두리/하이라이트보다 아래 레이어에 그린다.
+  // hasMixedClef()가 true인 경우에만 호출됨 (_drawNotes에서 게이팅).
+  void _drawClefTint(Canvas canvas, double x, double y, double w, String effClef) {
+    final tint = effClef == 'bass' ? _clefTintBass : _clefTintTreble;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(x, y, w, _cellH),
+        const Radius.circular(4),
+      ),
+      Paint()..color = tint,
+    );
+  }
+
   // 쉼표: 옅은 잉크 톤의 빈 박스
   void _drawRestCell(Canvas canvas, double x, double y, double w, Color beatColor) {
     final rRect = RRect.fromRectAndRadius(
@@ -359,6 +388,30 @@ class _NotationPainter extends CustomPainter {
   void _drawSingleNote(Canvas canvas, ScoreNote note,
       double x, double y, double w,
       Color beatColor, bool isHL, bool isExp) {
+    // 규칙: 단음은 사각형 박스 없이 문자/숫자만 기록 — 셀 경계는 박자색 밑줄로만 구분
+    // (online_webpage/js/notation.js의 단음 렌더링과 동일 규칙)
+    Color underlineColor;
+    double underlineW;
+    if (isHL) {
+      underlineColor = const Color(0xFF222222).withAlpha(220);
+      underlineW = 3.0;
+    } else if (isExp) {
+      final strokeAlpha = (150 + pulseValue * 90).round();
+      underlineColor = Color.fromARGB(strokeAlpha, 0xC9, 0x94, 0x00);
+      underlineW = 3.0;
+    } else {
+      underlineColor = beatColor.withAlpha(190);
+      underlineW = 2.5;
+    }
+    canvas.drawLine(
+      Offset(x, y + _cellH),
+      Offset(x + w, y + _cellH),
+      Paint()
+        ..color = underlineColor
+        ..strokeWidth = underlineW
+        ..strokeCap = StrokeCap.round,
+    );
+
     final textColor = isHL
         ? const Color(0xFF222222)
         : isExp
@@ -488,7 +541,8 @@ class _NotationPainter extends CustomPainter {
   }
 
   void _drawMeasureDots(Canvas canvas) {
-    final refCY = _annotH + _marginY + _zoneH + _zoneH / 2;
+    final zone  = _refZone[clef] ?? 2;
+    final refCY = _staffY(zone) + _zoneH / 2;
     double x = _marginL + 4;
     for (final note in notes) {
       if (note.beat == 1) {

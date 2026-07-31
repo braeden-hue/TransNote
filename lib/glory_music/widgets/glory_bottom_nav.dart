@@ -9,15 +9,15 @@ class GloryBottomNav extends StatelessWidget {
     return Container(
       height: 90,
       padding: const EdgeInsets.only(bottom: 14),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: gloryNavBg,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           Icon(Icons.home_outlined, color: gloryInk.withValues(alpha: .3), size: 28),
-          const Icon(Icons.music_note, color: gloryAccent, size: 28),
+          Icon(Icons.music_note, color: gloryAccent, size: 28),
           Icon(Icons.search, color: gloryInk.withValues(alpha: .3), size: 28),
           Icon(Icons.radio, color: gloryInk.withValues(alpha: .3), size: 28),
         ],

@@ -148,7 +148,7 @@ class _ScoreScreenState extends State<ScoreScreen> {
             child: Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.arrow_back, color: gloryInk),
+                  icon: Icon(Icons.arrow_back, color: gloryInk),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
                 const SizedBox(width: 4),
@@ -156,7 +156,7 @@ class _ScoreScreenState extends State<ScoreScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('예시 악보 체험',
+                      Text('예시 악보 체험',
                           style: TextStyle(color: gloryInk, fontSize: 20, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 2),
                       Text('샘플 악보를 감상하거나 직접 연주해보세요',
@@ -196,7 +196,7 @@ class _ScoreScreenState extends State<ScoreScreen> {
       children: [
         Container(
           padding: const EdgeInsets.fromLTRB(4, 8, 12, 10),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: glorySurface,
             border: Border(bottom: BorderSide(color: gloryBorder)),
           ),
@@ -205,7 +205,7 @@ class _ScoreScreenState extends State<ScoreScreen> {
               Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back, color: gloryInk),
+                    icon: Icon(Icons.arrow_back, color: gloryInk),
                     onPressed: () => setState(() {
                       _selected = null;
                       _practiceMode = false;
@@ -213,7 +213,7 @@ class _ScoreScreenState extends State<ScoreScreen> {
                   ),
                   Expanded(
                     child: Text('${s.emoji} ${s.title}',
-                        style: const TextStyle(color: gloryInk, fontSize: 15, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: gloryInk, fontSize: 15, fontWeight: FontWeight.bold),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                   ),
                   if (_practiceMode)
@@ -237,7 +237,7 @@ class _ScoreScreenState extends State<ScoreScreen> {
               : _buildListenView(s),
         ),
         Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: glorySurface,
             border: Border(top: BorderSide(color: gloryBorder, width: 1)),
           ),
@@ -385,7 +385,7 @@ class _ScoreScreenState extends State<ScoreScreen> {
         children: [
           const Text('🎉', style: TextStyle(fontSize: 64)),
           const SizedBox(height: 16),
-          const Text('연주 완료!',
+          Text('연주 완료!',
               style: TextStyle(color: gloryInk, fontSize: 28, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text('${_selected!.title} 를 완주했습니다',
@@ -524,7 +524,7 @@ class _SampleCard extends StatelessWidget {
                   Text(sample.emoji, style: const TextStyle(fontSize: 28)),
                   const SizedBox(height: 6),
                   Text(sample.title,
-                      style: const TextStyle(color: gloryInk, fontSize: 13, fontWeight: FontWeight.bold),
+                      style: TextStyle(color: gloryInk, fontSize: 13, fontWeight: FontWeight.bold),
                       maxLines: 2, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
                   Text('${sample.notes.length}음 · ${sample.tempo}BPM',
@@ -564,17 +564,17 @@ class _NoteInfoBar extends StatelessWidget {
       child: Row(
         children: [
           Text(pitch,
-              style: const TextStyle(color: gloryAccent, fontSize: 18, fontWeight: FontWeight.bold)),
+              style: TextStyle(color: gloryAccent, fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(width: 12),
           Text(solfege,
-              style: const TextStyle(color: gloryInk, fontSize: 16)),
+              style: TextStyle(color: gloryInk, fontSize: 16)),
           const SizedBox(width: 8),
           Text('($oct옥타브)',
               style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12)),
           const Spacer(),
-          const Icon(Icons.touch_app, color: gloryAccent, size: 16),
+          Icon(Icons.touch_app, color: gloryAccent, size: 16),
           const SizedBox(width: 4),
-          const Text('건반에 표시됨',
+          Text('건반에 표시됨',
               style: TextStyle(color: gloryAccent, fontSize: 11)),
         ],
       ),

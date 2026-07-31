@@ -19,6 +19,7 @@ class ScoreNote {
   final String? dynamicMark;  // 'ppp'~'fff' | 'fp' | 'sf' | 'sfz'
   final String? repeatMark;   // 'end-repeat' → '반복' / 'start-repeat' → '여기부터'
   final String? hairpin;      // 'cresc' → '점점 세게' / 'dim' → '점점 약하게'
+  final String? clef;         // 'treble' | 'bass' — 마디 중간 클렙 전환(오버라이드). null이면 보표 clef 상속
 
   const ScoreNote({
     required this.pitch,
@@ -29,7 +30,23 @@ class ScoreNote {
     this.dynamicMark,
     this.repeatMark,
     this.hairpin,
+    this.clef,
   });
+}
+
+/// note의 유효 클렙(effective clef) = note.clef 오버라이드가 있으면 그 값, 없으면 보표 clef 상속.
+String effectiveClef(ScoreNote note, String staffClef) => note.clef ?? staffClef;
+
+/// note 리스트 안에 서로 다른 유효 클렙이 2개 이상 섞여 있는지 판정.
+/// true일 때만 "마디 중간 클렙 전환" 배경 틴트를 그린다 (섞여 있지 않으면 기존 렌더링과 동일해야 함).
+bool hasMixedClef(List<ScoreNote> notes, String staffClef) {
+  String? first;
+  for (final n in notes) {
+    final c = effectiveClef(n, staffClef);
+    first ??= c;
+    if (c != first) return true;
+  }
+  return false;
 }
 
 class SampleScore {
@@ -37,6 +54,7 @@ class SampleScore {
   final int tempo;
   final List<int> timeSignature;
   final List<ScoreNote> notes;
+  final List<ScoreNote>? bassNotes; // 대보표(그랜드 스태프) 샘플만 채움 -- 총 duration이 notes와 같아야 함(같은 타임라인 공유)
   const SampleScore({
     required this.id,
     required this.title,
@@ -44,6 +62,7 @@ class SampleScore {
     required this.tempo,
     required this.timeSignature,
     required this.notes,
+    this.bassNotes,
   });
 }
 
@@ -69,6 +88,49 @@ int pitchToZone(String pitch, {String clef = 'treble'}) {
 List<String> zoneLabels(String clef) {
   if (clef == 'bass') return ['3옥+', '2옥', '1옥↓'];
   return ['6옥+', '5옥', '4옥'];
+}
+
+const _solfegeLabels = {
+  'C': '도', 'D': '레', 'E': '미', 'F': '파',
+  'G': '솔', 'A': '라', 'B': '시',
+  'C#': '도#', 'D#': '레#', 'F#': '파#', 'G#': '솔#', 'A#': '라#',
+};
+
+/// 'C#4' -> '도#' 같은 계이름 라벨(옥타브 제외).
+String solfegeLabel(String pitch) {
+  final name = pitch.substring(0, pitch.length - 1);
+  return _solfegeLabels[name] ?? name;
+}
+
+/// 마디(박자 리셋 기준)별로 가로 폭을 균등 분배하고, 마디 안에서는 음표 개수만큼 다시
+/// 균등 분배해 각 음표의 근사 x좌표(0~1 비율)를 계산한다. 실제 촬영 원본 이미지에는 음표별
+/// 정확한 픽셀 좌표 정보가 없으므로(모델이 좌표를 출력하지 않음) 이 근사치로 탭 위치를 매칭한다.
+List<double> approximateNotePositions(List<ScoreNote> notes) {
+  if (notes.isEmpty) return [];
+  final measures = <List<int>>[];
+  var current = <int>[];
+  int? lastBeat;
+  for (var i = 0; i < notes.length; i++) {
+    final b = notes[i].beat;
+    if (lastBeat != null && b <= lastBeat) {
+      measures.add(current);
+      current = [];
+    }
+    current.add(i);
+    lastBeat = b;
+  }
+  if (current.isNotEmpty) measures.add(current);
+
+  final positions = List<double>.filled(notes.length, 0);
+  final measureW = 1.0 / measures.length;
+  for (var m = 0; m < measures.length; m++) {
+    final idxs = measures[m];
+    final noteW = measureW / idxs.length;
+    for (var k = 0; k < idxs.length; k++) {
+      positions[idxs[k]] = m * measureW + (k + 0.5) * noteW;
+    }
+  }
+  return positions;
 }
 
 double noteToFrequency(String pitch) {
@@ -104,6 +166,15 @@ const samples = [
       ScoreNote(pitch: 'E4', duration: 1, beat: 1),
       ScoreNote(pitch: 'E4', duration: 1, beat: 2),
       ScoreNote(pitch: 'D4', duration: 2, beat: 3),
+    ],
+    // 마디당 1개(duration 4) 화성 반주 -- 대보표 2줄 렌더링 데모용. 총 duration 24로 treble과 동일.
+    bassNotes: [
+      ScoreNote(pitch: 'C3', duration: 4, beat: 1),
+      ScoreNote(pitch: 'F3', duration: 4, beat: 1),
+      ScoreNote(pitch: 'C3', duration: 4, beat: 1),
+      ScoreNote(pitch: 'G3', duration: 4, beat: 1),
+      ScoreNote(pitch: 'C3', duration: 4, beat: 1),
+      ScoreNote(pitch: 'G3', duration: 4, beat: 1),
     ],
   ),
   SampleScore(

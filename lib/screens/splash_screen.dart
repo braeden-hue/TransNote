@@ -87,7 +87,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               ),
             ),
             const SizedBox(height: 32),
-            const Text('악보의 대중화 프로젝트',
+            Text('악보의 대중화 프로젝트',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: gloryInk, fontSize: 24, fontWeight: FontWeight.w500)),
             const SizedBox(height: 8),

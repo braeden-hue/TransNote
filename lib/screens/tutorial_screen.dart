@@ -6,22 +6,56 @@ import '../widgets/notation_widget.dart';
 import '../widgets/mini_piano_widget.dart';
 
 final _audio = AudioService.instance;
+const _pageCount = 8;
+
+// 규칙1 범례 색 — notation_widget.dart의 _zoneBg 톤과 반드시 일치.
+const _zoneHighColor = Color(0xFF7C93C4);
+const _zoneMidColor = Color(0xFFA79C89);
+Color get _zoneLowColor => gloryAccent;
+
+const _beatColors = [
+  Color(0xFFFF6B35), Color(0xFF7BC67E), Color(0xFF5BC0EB), Color(0xFFC97FD6),
+];
 
 const _solfege = {
-  'C': '도', 'D': '레', 'E': '미', 'F': '파', 'G': '솔', 'A': '라', 'B': '시',
-  'F#': '파#', 'A#': '라#',
+  'C': '도', 'C#': '도#', 'D': '레', 'D#': '레#', 'E': '미', 'F': '파', 'F#': '파#',
+  'G': '솔', 'G#': '솔#', 'A': '라', 'A#': '라#', 'B': '시',
 };
 
-/// 튜토리얼 내내 연습할 한 옥타브 범위의 음(흰 건반+검은 건반). 화면 하단 고정 미니 피아노와 범위가 일치해야 함.
-const _matchNotes = ['C4', 'D4', 'E4', 'F#4', 'G4', 'A#4', 'C5'];
+String _solfegeOf(String pitch) => _solfege[pitch.substring(0, pitch.length - 1)] ?? pitch;
 
-/// 시작 화면의 "다소 복잡한 한 마디" — 오선 악보와 커스텀 악보가 반드시 같은 음을 보여줘야 비교가 성립함.
 const _introNotes = [
   ScoreNote(pitch: 'C4', duration: 0.5, beat: 1),
   ScoreNote(pitch: 'E4', duration: 0.5, beat: 1),
   ScoreNote(pitch: 'G4', duration: 1, beat: 2),
   ScoreNote(pitch: 'C5', duration: 2, beat: 3),
 ];
+
+// 규칙1: 6옥+ / 5옥 / 4옥 이하 3구역을 실제로 모두 지나가는 예시.
+const _rule1Notes = [
+  ScoreNote(pitch: 'C6', duration: 1, beat: 1),
+  ScoreNote(pitch: 'G5', duration: 1, beat: 2),
+  ScoreNote(pitch: 'E4', duration: 1, beat: 3),
+  ScoreNote(pitch: 'C4', duration: 1, beat: 4),
+];
+
+// 규칙2+3: 서로 다른 음 3개 + 서로 다른 길이 + 서로 다른 박자 색.
+const _rule23Notes = [
+  ScoreNote(pitch: 'G4', duration: 0.5, beat: 1),
+  ScoreNote(pitch: 'C5', duration: 1, beat: 2),
+  ScoreNote(pitch: 'E4', duration: 2, beat: 3),
+];
+
+const _chordNote = ScoreNote(pitch: 'C4', duration: 2, beat: 1, chordNotes: ['E4']);
+
+(String, String) _spanOf(List<String> pitches) {
+  var lo = pitches.first, hi = pitches.first;
+  for (final p in pitches) {
+    if (pitchOrder(p) < pitchOrder(lo)) lo = p;
+    if (pitchOrder(p) > pitchOrder(hi)) hi = p;
+  }
+  return (lo, hi);
+}
 
 class TutorialScreen extends StatefulWidget {
   const TutorialScreen({super.key});
@@ -33,39 +67,6 @@ class TutorialScreen extends StatefulWidget {
 class _TutorialScreenState extends State<TutorialScreen> {
   final _pageCtrl = PageController();
   int _page = 0;
-
-  // ── 하단 고정 피아노: 실시간 음 맞추기 ──────────────────────────────────────
-  int _targetIdx = 0;
-  String? _pianoNote;
-  String? _wrongNote;
-  bool _justCorrect = false;
-
-  String get _targetNote => _matchNotes[_targetIdx];
-
-  void _onMatchKeyDown(String note) {
-    _audio.unlock();
-    _audio.playNote(note);
-    if (note == _targetNote) {
-      setState(() {
-        _wrongNote = null;
-        _pianoNote = note;
-        _justCorrect = true;
-      });
-    } else {
-      setState(() => _wrongNote = note);
-    }
-  }
-
-  void _onMatchKeyUp(String note) {
-    if (note == _wrongNote) setState(() => _wrongNote = null);
-    if (_justCorrect && note == _targetNote) {
-      setState(() {
-        _justCorrect = false;
-        _targetIdx = (_targetIdx + 1) % _matchNotes.length;
-        _pianoNote = null;
-      });
-    }
-  }
 
   @override
   void dispose() {
@@ -86,15 +87,18 @@ class _TutorialScreenState extends State<TutorialScreen> {
               child: PageView(
                 controller: _pageCtrl,
                 onPageChanged: (p) => setState(() => _page = p),
-                children: [
-                  _buildIntroCompare(),
-                  _buildRule1(),
-                  _buildRule2(),
-                  _buildRule3(),
+                children: const [
+                  _IntroComparePage(),
+                  _RuleZeroPage(),
+                  _Rule1Page(),
+                  _Rule23Page(),
+                  _ChordRulePage(),
+                  _TestPage(index: 1, targetNote: 'E4'),
+                  _TestPage(index: 2, targetNote: 'G#4'),
+                  _TestPage(index: 3, targetNote: 'C5'),
                 ],
               ),
             ),
-            if (_page > 0) _buildPianoDock(),
             _buildNavButtons(),
           ],
         ),
@@ -104,11 +108,11 @@ class _TutorialScreenState extends State<TutorialScreen> {
 
   Widget _buildHeader(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 12, 20, 0),
+      padding: const EdgeInsets.fromLTRB(8, 10, 20, 0),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back, color: gloryInk),
+            icon: Icon(Icons.arrow_back, color: gloryInk),
             onPressed: () => Navigator.of(context).pop(),
           ),
           const SizedBox(width: 4),
@@ -116,11 +120,11 @@ class _TutorialScreenState extends State<TutorialScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('커스텀 악보 읽는 법',
-                    style: TextStyle(color: gloryInk, fontSize: 20, fontWeight: FontWeight.bold)),
+                Text('커스텀 악보 읽는 법',
+                    style: TextStyle(color: gloryInk, fontSize: 19, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 2),
                 Text('3가지 규칙만 알면 누구나 읽을 수 있어요',
-                    style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12)),
+                    style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5)),
               ],
             ),
           ),
@@ -131,14 +135,14 @@ class _TutorialScreenState extends State<TutorialScreen> {
 
   Widget _buildPageIndicator() {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(4, (i) => AnimatedContainer(
+        children: List.generate(_pageCount, (i) => AnimatedContainer(
           duration: const Duration(milliseconds: 250),
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: _page == i ? 24 : 8,
-          height: 8,
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: _page == i ? 20 : 7,
+          height: 7,
           decoration: BoxDecoration(
             color: _page == i ? gloryAccent : gloryBorder,
             borderRadius: BorderRadius.circular(4),
@@ -148,194 +152,9 @@ class _TutorialScreenState extends State<TutorialScreen> {
     );
   }
 
-  Widget _buildIntroCompare() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: gloryAccent.withAlpha(30),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: gloryAccent, width: 1),
-            ),
-            child: const Text('시작하기 전에',
-                style: TextStyle(color: gloryAccent, fontSize: 12, fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(height: 12),
-          const Text('악보, 이렇게 복잡했나요?',
-              style: TextStyle(color: gloryInk, fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text('오선지 위의 기호를 다 외워야 읽을 수 있는 전통 악보 대신,\n색과 위치만으로 바로 읽을 수 있는 커스텀 악보를 써보세요.',
-              style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 14, height: 1.5)),
-          const SizedBox(height: 20),
-          Text('전통 오선 악보 (같은 한 마디)', style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const _StaffPreview(notes: _introNotes),
-          const SizedBox(height: 20),
-          Text('커스텀 악보 (같은 한 마디)', style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const NotationWidget(notes: _introNotes),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRule1() {
-    return _RulePage(
-      number: '규칙 1',
-      title: '세로 위치 = 음 높이',
-      description: '셀이 위에 있을수록 높은 음이에요.\n3개 구역으로 나뉩니다.',
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          NotationWidget(
-            notes: const [
-              ScoreNote(pitch: 'C5', duration: 1, beat: 1),
-              ScoreNote(pitch: 'G4', duration: 1, beat: 2),
-              ScoreNote(pitch: 'C4', duration: 1, beat: 3),
-              ScoreNote(pitch: 'G3', duration: 1, beat: 4),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _ZoneLabel(color: const Color(0xFF5BC0EB), label: '높음 (5옥타브+)'),
-          _ZoneLabel(color: const Color(0xFF7BC67E), label: '중간 (4옥타브)'),
-          _ZoneLabel(color: const Color(0xFFFF6B35), label: '낮음 (3옥타브 이하)'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRule2() {
-    return _RulePage(
-      number: '규칙 2',
-      title: '셀 너비 = 음 길이',
-      description: '셀이 넓을수록 길게 누르는 음이에요.',
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          NotationWidget(
-            notes: const [
-              ScoreNote(pitch: 'C4', duration: 0.5, beat: 3),
-              ScoreNote(pitch: 'C4', duration: 1, beat: 1),
-              ScoreNote(pitch: 'C4', duration: 2, beat: 2),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _DurationLabel(label: '8분음표', width: 0.5),
-              _DurationLabel(label: '4분음표', width: 1.0),
-              _DurationLabel(label: '2분음표', width: 2.0),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRule3() {
-    final beatData = [
-      (const Color(0xFFFF6B35), '1박'),
-      (const Color(0xFF7BC67E), '2박'),
-      (const Color(0xFF5BC0EB), '3박'),
-      (const Color(0xFFC97FD6), '4박'),
-    ];
-    return _RulePage(
-      number: '규칙 3',
-      title: '테두리 색 = 박자 위치',
-      description: '색으로 마디 안에서 어느 박자인지 알 수 있어요.\n아래 피아노로 직접 눌러보세요!',
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            alignment: WrapAlignment.center,
-            children: beatData.map((e) => GestureDetector(
-              onTap: () {
-                _audio.unlock();
-                _audio.playNote('C4');
-              },
-              child: Container(
-                width: 72,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: e.$1.withAlpha(30),
-                  border: Border.all(color: e.$1, width: 2.5),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(e.$2,
-                        style: TextStyle(color: e.$1, fontSize: 15, fontWeight: FontWeight.bold)),
-                    Text('C', style: TextStyle(color: e.$1, fontSize: 11)),
-                  ],
-                ),
-              ),
-            )).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPianoDock() {
-    return Container(
-      decoration: const BoxDecoration(
-        color: glorySurface,
-        border: Border(top: BorderSide(color: gloryBorder)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                Text('실시간 음 맞추기',
-                    style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 11, fontWeight: FontWeight.bold)),
-                const SizedBox(width: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: gloryAccent.withAlpha(25),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: gloryAccent, width: 1),
-                  ),
-                  child: Text(
-                    '다음 음: ${_solfege[_targetNote.substring(0, _targetNote.length - 1)] ?? _targetNote}',
-                    style: const TextStyle(color: gloryAccent, fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const Spacer(),
-                if (_wrongNote != null)
-                  const Text('✕ 다시 시도', style: TextStyle(color: Color(0xFFE64545), fontSize: 11, fontWeight: FontWeight.bold))
-                else if (_justCorrect)
-                  const Text('✓ 정답!', style: TextStyle(color: Color(0xFF3E8F45), fontSize: 11, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-          MiniPianoWidget(
-            highlightNote: _pianoNote ?? _targetNote,
-            wrongNote: _wrongNote,
-            onKeyDown: _onMatchKeyDown,
-            onKeyUp: _onMatchKeyUp,
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
-  }
-
   Widget _buildNavButtons() {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: Row(
         children: [
           if (_page > 0)
@@ -346,7 +165,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
               child: const Text('← 이전'),
             ),
           const Spacer(),
-          if (_page < 3)
+          if (_page < _pageCount - 1)
             FilledButton(
               onPressed: () => _pageCtrl.nextPage(
                   duration: const Duration(milliseconds: 300), curve: Curves.easeInOut),
@@ -355,6 +174,406 @@ class _TutorialScreenState extends State<TutorialScreen> {
             ),
         ],
       ),
+    );
+  }
+}
+
+// ── 공용 페이지 프레임 ────────────────────────────────────────────────────────
+
+class _PageFrame extends StatelessWidget {
+  final String? chip;
+  final String title;
+  final String description;
+  final Widget child;
+  const _PageFrame({this.chip, required this.title, required this.description, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (chip != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: gloryAccent.withAlpha(30),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: gloryAccent, width: 1),
+              ),
+              child: Text(chip!,
+                  style: TextStyle(color: gloryAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Text(title, style: TextStyle(color: gloryInk, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text(description, style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 12.5, height: 1.35)),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+// ── 인트로: 오선보 vs 커스텀 악보 비교 (피아노 없음) ──────────────────────────
+
+class _IntroComparePage extends StatelessWidget {
+  const _IntroComparePage();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: _PageFrame(
+        chip: '시작하기 전에',
+        title: '악보, 이렇게 복잡했나요?',
+        description: '오선지 위의 기호를 다 외워야 읽을 수 있는 전통 악보 대신,\n색과 위치만으로 바로 읽을 수 있는 커스텀 악보를 써보세요.',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('전통 오선 악보 (같은 한 마디)',
+                style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            const _StaffPreview(notes: _introNotes),
+            const SizedBox(height: 14),
+            Text('커스텀 악보 (같은 한 마디)',
+                style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            const NotationWidget(notes: _introNotes),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── 규칙 0: 흰/검은 건반과 12음 매칭 ──────────────────────────────────────────
+
+class _RuleZeroPage extends StatelessWidget {
+  const _RuleZeroPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return _PageFrame(
+      chip: '규칙 0',
+      title: '먼저, 건반부터 익혀요',
+      description: '흰 건반 7개 + 검은 건반 5개 = 한 옥타브 12음. 눌러서 소리를 들어보세요.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 8),
+          MiniPianoWidget(
+            lowNote: 'C4',
+            highNote: 'C5',
+            detailed: true,
+            onKeyDown: (note) {
+              _audio.unlock();
+              _audio.playNote(note);
+            },
+          ),
+          const SizedBox(height: 14),
+          Text('흰 건반은 음이름 그대로(도레미파솔라시), 검은 건반은 낮은 음부터 순서대로 1~5 숫자로 표시해요.',
+              style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12, height: 1.4)),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 규칙 1: 세로 위치 = 음 높이 ────────────────────────────────────────────────
+
+class _Rule1Page extends StatelessWidget {
+  const _Rule1Page();
+
+  @override
+  Widget build(BuildContext context) {
+    return _PageFrame(
+      chip: '규칙 1',
+      title: '세로 위치 = 음 높이',
+      description: '셀이 위에 있을수록 높은 음이에요. 3개 구역의 배경색도 함께 봐주세요.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const NotationWidget(notes: _rule1Notes),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 14,
+            runSpacing: 4,
+            children: [
+              const _ZoneLabel(color: _zoneHighColor, label: '높음 (6옥타브+)'),
+              const _ZoneLabel(color: _zoneMidColor, label: '중간 (5옥타브)'),
+              _ZoneLabel(color: _zoneLowColor, label: '낮음 (4옥타브 이하)'),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _NotePracticeDock(notes: _rule1Notes.map((n) => n.pitch).toList()),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 규칙 2+3: 셀 너비 = 음 길이 / 테두리 색 = 박자 위치 (통합) ─────────────────
+
+class _Rule23Page extends StatelessWidget {
+  const _Rule23Page();
+
+  @override
+  Widget build(BuildContext context) {
+    return _PageFrame(
+      chip: '규칙 2 + 3',
+      title: '셀 너비 = 음 길이, 테두리 색 = 박자',
+      description: '넓을수록 길게, 테두리 색으로 마디 안 몇 박자인지 알 수 있어요.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const NotationWidget(notes: _rule23Notes),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 14,
+            runSpacing: 4,
+            children: [
+              for (int i = 0; i < 4; i++)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(width: 12, height: 12,
+                        decoration: BoxDecoration(color: _beatColors[i], borderRadius: BorderRadius.circular(3))),
+                    const SizedBox(width: 5),
+                    Text('${i + 1}박', style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 12)),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _NotePracticeDock(notes: _rule23Notes.map((n) => n.pitch).toList()),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 규칙 4: 화음 (두 음을 동시에) ─────────────────────────────────────────────
+
+class _ChordRulePage extends StatelessWidget {
+  const _ChordRulePage();
+
+  @override
+  Widget build(BuildContext context) {
+    final chordPitches = [_chordNote.pitch, ..._chordNote.chordNotes];
+    final span = _spanOf(chordPitches);
+    return _PageFrame(
+      chip: '규칙 4',
+      title: '화음 = 두 음을 동시에',
+      description: '세로로 겹쳐 쓴 셀은 두 음을 같이 눌러요. 아래 피아노에서 두 건반이 함께 강조돼요.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const NotationWidget(notes: [_chordNote]),
+          const SizedBox(height: 14),
+          Text('실제로 눌러보기', style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 11.5, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          MiniPianoWidget(
+            lowNote: span.$1,
+            highNote: span.$2,
+            highlight: chordPitches.toSet(),
+            onKeyDown: (note) {
+              _audio.unlock();
+              _audio.playNote(note);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 테스트 3장면: 힌트 없이 정답 건반 찾기 ────────────────────────────────────
+
+class _TestPage extends StatefulWidget {
+  final int index;
+  final String targetNote;
+  const _TestPage({required this.index, required this.targetNote});
+
+  @override
+  State<_TestPage> createState() => _TestPageState();
+}
+
+class _TestPageState extends State<_TestPage> {
+  String? _wrong;
+  bool _correct = false;
+
+  void _onDown(String note) {
+    _audio.unlock();
+    _audio.playNote(note);
+    if (note == widget.targetNote) {
+      setState(() {
+        _wrong = null;
+        _correct = true;
+      });
+    } else {
+      setState(() {
+        _wrong = note;
+        _correct = false;
+      });
+    }
+  }
+
+  void _onUp(String note) {
+    if (note == _wrong) setState(() => _wrong = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final span = _spanOf([widget.targetNote, 'C4', 'C5']);
+    return _PageFrame(
+      chip: '테스트 ${widget.index} / 3',
+      title: '어느 건반을 눌러야 할까요?',
+      description: '힌트 없이, 아래 커스텀 악보가 가리키는 음을 피아노에서 직접 찾아보세요.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          NotationWidget(notes: [ScoreNote(pitch: widget.targetNote, duration: 2, beat: 1)]),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (_wrong != null)
+                const Text('✕ 다시 시도해보세요', style: TextStyle(color: Color(0xFFE64545), fontSize: 12.5, fontWeight: FontWeight.bold))
+              else if (_correct)
+                const Text('✓ 정답이에요!', style: TextStyle(color: Color(0xFF3E8F45), fontSize: 12.5, fontWeight: FontWeight.bold))
+              else
+                Text('건반을 눌러 확인해보세요', style: TextStyle(color: gloryInk.withValues(alpha: .4), fontSize: 12.5)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          MiniPianoWidget(
+            lowNote: span.$1,
+            highNote: span.$2,
+            wrongNote: _wrong,
+            highlight: _correct ? {widget.targetNote} : const {},
+            onKeyDown: _onDown,
+            onKeyUp: _onUp,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 실시간 음 맞추기 독(dock) — 해당 페이지 예시 음을 그대로 순서대로 연주 ─────
+
+class _NotePracticeDock extends StatefulWidget {
+  final List<String> notes;
+  const _NotePracticeDock({required this.notes});
+
+  @override
+  State<_NotePracticeDock> createState() => _NotePracticeDockState();
+}
+
+class _NotePracticeDockState extends State<_NotePracticeDock> {
+  int _idx = 0;
+  String? _pianoNote;
+  String? _wrong;
+  bool _justCorrect = false;
+
+  String get _target => widget.notes[_idx];
+
+  void _onDown(String note) {
+    _audio.unlock();
+    _audio.playNote(note);
+    if (note == _target) {
+      setState(() {
+        _wrong = null;
+        _pianoNote = note;
+        _justCorrect = true;
+      });
+    } else {
+      setState(() => _wrong = note);
+    }
+  }
+
+  void _onUp(String note) {
+    if (note == _wrong) setState(() => _wrong = null);
+    if (_justCorrect && note == _target) {
+      setState(() {
+        _justCorrect = false;
+        _idx = (_idx + 1) % widget.notes.length;
+        _pianoNote = null;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final span = _spanOf(widget.notes);
+    return Container(
+      decoration: BoxDecoration(
+        color: glorySurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: gloryBorder),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('실시간으로 연주해보기',
+                  style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 11, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: gloryAccent.withAlpha(25),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: gloryAccent, width: 1),
+                ),
+                child: Text('다음 음: ${_solfegeOf(_target)}',
+                    style: TextStyle(color: gloryAccent, fontSize: 10.5, fontWeight: FontWeight.bold)),
+              ),
+              const Spacer(),
+              if (_wrong != null)
+                const Text('✕', style: TextStyle(color: Color(0xFFE64545), fontSize: 14, fontWeight: FontWeight.bold))
+              else if (_justCorrect)
+                const Text('✓', style: TextStyle(color: Color(0xFF3E8F45), fontSize: 14, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          MiniPianoWidget(
+            lowNote: span.$1,
+            highNote: span.$2,
+            highlight: {_pianoNote ?? _target},
+            wrongNote: _wrong,
+            onKeyDown: _onDown,
+            onKeyUp: _onUp,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 보조 위젯 ─────────────────────────────────────────────────────────────────
+
+class _ZoneLabel extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _ZoneLabel({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 14, height: 14,
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
+        const SizedBox(width: 6),
+        Text(label, style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 12)),
+      ],
     );
   }
 }
@@ -479,86 +698,4 @@ class _StaffPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _StaffPainter oldDelegate) => oldDelegate.notes != notes;
-}
-
-class _RulePage extends StatelessWidget {
-  final String number, title, description;
-  final Widget child;
-  const _RulePage({required this.number, required this.title, required this.description, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: gloryAccent.withAlpha(30),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: gloryAccent, width: 1),
-            ),
-            child: Text(number,
-                style: const TextStyle(color: gloryAccent, fontSize: 12, fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(height: 12),
-          Text(title,
-              style: const TextStyle(color: gloryInk, fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text(description,
-              style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 14, height: 1.5)),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-class _ZoneLabel extends StatelessWidget {
-  final Color color;
-  final String label;
-  const _ZoneLabel({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(width: 16, height: 16,
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
-          const SizedBox(width: 8),
-          Text(label, style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 13)),
-        ],
-      ),
-    );
-  }
-}
-
-class _DurationLabel extends StatelessWidget {
-  final String label;
-  final double width;
-  const _DurationLabel({required this.label, required this.width});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: width * 40,
-          height: 30,
-          decoration: BoxDecoration(
-            color: glorySurface,
-            border: Border.all(color: gloryAccent, width: 2),
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 11)),
-      ],
-    );
-  }
 }

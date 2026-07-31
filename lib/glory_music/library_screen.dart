@@ -38,8 +38,8 @@ class _GloryLibraryScreenState extends State<GloryLibraryScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(24, 8, 20, 0),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 20, 0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -71,6 +71,7 @@ class _GloryLibraryScreenState extends State<GloryLibraryScreen> {
                   return _TrackTile(
                     album: album,
                     track: track,
+                    index: i,
                     isCurrent: isCurrent,
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => GloryNowPlayingScreen(album: album, trackIndex: i)),
@@ -121,7 +122,7 @@ class _AlbumCard extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text('${album.year} ALBUM', style: TextStyle(fontSize: 15, color: gloryInk.withValues(alpha: .5))),
                   const SizedBox(height: 8),
-                  Text(album.title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: gloryInk), maxLines: 3, overflow: TextOverflow.ellipsis),
+                  Text(album.title, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: gloryInk), maxLines: 3, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
                   Text(album.artist, style: TextStyle(fontSize: 13, color: gloryInk.withValues(alpha: .4))),
                 ],
@@ -137,10 +138,11 @@ class _AlbumCard extends StatelessWidget {
 class _TrackTile extends StatelessWidget {
   final GloryAlbum album;
   final GloryTrack track;
+  final int index;
   final bool isCurrent;
   final VoidCallback onTap;
 
-  const _TrackTile({required this.album, required this.track, required this.isCurrent, required this.onTap});
+  const _TrackTile({required this.album, required this.track, required this.index, required this.isCurrent, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -154,25 +156,28 @@ class _TrackTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
-              Container(
-                width: 43,
-                height: 43,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  gradient: LinearGradient(colors: album.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
+              Hero(
+                tag: 'track-art-${album.title}-$index',
+                child: Container(
+                  width: 43,
+                  height: 43,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    gradient: LinearGradient(colors: album.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  ),
+                  child: Icon(isCurrent ? Icons.pause : Icons.play_arrow, color: Colors.white, size: 20),
                 ),
-                child: Icon(isCurrent ? Icons.pause : Icons.play_arrow, color: Colors.white, size: 20),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
                   track.title,
-                  style: const TextStyle(fontSize: 15, color: gloryInk),
+                  style: TextStyle(fontSize: 15, color: gloryInk),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (isCurrent) const Icon(Icons.graphic_eq, size: 18, color: gloryInk),
+              if (isCurrent) Icon(Icons.graphic_eq, size: 18, color: gloryInk),
             ],
           ),
         ),
