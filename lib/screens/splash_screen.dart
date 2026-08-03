@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/glory_theme.dart';
-import 'home_menu_screen.dart';
+import 'walkthrough_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -10,18 +10,18 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseCtrl;
+  late final AnimationController _loadCtrl;
   bool _navigating = false;
 
   @override
   void initState() {
     super.initState();
-    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat(reverse: true);
+    _loadCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
   }
 
   @override
   void dispose() {
-    _pulseCtrl.dispose();
+    _loadCtrl.dispose();
     super.dispose();
   }
 
@@ -33,7 +33,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 550),
-        pageBuilder: (_, _, _) => const HomeMenuScreen(),
+        pageBuilder: (_, _, _) => const WalkthroughScreen(),
         transitionsBuilder: (context, animation, _, child) {
           return AnimatedBuilder(
             animation: animation,
@@ -53,50 +53,60 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     return Scaffold(
       backgroundColor: gloryBg,
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+        child: GestureDetector(
+          onTap: _enter,
+          behavior: HitTestBehavior.opaque,
+          child: Column(
+            children: [
+              const Spacer(flex: 3),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.more_horiz, color: gloryInk.withValues(alpha: .3)),
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: gloryGradient,
+                      boxShadow: [BoxShadow(color: gloryAccent.withValues(alpha: .35), blurRadius: 24, offset: const Offset(0, 10))],
+                    ),
+                    child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 30),
+                  ),
+                  const SizedBox(width: 14),
+                  Text('악보의 대중화',
+                      style: TextStyle(color: gloryInk, fontSize: 26, fontWeight: FontWeight.w800)),
                 ],
               ),
-            ),
-            const Spacer(),
-            GestureDetector(
-              onTap: _enter,
-              child: AnimatedBuilder(
-                animation: _pulseCtrl,
-                builder: (context, child) {
-                  final s = 1 + _pulseCtrl.value * 0.03;
-                  return Transform.scale(scale: s, child: child);
-                },
-                child: Container(
-                  width: 218,
-                  height: 218,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: gloryInk,
-                    boxShadow: [BoxShadow(color: gloryInk.withValues(alpha: .25), blurRadius: 36, offset: const Offset(0, 18))],
-                  ),
-                  child: Icon(Icons.music_note, color: gloryBg, size: 84),
+              const SizedBox(height: 10),
+              Text('유규태 · 조준성',
+                  style: TextStyle(color: gloryMuted, fontSize: 14, fontWeight: FontWeight.w600)),
+              const Spacer(flex: 4),
+              AnimatedBuilder(
+                animation: _loadCtrl,
+                builder: (context, _) => Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (i) {
+                    final t = (_loadCtrl.value * 5 - i) % 5;
+                    final scale = 0.5 + 0.5 * (1 - (t.clamp(0, 1)));
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: Opacity(
+                        opacity: 0.35 + 0.65 * scale,
+                        child: Container(
+                          width: 8 * scale.clamp(0.5, 1.0),
+                          height: 8 * scale.clamp(0.5, 1.0),
+                          decoration: BoxDecoration(shape: BoxShape.circle, gradient: gloryGradient),
+                        ),
+                      ),
+                    );
+                  }),
                 ),
               ),
-            ),
-            const SizedBox(height: 32),
-            Text('악보의 대중화 프로젝트',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: gloryInk, fontSize: 24, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 8),
-            Text('유규태, 조준성',
-                style: TextStyle(color: gloryInk.withValues(alpha: .4), fontSize: 16, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 20),
-            Text('로고를 눌러 시작하기', style: TextStyle(color: gloryAccent.withValues(alpha: .8), fontSize: 12.5)),
-            const Spacer(),
-          ],
+              const SizedBox(height: 16),
+              Text('화면을 탭해 시작하기', style: TextStyle(color: gloryAccent.withValues(alpha: .85), fontSize: 12.5, fontWeight: FontWeight.w600)),
+              const Spacer(flex: 3),
+            ],
+          ),
         ),
       ),
     );

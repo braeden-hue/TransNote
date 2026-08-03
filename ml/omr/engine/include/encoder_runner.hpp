@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 
-namespace tflite { class FlatBufferModel; class Interpreter; }
+struct TfLiteModel;
+struct TfLiteInterpreter;
 
 namespace omr {
 
@@ -43,8 +44,8 @@ private:
     // Normalise uint8 canvas → float32 NCHW tensor in-place into interpreter input.
     void fill_input_tensor(const cv::Mat& canvas_u8) const;
 
-    std::unique_ptr<tflite::FlatBufferModel> model_;
-    std::unique_ptr<tflite::Interpreter>     interp_;
+    TfLiteModel*       model_  = nullptr;
+    TfLiteInterpreter* interp_ = nullptr;
 };
 
 } // namespace omr

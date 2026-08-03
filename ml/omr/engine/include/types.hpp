@@ -31,7 +31,10 @@ struct StaffGroup {
 // Fixed canvas size that the encoder expects.
 // (The StaffCanvas class that actually builds these tiles lives in
 //  staff_canvas.hpp — see StaffCanvas::build_tiles().)
-static constexpr int CANVAS_H = 256;
+// round3train/dataset.py의 SYSTEM_CANVAS_H(대보표 2단 캔버스)와 반드시 일치해야 한다 --
+// 예전 단일 오선(256px) 파이프라인 값이 남아있던 걸 480으로 수정함(round3train export와
+// 불일치 시 encoder 입력 크기가 완전히 어긋나 인식이 깨짐).
+static constexpr int CANVAS_H = 480;
 static constexpr int CANVAS_W = 1280;
 
 // ─── One decoded token from the unified DeepScore vocabulary ─────────────────

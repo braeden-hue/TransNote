@@ -1,46 +1,44 @@
 #pragma once
 #include "types.hpp"
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 #include <opencv2/core.hpp>
 
-namespace tflite { class FlatBufferModel; class Interpreter; }
+struct TfLiteModel;
+struct TfLiteInterpreter;
 
 namespace omr {
 
 /**
- * DecoderRunner – autoregressive greedy decoding via TFLite.
+ * DecoderRunner – autoregressive greedy/beam decoding via TFLite.
  *
- * Algorithm: standard Transformer decoder inference with Key-Value cache.
- * Reference: Vaswani et al. (2017) "Attention is All You Need" (public domain).
- *
- * Expected model I/O (one forward step):
+ * Model I/O (matches round3train/export_tflite.py::_DecoderStepWrapper --
+ * verified via ml/omr/utils/inspect_tflite.py against
+ * round3train/tflite_export/decoder_INT8.tflite):
  *   Inputs:
- *     token_in   : [1, 1]           int32   current token id
- *     context    : [1, seq_len, 512] float32 full encoder output (step 0)
- *                  or [1, 1, 512]           first encoder token (step > 0)
- *     cache_len  : [1]              int32   number of past steps (= current step)
- *     kv_in[i]   : [1, NUM_HEADS, cache_len, HEAD_DIM] float32  (i = 0..NUM_KV-1)
- *   Outputs:
- *     logits_out : [1, 1, VOCAB_SIZE] float32  unnormalised scores
- *     kv_out[i]  : [1, NUM_HEADS, cache_len+1, HEAD_DIM] float32
+ *     past_ids : [1, T]      int64   tokens generated so far, incl. leading SOS
+ *                                     (T grows by 1 every step)
+ *     memory   : [1, S, 512] float32 full encoder output (constant every step,
+ *                                     S = EncoderRunner::run()'s seq_len)
+ *   Output:
+ *     next_logits : [1, vocab_size] float32  logits for the token at position T
+ *                                             (i.e. the next token to generate)
  *
- * Constants must match the model trained in Phase 2:
- *   NUM_LAYERS = 8    (decoder transformer blocks)
- *   NUM_HEADS  = 8    (multi-head attention heads)
- *   HEAD_DIM   = 64   (dimension per head)
- *   NUM_KV     = 32   (NUM_LAYERS × 2 for key + value per layer)
+ * There is no explicit KV-cache tensor -- the exported model recomputes
+ * self-attention over the full past_ids sequence every step (see
+ * round3train/export_tflite.py docstring: "매 스텝 O(T) 재계산 -- 608 토큰
+ * 이하에서는 감당 가능"). Reference: Vaswani et al. (2017) "Attention is All
+ * You Need" (public domain) for the underlying Transformer decoder algorithm.
+ *
+ * Constants must match round3train/dataset.py / model.py:
  *   MAX_SEQ    = 608  (maximum generated tokens before forced stop)
  *   EOS_ID     = 2    (token ID for End-Of-Sequence)
  *   SOS_ID     = 1    (token ID for Start-Of-Sequence, seed token)
  */
 class DecoderRunner {
 public:
-    static constexpr int NUM_LAYERS  = 8;
-    static constexpr int NUM_HEADS   = 8;
-    static constexpr int HEAD_DIM    = 64;
-    static constexpr int NUM_KV      = NUM_LAYERS * 2;  // key + value per layer
     static constexpr int MAX_SEQ     = 608;
     static constexpr int32_t EOS_ID  = 2;
     static constexpr int32_t SOS_ID  = 1;
@@ -64,10 +62,10 @@ public:
     /**
      * Beam-search decode a full token sequence for one staff canvas.
      *
-     * Standard length-normalised beam search over the same autoregressive
-     * KV-cache decoder used by decode(). Each beam keeps its own KV cache
-     * (cloned on divergence, since sibling beams may pick different next
-     * tokens from a shared parent). beam_width=1 is equivalent to decode().
+     * Standard length-normalised beam search. Since the exported model has no
+     * external KV-cache, each beam only needs to remember its own generated
+     * token list (past_ids is rebuilt from SOS + that list every step) --
+     * there is no per-beam cache to clone.
      *
      * @param encoder_out   [seq_len × EMBED_DIM] float32 mat (from EncoderRunner).
      * @param beam_width    Number of parallel hypotheses to track (e.g. 4).
@@ -80,32 +78,15 @@ public:
                                       float length_penalty  = 0.7f) const;
 
 private:
-    // One step of the autoregressive loop.
-    // Updates kv_cache in-place and returns argmax token ID.
-    int32_t step(int32_t      prev_token,
-                 const cv::Mat& context,     // [1 or seq_len, 512]
-                 int            step_idx,
-                 std::vector<cv::Mat>& kv_cache) const;
-
-    // Same underlying TFLite step as step(), but returns the full logit
-    // vector (size vocab_size_) instead of just the argmax. step() and
-    // decode_beam() both build on this.
-    void step_logits(int32_t                 prev_token,
-                      const cv::Mat&          context,
-                      int                     step_idx,
-                      std::vector<cv::Mat>&   kv_cache,
-                      std::vector<float>&     out_logits) const;
-
-    // Initialise kv_cache to NUM_KV empty mats (zero rows).
-    std::vector<cv::Mat> init_kv_cache() const;
-
-    // Deep-copy a KV cache (each per-layer cv::Mat cloned independently) so
-    // sibling beams can diverge from a shared parent without aliasing.
-    static std::vector<cv::Mat> clone_kv_cache(const std::vector<cv::Mat>& src);
+    // One forward step: past_ids (incl. leading SOS) + constant encoder memory
+    // -> logits over the vocabulary for the next token.
+    void step_logits(const std::vector<int64_t>& past_ids,
+                      const cv::Mat&              memory,
+                      std::vector<float>&         out_logits) const;
 
     int vocab_size_;
-    std::unique_ptr<tflite::FlatBufferModel> model_;
-    std::unique_ptr<tflite::Interpreter>     interp_;
+    TfLiteModel*       model_  = nullptr;
+    TfLiteInterpreter* interp_ = nullptr;
 };
 
 } // namespace omr

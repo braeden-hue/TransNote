@@ -12,7 +12,8 @@ const _blackDefs = [
 ];
 
 class PianoWidget extends StatefulWidget {
-  final String? highlightNote; // 음표 탭으로 표시할 음 (파란 하이라이트)
+  final String? highlightNote;  // 음표 탭/오른손 자동재생으로 표시할 음
+  final String? highlightNote2; // 대보표 왼손(베이스) 자동재생 중인 음 -- highlightNote와 동시에 켜질 수 있음
   final String? wrongNote;     // 틀리게 누른 음 (빨간 지속 깜빡임)
   final void Function(String note)? onKeyTap;
   final void Function(String note)? onKeyDown;
@@ -21,6 +22,7 @@ class PianoWidget extends StatefulWidget {
   const PianoWidget({
     super.key,
     this.highlightNote,
+    this.highlightNote2,
     this.wrongNote,
     this.onKeyTap,
     this.onKeyDown,
@@ -60,6 +62,8 @@ class _PianoWidgetState extends State<PianoWidget>
     }
     if (widget.highlightNote != old.highlightNote) {
       _scrollToNote(widget.highlightNote);
+    } else if (widget.highlightNote2 != old.highlightNote2) {
+      _scrollToNote(widget.highlightNote2);
     }
     if (widget.wrongNote != old.wrongNote && widget.wrongNote != null) {
       _scrollToNote(widget.wrongNote);
@@ -139,7 +143,7 @@ class _PianoWidgetState extends State<PianoWidget>
       final r = Color.lerp(const Color(0xFFFF8888), const Color(0xFFFF2222), blinkVal)!;
       return r;
     }
-    if (note == widget.highlightNote) return const Color(0xFFE0B98C);
+    if (note == widget.highlightNote || note == widget.highlightNote2) return const Color(0xFFE0B98C);
     return const Color(0xFFF4EFE6);
   }
 
@@ -148,7 +152,7 @@ class _PianoWidgetState extends State<PianoWidget>
     if (note == widget.wrongNote) {
       return Color.lerp(const Color(0xFF660000), const Color(0xFFCC0000), blinkVal)!;
     }
-    if (note == widget.highlightNote) return const Color(0xFF7A4A20);
+    if (note == widget.highlightNote || note == widget.highlightNote2) return const Color(0xFF7A4A20);
     return const Color(0xFF1C1C1C);
   }
 
@@ -156,7 +160,7 @@ class _PianoWidgetState extends State<PianoWidget>
     if (note == widget.wrongNote) {
       return [BoxShadow(color: Colors.red.withAlpha(180), blurRadius: 14, spreadRadius: 3)];
     }
-    if (note == widget.highlightNote) {
+    if (note == widget.highlightNote || note == widget.highlightNote2) {
       return [BoxShadow(color: gloryAccent.withValues(alpha: .55), blurRadius: 10, spreadRadius: 2)];
     }
     return null;

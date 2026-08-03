@@ -1,8 +1,6 @@
 #include "segnet_runner.hpp"
 #include <opencv2/imgproc.hpp>
-#include <tensorflow/lite/interpreter.h>
-#include <tensorflow/lite/kernels/register.h>
-#include <tensorflow/lite/model.h>
+#include <tensorflow/lite/c/c_api.h>
 #include <stdexcept>
 #include <cstring>
 #include <cmath>
@@ -14,20 +12,23 @@ namespace omr {
 // ─────────────────────────────────────────────────────────────────────────────
 
 SegnetRunner::SegnetRunner(const std::string& model_path) {
-    model_ = tflite::FlatBufferModel::BuildFromFile(model_path.c_str());
+    model_ = TfLiteModelCreateFromFile(model_path.c_str());
     if (!model_)
         throw std::runtime_error("SegnetRunner: failed to load model: " + model_path);
 
-    tflite::ops::builtin::BuiltinOpResolver resolver;
-    tflite::InterpreterBuilder builder(*model_, resolver);
-    builder(&interp_);
+    TfLiteInterpreterOptions* options = TfLiteInterpreterOptionsCreate();
+    interp_ = TfLiteInterpreterCreate(model_, options);
+    TfLiteInterpreterOptionsDelete(options);
     if (!interp_)
         throw std::runtime_error("SegnetRunner: failed to build interpreter");
 
-    interp_->AllocateTensors();
+    TfLiteInterpreterAllocateTensors(interp_);
 }
 
-SegnetRunner::~SegnetRunner() = default;
+SegnetRunner::~SegnetRunner() {
+    if (interp_) TfLiteInterpreterDelete(interp_);
+    if (model_)  TfLiteModelDelete(model_);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Public interface
@@ -87,41 +88,42 @@ cv::Mat SegnetRunner::extract_patch(const cv::Mat& src, int x, int y) const {
 }
 
 std::vector<cv::Mat> SegnetRunner::infer_patch(const cv::Mat& patch) const {
-    // Fill TFLite input tensor: [1, 3, PATCH_SIZE, PATCH_SIZE] float32 NCHW.
-    // We replicate the single grayscale channel across 3 channels, values [0,255].
-    float* input = interp_->typed_input_tensor<float>(0);
+    // Fill TFLite input tensor: [1, PATCH_SIZE, PATCH_SIZE, 1] float32 NHWC
+    // (single channel -- see round3train/export_tflite.py, onnx2tf converts
+    // the PyTorch NCHW export to NHWC since channel count is 1 there's no
+    // memory-layout difference from a plain HxW grid).
+    // Normalisation matches round3train/export_tflite.py::_build_segnet_calib:
+    //   f = pixel/127.5 - 1.0
+    TfLiteTensor* in_tensor = TfLiteInterpreterGetInputTensor(interp_, 0);
+    float* input = reinterpret_cast<float*>(TfLiteTensorData(in_tensor));
     const int plane = PATCH_SIZE * PATCH_SIZE;
     for (int i = 0; i < PATCH_SIZE; ++i) {
         const uint8_t* row = patch.ptr<uint8_t>(i);
+        float* out_row = input + i * PATCH_SIZE;
         for (int j = 0; j < PATCH_SIZE; ++j) {
-            float v = static_cast<float>(row[j]);
-            // NCHW: channel 0,1,2 at (i*PATCH_SIZE+j)
-            input[0 * plane + i * PATCH_SIZE + j] = v;
-            input[1 * plane + i * PATCH_SIZE + j] = v;
-            input[2 * plane + i * PATCH_SIZE + j] = v;
+            out_row[j] = static_cast<float>(row[j]) / 127.5f - 1.0f;
         }
     }
 
-    interp_->Invoke();
+    TfLiteInterpreterInvoke(interp_);
 
-    // Read output: [1, SEG_NUM_CLASSES, PATCH_SIZE, PATCH_SIZE] float32 NCHW.
-    const float* output = interp_->typed_output_tensor<float>(0);
+    // Read output: [1, PATCH_SIZE, PATCH_SIZE, SEG_NUM_CLASSES] float32 NHWC.
+    const TfLiteTensor* out_tensor = TfLiteInterpreterGetOutputTensor(interp_, 0);
+    const float* output = reinterpret_cast<const float*>(TfLiteTensorData(out_tensor));
 
     // Return N_FG = 5 soft maps (classes 1..5), using softmax per pixel.
     // We use a simple exp-normalisation; argmax accuracy is sufficient.
     const int N_FG = SEG_NUM_CLASSES - 1;
     std::vector<cv::Mat> maps(N_FG, cv::Mat(PATCH_SIZE, PATCH_SIZE, CV_32FC1));
+    (void)plane;
 
     for (int r = 0; r < PATCH_SIZE; ++r) {
         for (int c = 0; c < PATCH_SIZE; ++c) {
             int px = r * PATCH_SIZE + c;
-            // Collect logits for all classes.
-            float logits[SEG_NUM_CLASSES];
+            const float* logits = output + px * SEG_NUM_CLASSES; // NHWC: channels contiguous
             float max_l = -1e9f;
-            for (int cls = 0; cls < SEG_NUM_CLASSES; ++cls) {
-                logits[cls] = output[cls * plane + px];
+            for (int cls = 0; cls < SEG_NUM_CLASSES; ++cls)
                 if (logits[cls] > max_l) max_l = logits[cls];
-            }
             // Softmax (numerically stable).
             float sum = 0.f;
             float exp_l[SEG_NUM_CLASSES];

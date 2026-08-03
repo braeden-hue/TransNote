@@ -1,7 +1,5 @@
 #include "encoder_runner.hpp"
-#include <tensorflow/lite/interpreter.h>
-#include <tensorflow/lite/kernels/register.h>
-#include <tensorflow/lite/model.h>
+#include <tensorflow/lite/c/c_api.h>
 #include <stdexcept>
 #include <cstring>
 
@@ -12,20 +10,23 @@ namespace omr {
 // ─────────────────────────────────────────────────────────────────────────────
 
 EncoderRunner::EncoderRunner(const std::string& model_path) {
-    model_ = tflite::FlatBufferModel::BuildFromFile(model_path.c_str());
+    model_ = TfLiteModelCreateFromFile(model_path.c_str());
     if (!model_)
         throw std::runtime_error("EncoderRunner: failed to load model: " + model_path);
 
-    tflite::ops::builtin::BuiltinOpResolver resolver;
-    tflite::InterpreterBuilder builder(*model_, resolver);
-    builder(&interp_);
+    TfLiteInterpreterOptions* options = TfLiteInterpreterOptionsCreate();
+    interp_ = TfLiteInterpreterCreate(model_, options);
+    TfLiteInterpreterOptionsDelete(options);
     if (!interp_)
         throw std::runtime_error("EncoderRunner: failed to build interpreter");
 
-    interp_->AllocateTensors();
+    TfLiteInterpreterAllocateTensors(interp_);
 }
 
-EncoderRunner::~EncoderRunner() = default;
+EncoderRunner::~EncoderRunner() {
+    if (interp_) TfLiteInterpreterDelete(interp_);
+    if (model_)  TfLiteModelDelete(model_);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Inference
@@ -39,15 +40,15 @@ cv::Mat EncoderRunner::run(const cv::Mat& canvas_u8) const {
                                   + std::to_string(CANVAS_W));
 
     fill_input_tensor(canvas_u8);
-    interp_->Invoke();
+    TfLiteInterpreterInvoke(interp_);
 
     // Output tensor: [1, seq_len, EMBED_DIM] float32.
-    const TfLiteTensor* out_tensor = interp_->output_tensor(0);
-    const int seq_len = out_tensor->dims->data[1];
+    const TfLiteTensor* out_tensor = TfLiteInterpreterGetOutputTensor(interp_, 0);
+    const int seq_len = TfLiteTensorDim(out_tensor, 1);
 
     // Copy to an OpenCV mat (seq_len rows × EMBED_DIM cols).
     cv::Mat result(seq_len, EMBED_DIM, CV_32FC1);
-    const float* src = out_tensor->data.f;
+    const float* src = reinterpret_cast<const float*>(TfLiteTensorData(out_tensor));
     std::memcpy(result.data, src, seq_len * EMBED_DIM * sizeof(float));
     return result;
 }
@@ -64,7 +65,8 @@ cv::Mat EncoderRunner::run(const cv::Mat& canvas_u8) const {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void EncoderRunner::fill_input_tensor(const cv::Mat& canvas_u8) const {
-    float* input = interp_->typed_input_tensor<float>(0);
+    TfLiteTensor* in_tensor = TfLiteInterpreterGetInputTensor(interp_, 0);
+    float* input = reinterpret_cast<float*>(TfLiteTensorData(in_tensor));
     const float scale  = 1.f / 255.f;
 
     for (int r = 0; r < CANVAS_H; ++r) {

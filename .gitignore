@@ -57,6 +57,7 @@ round3train/**/*.pt
 round3train/checkpoints_by_epoch/
 round3train/data/
 *.onnx
+/*.pt
 *.tflite
 
 # Generated training images (can be hundreds of MB per round)
@@ -80,6 +81,15 @@ assets/_export_tmp/
 # Large model weights / prototype leftovers (2026-07-07 review)
 omr_latest_weights/
 andromr/
+pod_bundle_stage3/*.pt
 
 # Word lock files
 ~$*
+
+# API keys / secrets - 절대 커밋 금지
+*api_key*
+*API_KEY*
+secrets/
+
+# homr(AGPL-3.0) 로컬 개발용 브리지 -- 절대 커밋/배포 금지 (omr_bridge/README.md 참고)
+omr_bridge/

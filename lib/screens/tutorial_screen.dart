@@ -2,16 +2,13 @@ import 'package:flutter/material.dart';
 import '../data/samples.dart';
 import '../services/audio_service.dart';
 import '../theme/glory_theme.dart';
+import '../utils/orientation_lock.dart';
 import '../widgets/notation_widget.dart';
 import '../widgets/mini_piano_widget.dart';
+import '../widgets/octave_zone_piano.dart';
 
 final _audio = AudioService.instance;
 const _pageCount = 8;
-
-// 규칙1 범례 색 — notation_widget.dart의 _zoneBg 톤과 반드시 일치.
-const _zoneHighColor = Color(0xFF7C93C4);
-const _zoneMidColor = Color(0xFFA79C89);
-Color get _zoneLowColor => gloryAccent;
 
 const _beatColors = [
   Color(0xFFFF6B35), Color(0xFF7BC67E), Color(0xFF5BC0EB), Color(0xFFC97FD6),
@@ -69,8 +66,15 @@ class _TutorialScreenState extends State<TutorialScreen> {
   int _page = 0;
 
   @override
+  void initState() {
+    super.initState();
+    lockLandscape();
+  }
+
+  @override
   void dispose() {
     _pageCtrl.dispose();
+    lockPortrait();
     super.dispose();
   }
 
@@ -82,7 +86,6 @@ class _TutorialScreenState extends State<TutorialScreen> {
         child: Column(
           children: [
             _buildHeader(context),
-            _buildPageIndicator(),
             Expanded(
               child: PageView(
                 controller: _pageCtrl,
@@ -106,48 +109,34 @@ class _TutorialScreenState extends State<TutorialScreen> {
     );
   }
 
+  // 가로모드는 세로 여백이 부족하므로 헤더 + 페이지 인디케이터를 한 줄로 압축.
   Widget _buildHeader(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 10, 20, 0),
+      padding: const EdgeInsets.fromLTRB(4, 6, 16, 4),
       child: Row(
         children: [
           IconButton(
             icon: Icon(Icons.arrow_back, color: gloryInk),
             onPressed: () => Navigator.of(context).pop(),
+            visualDensity: VisualDensity.compact,
           ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('커스텀 악보 읽는 법',
-                    style: TextStyle(color: gloryInk, fontSize: 19, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 2),
-                Text('3가지 규칙만 알면 누구나 읽을 수 있어요',
-                    style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5)),
-              ],
-            ),
+          const SizedBox(width: 2),
+          Text('커스텀 악보 읽는 법',
+              style: TextStyle(color: gloryInk, fontSize: 15, fontWeight: FontWeight.bold)),
+          const Spacer(),
+          Row(
+            children: List.generate(_pageCount, (i) => AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              margin: const EdgeInsets.symmetric(horizontal: 2.5),
+              width: _page == i ? 18 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: _page == i ? gloryAccent : gloryBorder,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            )),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildPageIndicator() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(_pageCount, (i) => AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          width: _page == i ? 20 : 7,
-          height: 7,
-          decoration: BoxDecoration(
-            color: _page == i ? gloryAccent : gloryBorder,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        )),
       ),
     );
   }
@@ -180,6 +169,9 @@ class _TutorialScreenState extends State<TutorialScreen> {
 
 // ── 공용 페이지 프레임 ────────────────────────────────────────────────────────
 
+// 가로모드 화면은 세로 공간이 좁고 폭이 넓으므로, 왼쪽(칩/제목/설명) + 오른쪽(실제 인터랙션
+// 콘텐츠)의 2컬럼으로 배치한다. 모든 _XxxPage가 이 프레임만 감싸 쓰므로 여기 한 곳만 고치면
+// 튜토리얼 8페이지 전체에 적용된다.
 class _PageFrame extends StatelessWidget {
   final String? chip;
   final String title;
@@ -190,29 +182,39 @@ class _PageFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          if (chip != null) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: gloryAccent.withAlpha(30),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: gloryAccent, width: 1),
-              ),
-              child: Text(chip!,
-                  style: TextStyle(color: gloryAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+          SizedBox(
+            width: 210,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (chip != null) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: gloryAccent.withAlpha(30),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: gloryAccent, width: 1),
+                    ),
+                    child: Text(chip!,
+                        style: TextStyle(color: gloryAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Text(title, style: TextStyle(color: gloryInk, fontSize: 17, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(description, style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 12, height: 1.35)),
+              ],
             ),
-            const SizedBox(height: 10),
-          ],
-          Text(title, style: TextStyle(color: gloryInk, fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text(description, style: TextStyle(color: gloryInk.withValues(alpha: .55), fontSize: 12.5, height: 1.35)),
-          const SizedBox(height: 10),
-          child,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: SingleChildScrollView(child: child),
+          ),
         ],
       ),
     );
@@ -226,25 +228,23 @@ class _IntroComparePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: _PageFrame(
-        chip: '시작하기 전에',
-        title: '악보, 이렇게 복잡했나요?',
-        description: '오선지 위의 기호를 다 외워야 읽을 수 있는 전통 악보 대신,\n색과 위치만으로 바로 읽을 수 있는 커스텀 악보를 써보세요.',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('전통 오선 악보 (같은 한 마디)',
-                style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            const _StaffPreview(notes: _introNotes),
-            const SizedBox(height: 14),
-            Text('커스텀 악보 (같은 한 마디)',
-                style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            const NotationWidget(notes: _introNotes),
-          ],
-        ),
+    return _PageFrame(
+      chip: '시작하기 전에',
+      title: '악보, 이렇게 복잡했나요?',
+      description: '오선지 위의 기호를 다 외워야 읽을 수 있는 전통 악보 대신,\n색과 위치만으로 바로 읽을 수 있는 커스텀 악보를 써보세요.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('전통 오선 악보 (같은 한 마디)',
+              style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          const _StaffPreview(notes: _introNotes),
+          const SizedBox(height: 14),
+          Text('커스텀 악보 (같은 한 마디)',
+              style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          const NotationWidget(notes: _introNotes),
+        ],
       ),
     );
   }
@@ -299,17 +299,25 @@ class _Rule1Page extends StatelessWidget {
         children: [
           const NotationWidget(notes: _rule1Notes),
           const SizedBox(height: 10),
-          Wrap(
+          const Wrap(
             spacing: 14,
             runSpacing: 4,
             children: [
-              const _ZoneLabel(color: _zoneHighColor, label: '높음 (6옥타브+)'),
-              const _ZoneLabel(color: _zoneMidColor, label: '중간 (5옥타브)'),
-              _ZoneLabel(color: _zoneLowColor, label: '낮음 (4옥타브 이하)'),
+              _ZoneLabel(color: zoneHighColor, label: '높음 (6옥타브+)'),
+              _ZoneLabel(color: zoneMidColor, label: '중간 (5옥타브)'),
+              _ZoneLabel(color: zoneLowColor, label: '낮음 (4옥타브 이하)'),
             ],
           ),
           const SizedBox(height: 10),
-          _NotePracticeDock(notes: _rule1Notes.map((n) => n.pitch).toList()),
+          Text('88건반 전체 위에 구역을 표시했어요. 반투명한 색이 덮인 부분이 지금 봐야 할 구역이에요.',
+              style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 11.5, height: 1.4)),
+          const SizedBox(height: 8),
+          OctaveZonePianoWidget(
+            onKeyDown: (note) {
+              _audio.unlock();
+              _audio.playNote(note);
+            },
+          ),
         ],
       ),
     );

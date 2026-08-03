@@ -108,7 +108,7 @@ class _GuidedCameraScreenState extends State<GuidedCameraScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF030A1C),
       body: SafeArea(
         child: Column(
           children: [
@@ -117,16 +117,27 @@ class _GuidedCameraScreenState extends State<GuidedCameraScreen> {
               child: Row(
                 children: [
                   FrostedCircleButton(
-                    icon: Icons.close,
+                    icon: Icons.arrow_back,
                     alwaysLight: true,
                     onTap: () => Navigator.of(context).pop(),
                   ),
-                  const Spacer(),
+                  Expanded(
+                    child: Text('악보 촬영',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 40),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
                   _ModeChip(label: '오선 1개', selected: !_grandStaff, onTap: () => setState(() => _grandStaff = false)),
                   const SizedBox(width: 8),
                   _ModeChip(label: '대보표(2개)', selected: _grandStaff, onTap: () => setState(() => _grandStaff = true)),
-                  const Spacer(),
-                  const SizedBox(width: 40),
                 ],
               ),
             ),
@@ -189,13 +200,13 @@ class _GuidedCameraScreenState extends State<GuidedCameraScreen> {
                   height: 72,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _capturing ? Colors.grey : gloryAccent,
-                    border: Border.all(color: Colors.white, width: 4),
+                    color: Colors.white,
+                    border: Border.all(color: _capturing ? Colors.grey : gloryAccent2, width: 4),
                   ),
                   child: _capturing
-                      ? const Padding(
-                          padding: EdgeInsets.all(22),
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                      ? Padding(
+                          padding: const EdgeInsets.all(22),
+                          child: CircularProgressIndicator(color: gloryAccent, strokeWidth: 3),
                         )
                       : null,
                 ),
@@ -286,7 +297,7 @@ class _GuideOverlayPainter extends CustomPainter {
 
     const len = 22.0;
     final corner = Paint()
-      ..color = const Color(0xFFD99B5C)
+      ..color = gloryAccent2
       ..strokeWidth = 4
       ..strokeCap = StrokeCap.round;
     final tl = rect.topLeft, tr = rect.topRight, bl = rect.bottomLeft, br = rect.bottomRight;

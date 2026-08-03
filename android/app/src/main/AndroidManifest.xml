@@ -1,9 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- TEMP/개발용: omr_bridge(로컬 PC의 http:// homr 브리지 서버, 인증서 없음)를 LAN에서
+         호출하기 위해 cleartext(http) 허용. PC의 LAN IP는 DHCP로 바뀔 수 있어서 특정
+         도메인만 허용하는 대신 앱 전체에 켜둠. omr_bridge 연동 코드를 지울 때 이것도
+         같이 지울 것(제출/배포 빌드에는 있으면 안 됨). -->
     <application
         android:label="musicscore_flutter"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

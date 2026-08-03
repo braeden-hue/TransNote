@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import '../data/samples.dart';
 import '../services/audio_service.dart';
+import '../services/auto_player.dart';
 import '../theme/glory_theme.dart';
+import '../utils/orientation_lock.dart';
 import '../widgets/notation_widget.dart';
 import '../widgets/piano_widget.dart';
+import '../widgets/play_mode_toggle.dart';
 
 final _audio = AudioService.instance;
 
 class ScoreScreen extends StatefulWidget {
-  const ScoreScreen({super.key});
+  final SampleScore? initial;
+  const ScoreScreen({super.key, this.initial});
 
   @override
   State<ScoreScreen> createState() => _ScoreScreenState();
@@ -17,10 +21,14 @@ class ScoreScreen extends StatefulWidget {
 class _ScoreScreenState extends State<ScoreScreen> {
   SampleScore? _selected;
   bool _practiceMode = false;
+  bool _bassOnly = false;
 
   // ── 감상 모드 ────────────────────────────────────────────────────────────
   int _hlIdx = -1;
+  int _bassHlIdx = -1;
   String? _pianoNote;
+  AutoPlayer? _player;
+  bool _autoPlaying = false;
 
   // ── 연주 모드 ────────────────────────────────────────────────────────────
   int _expectedIdx = 0;
@@ -35,36 +43,47 @@ class _ScoreScreenState extends State<ScoreScreen> {
   @override
   void initState() {
     super.initState();
+    _selected = widget.initial;
     _trebleCtrl.addListener(_syncFromTreble);
     _bassCtrl.addListener(_syncFromBass);
+    lockLandscape();
   }
 
   void _syncFromTreble() {
     if (_syncing || !_bassCtrl.hasClients) return;
     _syncing = true;
-    _bassCtrl.jumpTo(_trebleCtrl.offset);
+    _bassCtrl.jumpTo(_trebleCtrl.offset.clamp(0.0, _bassCtrl.position.maxScrollExtent));
     _syncing = false;
   }
 
   void _syncFromBass() {
     if (_syncing || !_trebleCtrl.hasClients) return;
     _syncing = true;
-    _trebleCtrl.jumpTo(_bassCtrl.offset);
+    _trebleCtrl.jumpTo(_bassCtrl.offset.clamp(0.0, _trebleCtrl.position.maxScrollExtent));
     _syncing = false;
   }
 
   @override
   void dispose() {
+    _player?.dispose();
     _trebleCtrl.dispose();
     _bassCtrl.dispose();
+    lockPortrait();
     super.dispose();
   }
 
+  void _stopAutoPlay() {
+    _player?.stop();
+    _autoPlaying = false;
+  }
+
   void _selectSample(SampleScore s) {
+    _stopAutoPlay();
     setState(() {
       _selected = s;
       _practiceMode = false;
       _hlIdx = -1;
+      _bassHlIdx = -1;
       _pianoNote = null;
       _resetPractice();
     });
@@ -78,19 +97,78 @@ class _ScoreScreenState extends State<ScoreScreen> {
   }
 
   void _setMode(bool practice) {
+    _stopAutoPlay();
     setState(() {
       _practiceMode = practice;
       _hlIdx = -1;
+      _bassHlIdx = -1;
       _pianoNote = null;
       _resetPractice();
     });
   }
 
+  // 예시 악보 "감상하기"에서 재생 버튼을 누르면 EntryDetailScreen(스캔한 악보)과 동일한
+  // AutoPlayer로 트레블+베이스를 같은 타임라인으로 자동 재생 -- 지금 울리는 음을 커스텀
+  // 악보(NotationWidget)와 피아노 건반 양쪽에 실시간으로 표시한다.
+  void _toggleAutoPlay(SampleScore s) {
+    if (_autoPlaying) {
+      setState(_stopAutoPlay);
+      return;
+    }
+    _player = AutoPlayer(
+      treble: s.notes,
+      bass: s.bassNotes,
+      tempo: s.tempo,
+      onTick: (ti, bi) {
+        if (!mounted) return;
+        if (ti != _hlIdx && !_bassOnly) _audio.playNote(s.notes[ti].pitch);
+        if (bi >= 0 && s.bassNotes != null && bi != _bassHlIdx) _audio.playNote(s.bassNotes![bi].pitch);
+        setState(() {
+          _hlIdx = ti;
+          _bassHlIdx = bi;
+          _pianoNote = s.notes[ti].pitch;
+        });
+      },
+      onDone: () {
+        if (!mounted) return;
+        setState(() => _autoPlaying = false);
+      },
+    );
+    _audio.unlock();
+    setState(() => _autoPlaying = true);
+    _player!.start();
+  }
+
+  // 왼손 반주만 모드로 자동재생 중일 때는 사용자가 직접 멜로디를 같이 연주할 수 있도록
+  // 자동재생을 멈추지 않는다(반주는 계속 흐르게 두고, 탭한 음만 추가로 재생).
   void _onNoteTap(int idx, ScoreNote note) {
+    if (_bassOnly && _autoPlaying) {
+      _audio.unlock();
+      _audio.playNote(note.pitch);
+      return;
+    }
+    _stopAutoPlay();
     _audio.unlock();
     _audio.playNote(note.pitch);
     setState(() {
       _hlIdx = idx;
+      _bassHlIdx = -1;
+      _pianoNote = note.pitch;
+    });
+  }
+
+  void _onBassNoteTap(int idx, ScoreNote note) {
+    if (_bassOnly && _autoPlaying) {
+      _audio.unlock();
+      _audio.playNote(note.pitch);
+      return;
+    }
+    _stopAutoPlay();
+    _audio.unlock();
+    _audio.playNote(note.pitch);
+    setState(() {
+      _bassHlIdx = idx;
+      _hlIdx = -1;
       _pianoNote = note.pitch;
     });
   }
@@ -221,6 +299,13 @@ class _ScoreScreenState extends State<ScoreScreen> {
                       icon: Icon(Icons.refresh, color: gloryInk.withValues(alpha: .5)),
                       tooltip: '처음부터',
                       onPressed: () => setState(_resetPractice),
+                    )
+                  else
+                    IconButton(
+                      icon: Icon(_autoPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                          color: gloryAccent, size: 28),
+                      tooltip: _autoPlaying ? '일시정지' : '자동 연주',
+                      onPressed: () => _toggleAutoPlay(s),
                     ),
                 ],
               ),
@@ -253,15 +338,28 @@ class _ScoreScreenState extends State<ScoreScreen> {
                 highlightNote: _practiceMode
                     ? (_done ? null : (_practiceHlIdx >= 0 && _practiceHlIdx < s.notes.length ? s.notes[_practiceHlIdx].pitch : null))
                     : _pianoNote,
+                highlightNote2: (!_practiceMode && s.bassNotes != null && _bassHlIdx >= 0 && _bassHlIdx < s.bassNotes!.length)
+                    ? s.bassNotes![_bassHlIdx].pitch
+                    : null,
                 wrongNote: _practiceMode ? _wrongNote : null,
                 onKeyDown: _practiceMode ? _onPracticeKeyDown : null,
                 onKeyUp: _practiceMode ? _onPracticeKeyUp : null,
                 onKeyTap: _practiceMode
                     ? (_) {}
                     : (note) {
+                        if (_bassOnly && _autoPlaying) {
+                          _audio.unlock();
+                          _audio.playNote(note);
+                          return;
+                        }
+                        _stopAutoPlay();
                         _audio.unlock();
                         _audio.playNote(note);
-                        setState(() => _pianoNote = note);
+                        setState(() {
+                          _pianoNote = note;
+                          _hlIdx = -1;
+                          _bassHlIdx = -1;
+                        });
                       },
               ),
             ],
@@ -312,22 +410,43 @@ class _ScoreScreenState extends State<ScoreScreen> {
   }
 
   Widget _buildListenView(SampleScore s) {
+    final bassNotes = s.bassNotes;
+    final isGrand = bassNotes != null && bassNotes.isNotEmpty;
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('음표를 눌러보세요',
+            Text(isGrand ? '재생 버튼을 누르거나, 음표를 직접 눌러보세요 (오른손/왼손)' : '음표를 눌러보세요',
                 style: TextStyle(color: gloryInk.withValues(alpha: .5), fontSize: 12)),
+            if (isGrand) ...[
+              const SizedBox(height: 8),
+              PlayModeToggle(
+                bassOnly: _bassOnly,
+                enabled: !_autoPlaying,
+                onChanged: (v) => setState(() => _bassOnly = v),
+              ),
+            ],
             const SizedBox(height: 8),
             NotationWidget(
               notes: s.notes,
+              clef: 'treble',
               highlightIdx: _hlIdx,
               onNoteTap: _onNoteTap,
               timeSignature: s.timeSignature,
               scrollController: _trebleCtrl,
             ),
+            if (isGrand) ...[
+              const SizedBox(height: 8),
+              NotationWidget(
+                notes: bassNotes,
+                clef: 'bass',
+                highlightIdx: _bassHlIdx,
+                onNoteTap: _onBassNoteTap,
+                scrollController: _bassCtrl,
+              ),
+            ],
             if (_pianoNote != null) ...[
               const SizedBox(height: 12),
               _NoteInfoBar(pitch: _pianoNote!),

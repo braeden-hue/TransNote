@@ -1,8 +1,60 @@
+import java.util.zip.ZipFile
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// ─── TFLite C API extraction for the CMake native build ───────────────────────
+// org.tensorflow:tensorflow-lite's AAR is NOT a prefab package (unlike OpenCV
+// below) -- it only ships the TFLite C API headers (tensorflow/lite/c/*.h)
+// plus libtensorflowlite_jni.so per ABI in classic jni/<abi>/ layout, so CMake
+// can't find_package() it. We extract those files ourselves, once per
+// configuration, into a stable location and rename the .so to
+// libtensorflowlite.so so ml/omr/engine/CMakeLists.txt's
+// find_library(TFLITE_LIB tensorflowlite ...) picks it up
+// (see -DTFLITE_ROOT= passed to externalNativeBuild.cmake.arguments below).
+val tfliteExtractedDir = layout.buildDirectory.dir("tflite_extracted").get().asFile
+run {
+    val tfliteConfig = configurations.detachedConfiguration(
+        dependencies.create("org.tensorflow:tensorflow-lite:2.16.1")
+    )
+    val aarFile = tfliteConfig.resolve().first { it.name.endsWith(".aar") }
+
+    val includeDir = File(tfliteExtractedDir, "include")
+    val markerFile = File(tfliteExtractedDir, ".extracted-${aarFile.name}")
+    if (!markerFile.exists()) {
+        tfliteExtractedDir.deleteRecursively()
+        includeDir.mkdirs()
+
+        ZipFile(aarFile).use { zip ->
+            val abiMap = mapOf(
+                "arm64-v8a"   to "arm64-v8a",
+                "armeabi-v7a" to "armeabi-v7a",
+                "x86"         to "x86",
+                "x86_64"      to "x86_64",
+            )
+            for (entry in zip.entries()) {
+                when {
+                    entry.name.startsWith("headers/") && !entry.isDirectory -> {
+                        val dest = File(includeDir, entry.name.removePrefix("headers/"))
+                        dest.parentFile.mkdirs()
+                        zip.getInputStream(entry).use { input -> dest.outputStream().use { input.copyTo(it) } }
+                    }
+                    entry.name.startsWith("jni/") && entry.name.endsWith("libtensorflowlite_jni.so") -> {
+                        val abi = entry.name.removePrefix("jni/").substringBefore('/')
+                        val abiDirName = abiMap[abi] ?: abi
+                        val dest = File(tfliteExtractedDir, "lib/$abiDirName/libtensorflowlite.so")
+                        dest.parentFile.mkdirs()
+                        zip.getInputStream(entry).use { input -> dest.outputStream().use { input.copyTo(it) } }
+                    }
+                }
+            }
+        }
+        markerFile.writeText("ok")
+    }
 }
 
 android {
@@ -32,7 +84,10 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++20"
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DTFLITE_ROOT=${tfliteExtractedDir.absolutePath}",
+                )
             }
         }
         ndk {

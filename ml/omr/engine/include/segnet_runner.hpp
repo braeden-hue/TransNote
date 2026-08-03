@@ -4,11 +4,12 @@
 #include <memory>
 #include <string>
 
-// Forward-declare TFLite types to avoid header pollution.
-namespace tflite {
-    class FlatBufferModel;
-    class Interpreter;
-}
+// Forward-declare the TFLite C API opaque types to avoid header pollution.
+// (Android's org.tensorflow:tensorflow-lite AAR only ships the C API headers/
+// symbols -- see ml/omr/engine/CMakeLists.txt Android branch -- so this engine
+// is built against tflite's C API, not the C++ Interpreter/FlatBufferModel API.)
+struct TfLiteModel;
+struct TfLiteInterpreter;
 
 namespace omr {
 
@@ -20,10 +21,13 @@ namespace omr {
  * images are processed in overlapping tiles; blended overlaps reduce artefacts
  * at tile borders.
  *
- * Model I/O (expected by the TFLite model we will train):
- *   Input  : [1, 3, PATCH_SIZE, PATCH_SIZE]  float32  NCHW
- *            grayscale replicated across 3 channels, values [0, 255]
- *   Output : [1, SEG_NUM_CLASSES, PATCH_SIZE, PATCH_SIZE]  float32  NCHW
+ * Model I/O (matches round3train/export_tflite.py's actual ONNX->TFLite export
+ * for segnet -- verified via ml/omr/utils/inspect_tflite.py against
+ * round3train/tflite_export/segnet_INT8.tflite):
+ *   Input  : [1, PATCH_SIZE, PATCH_SIZE, 1]  float32  NHWC (single channel)
+ *            grayscale, normalised as f = pixel/127.5 - 1.0 (see
+ *            round3train/export_tflite.py::_build_segnet_calib)
+ *   Output : [1, PATCH_SIZE, PATCH_SIZE, SEG_NUM_CLASSES]  float32  NHWC
  *            raw logits; argmax → predicted class per pixel
  *
  * Algorithm: sliding-window inference with 50 % overlap and linear-blend
@@ -60,8 +64,8 @@ private:
                              const std::vector<cv::Mat>& patch_out,
                              int ox, int oy);
 
-    std::unique_ptr<tflite::FlatBufferModel> model_;
-    std::unique_ptr<tflite::Interpreter>     interp_;
+    TfLiteModel*       model_  = nullptr;
+    TfLiteInterpreter* interp_ = nullptr;
 };
 
 } // namespace omr
