@@ -27,103 +27,33 @@
   <main class="app-main">
   <div class="screens-wrapper">
 
-    <!-- ══ 튜토리얼 ══ -->
+    <!-- ══ 튜토리얼 — 태블릿1 대기열 온보딩용. 화면을 위(악보)/아래(피아노) 절반으로
+         나눠 그 두 가지에만 집중시킨다(단순함이 최우선). ══ -->
     <section class="screen active" id="screen-tutorial">
       <div class="screen-content">
 
-        <div class="tutorial-hero">
-          <h1>악보를 새롭게 읽는 방법</h1>
-          <p>단 <strong>3가지 규칙</strong>으로 누구나 악보를 읽을 수 있습니다</p>
+        <div class="tut-topbar">
+          <span class="tut-chip" id="tut-page-chip"></span>
+          <span class="tut-caption" id="tut-caption"></span>
+          <div class="tut-dots" id="tut-dots"></div>
         </div>
 
-        <div class="rule-cards">
-          <div class="rule-card">
-            <div class="rule-badge">규칙 1</div>
-            <h3>세로 위치 = 음 높이</h3>
-            <p>셀이 위에 있을수록 <em>고음</em>, 아래에 있을수록 <em>저음</em>입니다.<br>
-               행(존)이 옥타브를 나타냅니다.</p>
-            <div class="rule-demo">
-              <div class="zone-labels">
-                <span>높음 ↑</span><span>중간</span><span>낮음 ↓</span>
-              </div>
-              <div class="notation-mini" id="notation-demo-1"></div>
-            </div>
-          </div>
-
-          <div class="rule-card">
-            <div class="rule-badge">규칙 2</div>
-            <h3>셀 너비 = 음 길이</h3>
-            <p>셀이 <em>넓을수록</em> 길게, <em>좁을수록</em> 짧게 연주합니다</p>
-            <div class="rule-demo">
-              <div class="notation-mini" id="notation-demo-2"></div>
-              <div class="dur-labels">
-                <span>짧음<br><small>8분음</small></span>
-                <span>보통<br><small>4분음</small></span>
-                <span>김<br><small>2분음</small></span>
-              </div>
-            </div>
-          </div>
-
-          <div class="rule-card">
-            <div class="rule-badge">규칙 3</div>
-            <h3>테두리 색 = 박자 위치</h3>
-            <p>색깔로 <em>현재 어느 박자</em>인지 알 수 있습니다</p>
-            <div class="rule-demo beat-demo">
-              <div class="beat-cell" style="--c:#0076CE"><span>1박</span></div>
-              <div class="beat-cell" style="--c:#5BB8F5"><span>2박</span></div>
-              <div class="beat-cell" style="--c:#A8D5F5"><span>3박</span></div>
-              <div class="beat-cell" style="--c:#D0EBFA"><span>4박</span></div>
-            </div>
-            <p class="rule-hint">클릭해보세요!</p>
-          </div>
-
-          <div class="rule-card">
-            <div class="rule-badge">표기법</div>
-            <h3>음 이름 표기</h3>
-            <p><em>흰 건반</em>: C D E F G A B (도~시)<br>
-               <em>검은 건반</em>: 1(C#) 2(D#) 3(F#) 4(G#) 5(A#)<br>
-               셀 안에 옥타브 숫자 없음 — <em>행(존)</em>이 옥타브<br>
-               <em>화음</em>: 두 음 이름 이어 쓰기 (예: C5 = 도+라#)</p>
-          </div>
+        <div class="tut-split" id="tut-page-frame">
+          <div class="tut-split-top" id="tut-split-top"></div>
+          <div class="tut-split-bottom" id="tut-split-bottom"></div>
         </div>
 
-        <!-- 기본음 키보드 체험 -->
-        <div class="kb-tryout" id="kb-tryout">
-          <div class="kb-tryout-header">
-            <h2>기본음 직접 눌러보기</h2>
-            <p>키보드 키를 누르거나 셀을 클릭하면 소리가 납니다</p>
-          </div>
-          <!-- JS가 채움 -->
-        </div>
-
-        <div class="tutorial-preview">
-          <h2>직접 체험해보세요</h2>
-          <p>아래는 <strong>반짝반짝 작은별</strong> 첫 소절입니다. 셀 클릭 또는 건반을 눌러보세요!</p>
-          <div class="notation-nav-wrap">
-            <button class="notation-nav-btn" id="tutorial-notation-prev" disabled>&#8249;</button>
-            <div class="notation-container scrollable" id="tutorial-notation"></div>
-            <button class="notation-nav-btn" id="tutorial-notation-next">&#8250;</button>
-          </div>
-          <div class="octave-nav" style="margin-top:12px;">
-            <button class="octave-btn" id="tutorial-oct-down">◀</button>
-            <span id="tutorial-oct-label">C3 ~ B4 영역</span>
-            <button class="octave-btn" id="tutorial-oct-up">▶</button>
-            <span class="octave-hint">옥타브 이동</span>
-          </div>
-          <div class="piano-wrapper mini-piano" id="tutorial-piano-wrapper">
-            <div class="piano" id="tutorial-piano"></div>
-          </div>
-          <p class="kb-hint">키보드: <kbd>A</kbd>도 <kbd>S</kbd>레 <kbd>D</kbd>미 <kbd>F</kbd>파 <kbd>G</kbd>솔 <kbd>H</kbd>라 <kbd>J</kbd>시 &nbsp;|&nbsp; <kbd>W</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> = 반음</p>
-        </div>
-
-        <div class="tutorial-cta">
-          <button class="btn-primary btn-large" id="btn-start">이해했어요 — 변환 시작하기 →</button>
+        <div class="tut-nav">
+          <button class="btn-secondary" id="tut-prev">← 이전</button>
+          <button class="btn-primary" id="tut-next">다음 →</button>
         </div>
       </div>
     </section>
 
     <!-- ══ 악보 변환 ══ -->
     <section class="screen" id="screen-convert">
+      <!-- 전시 부스 대비: 조명 탓에 실시간 인식이 꼬일 때 진행요원만 쓰는 대체 버튼(관람객 눈에 안 띔) -->
+      <button class="cheat-fallback-btn" id="btn-cheat-fallback" title="대체 결과 표시">🎹</button>
       <div class="screen-content">
         <div class="section-header">
           <h2>악보 변환</h2>
@@ -153,10 +83,33 @@
               <div class="drop-zone" id="drop-zone">
                 <div class="drop-icon">🎼</div>
                 <p>악보 이미지를 드래그하거나</p>
-                <button class="btn-secondary" id="btn-file-pick">파일 선택</button>
+                <div class="upload-btn-row">
+                  <button class="btn-secondary" id="btn-file-pick">📂 파일 선택</button>
+                  <button class="btn-secondary" id="btn-camera-open">📷 촬영하기</button>
+                </div>
                 <input type="file" id="file-input" accept="image/*" hidden>
                 <p class="hint">JPG, PNG · 최대 10MB</p>
               </div>
+
+              <div class="camera-capture hidden" id="camera-capture">
+                <!-- flutter GuidedCameraScreen 구조 그대로 이식: 오선 1개/대보표 토글 + 뷰파인더 가이드 -->
+                <div class="camera-mode-chips" id="camera-mode-chips">
+                  <button class="camera-mode-chip" data-grand="0">오선 1개</button>
+                  <button class="camera-mode-chip active" data-grand="1">대보표(2개)</button>
+                </div>
+                <div class="camera-video-wrap">
+                  <video id="camera-video" autoplay playsinline muted></video>
+                  <canvas id="camera-guide-canvas"></canvas>
+                  <div class="camera-guide-hint" id="camera-guide-hint">대보표(높은음자리+낮은음자리)를 박스 안에 맞춰주세요</div>
+                </div>
+                <div class="camera-controls">
+                  <button class="btn-secondary" id="btn-camera-cancel">취소</button>
+                  <button class="btn-primary btn-shutter" id="btn-camera-shutter">📸 촬영</button>
+                </div>
+                <p class="camera-error hidden" id="camera-error"></p>
+              </div>
+              <canvas id="camera-canvas" hidden></canvas>
+
               <p class="demo-notice" id="demo-notice">ℹ️ <code>python server.py</code> 실행 후 업로드하면 실제 OMR 변환됩니다</p>
             </div>
           </div>
@@ -199,6 +152,11 @@
               <div class="result-save">
                 <input type="text" id="save-title-input" class="title-input" placeholder="악보 제목 입력...">
                 <button class="btn-primary" id="btn-save-notation">💾 저장하기</button>
+                <button class="btn-secondary hidden" id="btn-show-qr">📱 QR로 가져가기</button>
+              </div>
+              <div class="qr-panel hidden" id="qr-panel">
+                <img id="qr-img" alt="QR 코드" width="180" height="180">
+                <p>스마트폰으로 스캔하면 방금 만든 나만의 악보를 폰에서 그대로 볼 수 있어요</p>
               </div>
             </div>
           </div>
@@ -211,7 +169,7 @@
       <div class="screen-content">
         <div class="section-header">
           <h2>연주하기</h2>
-          <p>금색으로 빛나는 건반을 누르세요. 박자에 맞게 다음 음으로 넘어갑니다.</p>
+          <p>① ▶ 로 먼저 들어보고 → ② Wait Mode로 직접 연주해보세요. 정확한 건반을 눌러야 다음 음으로 넘어갑니다.</p>
         </div>
 
         <div class="play-layout">
@@ -232,7 +190,7 @@
               <h3 id="play-notation-title" class="notation-title">—</h3>
               <div class="playback-controls">
                 <button class="ctrl-btn" id="btn-prev-note" title="이전 음">⏮</button>
-                <button class="ctrl-btn ctrl-primary" id="btn-auto-play" title="자동 재생">▶</button>
+                <button class="ctrl-btn ctrl-primary" id="btn-auto-play" title="① 미리듣기 — 전자 피아노로 곡 전체 자동 연주">▶</button>
                 <button class="ctrl-btn" id="btn-next-note" title="다음 음">⏭</button>
                 <button class="ctrl-btn" id="btn-reset" title="처음으로">⏹</button>
                 <div class="tempo-control">
@@ -240,7 +198,15 @@
                   <input type="range" id="tempo-slider" min="40" max="180" value="90" step="5">
                   <span id="tempo-display">90 BPM</span>
                 </div>
+                <label class="toggle-label accompaniment-toggle" id="accompaniment-toggle-wrap" title="켜면 ▶ 재생이 왼손(베이스)만 자체 템포로 연주 — 오른손은 직접 Wait Mode로 연주">
+                  <input type="checkbox" id="toggle-accompaniment">🎼 반주 모드 (왼손 자동)
+                </label>
               </div>
+            </div>
+
+            <div class="stage-badges">
+              <span class="stage-badge">① 미리듣기 — ▶ 버튼을 누르면 피아노가 곡을 먼저 들려줘요</span>
+              <span class="stage-badge stage-badge-primary">② Wait Mode — 정확한 건반을 눌러야 다음 음으로 넘어가요</span>
             </div>
 
             <!-- 악보 표시 -->
@@ -265,6 +231,15 @@
                   <input type="checkbox" id="toggle-note-names" checked>음이름 표시
                 </label>
                 <span class="piano-hint">키보드: <kbd>A</kbd>~<kbd>J</kbd> (도~시) | <kbd>W</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> (반음)</span>
+              </div>
+
+              <!-- 전자 피아노(MIDI) 연동 -->
+              <div class="midi-controls" id="midi-controls">
+                <button class="btn-secondary btn-sm" id="btn-midi-connect">🎹 전자 피아노 연결</button>
+                <span class="server-dot" id="midi-dot" title="MIDI 연결 상태"></span>
+                <select id="midi-input-select" class="model-select hidden"></select>
+                <select id="midi-output-select" class="model-select hidden"></select>
+                <span class="midi-status" id="midi-status"></span>
               </div>
 
               <!-- 옥타브 내비게이션 -->

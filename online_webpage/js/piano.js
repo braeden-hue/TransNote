@@ -135,12 +135,14 @@ export function buildPiano(pianoEl, pianoWrapper, {
   navNext?.addEventListener('click', () => scrollToOct(viewOct + 1));
   scrollToOct(viewOct);
 
-  function press(note) {
+  function press(note, { silent = false } = {}) {
     if (!keyEls[note] || pressedSet.has(note)) return;
     pressedSet.add(note);
     applyVisual(note);
-    audio.unlock();
-    audio.playNote(note, 0.5);
+    if (!silent) {
+      audio.unlock();
+      audio.playNote(note, 0.5);
+    }
     onPress?.(note);
   }
 
@@ -204,6 +206,10 @@ export function buildPiano(pianoEl, pianoWrapper, {
 
   // ── 공개 API ──────────────────────────────────────────────────────────────
   return {
+    // 외부 입력(MIDI 등)이 클릭/키보드와 동일한 경로(시각 피드백 + onPress/onRelease 콜백)를
+    // 타도록 노출. silent:true면 자체 신시사이저 소리를 내지 않는다(실물 피아노가 이미 냄).
+    press,
+    release,
     setExpected(note) {
       const prev = expectedState.note;
       expectedState.note = note;
@@ -281,6 +287,23 @@ export function buildPiano(pianoEl, pianoWrapper, {
           </svg>
         `;
         k.appendChild(arrow);
+      });
+    },
+
+    // 옥타브 구역을 반투명 색 띠로 건반 위에 표시 (규칙1: 음높이=세로위치 학습용).
+    // bands: [{ fromNote, toNote, color }] — fromNote/toNote는 흰 건반 이름(예: 'C4','B4').
+    setZoneBands(bands) {
+      pianoEl.querySelectorAll('.piano-zone-band').forEach(b => b.remove());
+      bands.forEach(({ fromNote, toNote, color }) => {
+        const x1 = whiteKeyX(fromNote);
+        const x2 = whiteKeyX(toNote) + WK_W;
+        const band = document.createElement('div');
+        band.className = 'piano-zone-band';
+        band.style.cssText = `
+          position:absolute; top:0; left:${x1}px; width:${x2 - x1}px; height:${WK_H}px;
+          background:${color}; pointer-events:none; z-index:4;
+        `;
+        pianoEl.appendChild(band);
       });
     },
 
@@ -373,6 +396,75 @@ function makeWhiteKey(note, label) {
     k.appendChild(s);
   }
   return k;
+}
+
+// ── 라벨 옥타브 (튜토리얼 규칙0 전용) ────────────────────────────────────────
+// 실제 88건반 레이아웃과 별개로, 딱 한 옥타브만 크게 그려서 흰건반엔 음이름+계이름,
+// 검은건반엔 1~5 숫자+계이름을 건반 위에 직접 겹쳐 표시한다 — "피아노 한 옥타브 그림".
+const OCT_BLACK = [
+  { name: 'C#', pos: 0.64, label: '1' }, { name: 'D#', pos: 1.64, label: '2' },
+  { name: 'F#', pos: 3.65, label: '3' }, { name: 'G#', pos: 4.64, label: '4' },
+  { name: 'A#', pos: 5.64, label: '5' },
+];
+const SOLFEGE_MAP = {
+  C: '도', D: '레', E: '미', F: '파', G: '솔', A: '라', B: '시',
+  'C#': '도#', 'D#': '레#', 'F#': '파#', 'G#': '솔#', 'A#': '라#',
+};
+
+export function renderLabeledOctave(container, { oct = 4, onPress } = {}) {
+  const LW = 100, LH = 260, BW = 58, BH = 158;
+  container.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative; display:inline-flex; user-select:none; touch-action:none;';
+
+  function flash(k, activeColor, restColor) {
+    k.style.background = activeColor;
+    setTimeout(() => { k.style.background = restColor; }, 220);
+  }
+
+  ['C', 'D', 'E', 'F', 'G', 'A', 'B'].forEach(name => {
+    const note = name + oct;
+    const k = document.createElement('div');
+    k.dataset.note = note;
+    k.style.cssText = `
+      width:${LW}px; height:${LH}px; flex-shrink:0;
+      background:#f4efe6; border:1px solid #c8c0b0; border-radius:0 0 12px 12px;
+      display:flex; flex-direction:column; align-items:center; justify-content:flex-end;
+      padding-bottom:18px; gap:5px; cursor:pointer; transition:background .1s;
+      box-shadow:inset 0 -6px 0 rgba(0,0,0,0.10);
+    `;
+    k.innerHTML = `<span style="font-size:32px;font-weight:800;color:#0076CE;font-family:system-ui;">${name}</span>
+                    <span style="font-size:16px;color:#4A6080;font-family:system-ui;">${SOLFEGE_MAP[name]}</span>`;
+    k.addEventListener('click', () => {
+      audio.unlock(); audio.playNote(note, 0.5);
+      flash(k, '#b8ddf8', '#f4efe6');
+      onPress?.(note);
+    });
+    wrap.appendChild(k);
+  });
+
+  OCT_BLACK.forEach(({ name, pos, label }) => {
+    const note = name + oct;
+    const k = document.createElement('div');
+    k.dataset.note = note;
+    k.style.cssText = `
+      position:absolute; top:0; left:${pos * LW - BW / 2}px;
+      width:${BW}px; height:${BH}px; z-index:2;
+      background:#1c1c1c; border-radius:0 0 10px 10px;
+      display:flex; flex-direction:column; align-items:center; justify-content:flex-end;
+      padding-bottom:14px; gap:3px; cursor:pointer; transition:background .1s;
+    `;
+    k.innerHTML = `<span style="font-size:24px;font-weight:800;color:#fff;font-family:system-ui;">${label}</span>
+                    <span style="font-size:12px;color:#cbd5e1;font-family:system-ui;">${SOLFEGE_MAP[name]}</span>`;
+    k.addEventListener('click', () => {
+      audio.unlock(); audio.playNote(note, 0.5);
+      flash(k, '#004d8a', '#1c1c1c');
+      onPress?.(note);
+    });
+    wrap.appendChild(k);
+  });
+
+  container.appendChild(wrap);
 }
 
 function makeBlackKey(note, pos) {

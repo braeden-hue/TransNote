@@ -1,10 +1,11 @@
 import { SAMPLES, BEAT_COLORS }          from './samples.js';
 import { audio }                           from './audio.js';
-import { renderNotation, renderMiniNotation, renderGrandStaff } from './notation.js';
-import { buildPiano }                      from './piano.js';
+import { renderNotation, renderMiniNotation, renderGrandStaff, renderMiniStaff } from './notation.js';
+import { buildPiano, renderLabeledOctave } from './piano.js';
 import { loadAll, saveNotation, deleteNotation, generateId } from './storage.js';
 import { signInWithGoogle, signOutUser, onAuthChange,
          saveScoreCloud, loadScoresCloud, deleteScoreCloud } from './firebase.js';
+import * as midi from './midi.js';
 
 // ── 피아노 기준 화살표 — 가온다(C4, Middle C) ─────────────────────────────────
 const REF_ARROWS = [
@@ -24,10 +25,21 @@ const state = {
   tutorialPianoCtrl: null,
   playPianoCtrl:     null,
   playNotationCtrl:  null,  // renderPlay 에서 반환된 ctrl
+  cameraStream:      null,
+  kioskMode:         false, // false | 'tutorial'(태블릿1) | 'convert'(태블릿2) — 전시 부스 킨스크 고정 화면
+  accompanimentMode: false, // 반주 모드 — ▶ 재생이 왼손(베이스)만 자체 템포로 연주
 };
 
+function stopCamera() {
+  state.cameraStream?.getTracks().forEach(t => t.stop());
+  state.cameraStream = null;
+  const video = document.getElementById('camera-video');
+  if (video) video.srcObject = null;
+  document.getElementById('camera-capture')?.classList.add('hidden');
+}
+
 // ── 악보 화살표 nav 헬퍼 ──────────────────────────────────────────────────────
-const notationNavUpdate = { tutorial: () => {}, convert: () => {}, play: () => {} };
+const notationNavUpdate = { convert: () => {}, play: () => {} };
 
 function makeNotationNav(containerId, prevId, nextId) {
   const c = document.getElementById(containerId);
@@ -71,14 +83,26 @@ function makeNotationNav(containerId, prevId, nextId) {
 const SCREEN_ORDER = ['tutorial', 'convert', 'play', 'library'];
 let wheelLocked = false;
 
+// 화면 전환 컨테이너(.app-main/.screens-wrapper)는 항상 scrollTop=0이어야 하는데,
+// 키보드 포커스 이동 등으로 브라우저가 자동 스크롤을 걸어버리는 경우가 있어(특히
+// 콘텐츠가 긴 화면에서) 화면이 바뀔 때마다 강제로 되돌린다.
+function resetShellScroll() {
+  document.querySelector('.app-main')?.scrollTo(0, 0);
+  document.querySelector('.screens-wrapper')?.scrollTo(0, 0);
+}
+
 function navigate(name, { instant = false } = {}) {
+  if (state.kioskMode && name !== state.kioskMode) return; // 킨스크: 지정된 화면 밖으로 못 나가게 고정
   if (wheelLocked && !instant) return;
+  resetShellScroll();
 
   const prevName = state.screen;
   const prevIdx  = SCREEN_ORDER.indexOf(prevName);
   const nextIdx  = SCREEN_ORDER.indexOf(name);
   if (nextIdx < 0) return;
   const goingDown = nextIdx > prevIdx;
+
+  if (prevName === 'convert' && name !== 'convert') stopCamera();
 
   // 모든 화면 초기화
   document.querySelectorAll('.screen').forEach(s => {
@@ -113,12 +137,23 @@ function navigate(name, { instant = false } = {}) {
 }
 
 // ── 마우스 휠 인터셉트 ─────────────────────────────────────────────────────────
-// 발표/데모용: 휠 한 번 → 섹션 전환 (섹션 내 스크롤은 스크롤바·드래그로)
+// 발표/데모용: 휠 한 번 → 섹션 전환 (섹션 내 스크롤은 스크롤바·드래그로).
+// 단, 현재 화면 내부가 아직 스크롤 가능하면(맨 위/맨 아래가 아니면) 일반 스크롤을
+// 그대로 허용한다 — 안 그러면 연주하기처럼 세로로 긴 화면에서 하단(피아노 건반 등)을
+// 볼 방법이 없어진다(휠이 항상 화면 전환으로 소비돼버림).
 window.addEventListener('wheel', e => {
-  e.preventDefault(); // 항상 기본 스크롤 막음
-  if (wheelLocked) return;
+  if (wheelLocked) { e.preventDefault(); return; }
 
   const goingDown = e.deltaY > 0;
+  const activeScreen = document.querySelector('.screen.active');
+  if (activeScreen) {
+    const { scrollTop, scrollHeight, clientHeight } = activeScreen;
+    const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
+    const atTop = scrollTop <= 0;
+    if ((goingDown && !atBottom) || (!goingDown && !atTop)) return; // 내부 스크롤에 맡김
+  }
+
+  e.preventDefault();
   const cur  = SCREEN_ORDER.indexOf(state.screen);
   const next = goingDown ? cur + 1 : cur - 1;
   if (next >= 0 && next < SCREEN_ORDER.length) {
@@ -168,140 +203,289 @@ function clearCountdown() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Tutorial
 // ═══════════════════════════════════════════════════════════════════════════════
-function initTutorial() {
-  // 규칙 1: 세로 위치 = 음 높이
-  renderMiniNotation(document.getElementById('notation-demo-1'), [
-    { pitch:'C5', duration:1, beat:1 },
-    { pitch:'G4', duration:1, beat:2 },
-    { pitch:'C4', duration:1, beat:3 },
-  ], { unitW:72, cellH:36 });
+// ── 튜토리얼: 태블릿1 대기열 온보딩 킨스크(?kiosk=1) 전용 화면. "단순함이 무기" —
+// 화면을 위(악보)/아래(피아노) 절반으로만 나누고, 설명은 상단 한 줄 캡션으로 줄인다.
+// 힌트 없이도 건반을 눌러보며 "어떤 음을 눌러야 하는지" 스스로 알아낼 수 있게
+// 마지막 3장(블라인드 퀴즈)은 정답을 숨긴다.
+const SOLFEGE = {
+  C: '도', 'C#': '도#', D: '레', 'D#': '레#', E: '미', F: '파', 'F#': '파#',
+  G: '솔', 'G#': '솔#', A: '라', 'A#': '라#', B: '시',
+};
+const solfegeOf = pitch => SOLFEGE[pitch.slice(0, -1)] ?? pitch;
 
-  // 규칙 2: 셀 너비 = 음 길이
-  renderMiniNotation(document.getElementById('notation-demo-2'), [
-    { pitch:'C4', duration:0.5, beat:3 },
-    { pitch:'C4', duration:1,   beat:1 },
-    { pitch:'C4', duration:2,   beat:2 },
-  ], { unitW:72, cellH:36 });
+function hexToRgba(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
 
-  // 규칙 3: 박자 색 클릭
-  document.querySelectorAll('.beat-cell').forEach(cell => {
-    cell.addEventListener('click', () => { audio.unlock(); audio.playNote('C4', 0.4); });
-  });
+// 오른손(트레블)/왼손(베이스) 각 3개 존 — 88건반 위 색 띠 + 대보표 예시 음에 공용으로 쓴다.
+const HAND_ZONES = [
+  { hand: '왼손',  zone: '낮음', from: 'A0', to: 'B1', hex: '#FF8A3D', note: 'C1' },
+  { hand: '왼손',  zone: '중간', from: 'C2', to: 'B2', hex: '#FFA85C', note: 'G2' },
+  { hand: '왼손',  zone: '높음', from: 'C3', to: 'B3', hex: '#FFC98A', note: 'C3' },
+  { hand: '오른손', zone: '낮음', from: 'C4', to: 'B4', hex: '#5BB8F5', note: 'C4' },
+  { hand: '오른손', zone: '중간', from: 'C5', to: 'B5', hex: '#3A9EE0', note: 'G5' },
+  { hand: '오른손', zone: '높음', from: 'C6', to: 'C8', hex: '#0076CE', note: 'C6' },
+];
 
-  // ── 기본음 키보드 체험 섹션 ────────────────────────────────────────────────
-  const KB_NOTES = [
-    { key: 'A', pitch: 'C4', label: 'C', solfege: '도' },
-    { key: 'S', pitch: 'D4', label: 'D', solfege: '레' },
-    { key: 'D', pitch: 'E4', label: 'E', solfege: '미' },
-    { key: 'F', pitch: 'F4', label: 'F', solfege: '파' },
-    { key: 'G', pitch: 'G4', label: 'G', solfege: '솔' },
-    { key: 'H', pitch: 'A4', label: 'A', solfege: '라' },
-    { key: 'J', pitch: 'B4', label: 'B', solfege: '시' },
-  ];
-  const NOTE_COLORS = { C:'#0076CE', D:'#5BB8F5', E:'#A8D5F5', F:'#3A9EE0', G:'#0076CE', A:'#5BB8F5', B:'#A8D5F5' };
-  const kbCellMap = {};
+// 옥타브 내비게이션 + 피아노를 container 안에 새로 만들고 state.tutorialPianoCtrl에 연결.
+// (페이지 전환마다 renderTutPage()가 이전 피아노를 destroy()하므로 리스너가 쌓이지 않는다.)
+function buildTutPiano(container, opts = {}) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="octave-nav">
+      <button class="octave-btn" data-role="down">◀</button>
+      <span data-role="label">C3 ~ B4 영역</span>
+      <button class="octave-btn" data-role="up">▶</button>
+      <span class="octave-hint">옥타브 이동</span>
+    </div>
+    <div class="piano-wrapper mini-piano"><div class="piano"></div></div>`;
+  container.appendChild(wrap);
 
-  const tryoutEl = document.getElementById('kb-tryout');
-  if (tryoutEl) {
-    const grid = document.createElement('div');
-    grid.className = 'kb-note-grid';
-    KB_NOTES.forEach(({ key, pitch, label, solfege }) => {
-      const cell = document.createElement('div');
-      cell.className = 'kb-note-cell';
-      cell.style.setProperty('--nc', NOTE_COLORS[label]);
-      cell.innerHTML = `
-        <span class="kb-note-symbol">${label}</span>
-        <span class="kb-note-solfege">${solfege}</span>
-        <kbd class="kb-key-badge">${key}</kbd>`;
-      cell.addEventListener('click', () => {
-        audio.unlock(); audio.playNote(pitch, 0.4);
-        cell.classList.add('active');
-        setTimeout(() => cell.classList.remove('active'), 280);
-      });
-      kbCellMap[pitch] = cell;
-      grid.appendChild(cell);
-    });
-    tryoutEl.appendChild(grid);
-
-    const kbTryMap = { a:'C4', s:'D4', d:'E4', f:'F4', g:'G4', h:'A4', j:'B4' };
-    document.addEventListener('keydown', e => {
-      if (e.repeat) return;
-      const p = kbTryMap[e.key.toLowerCase()];
-      if (p && kbCellMap[p]) kbCellMap[p].classList.add('active');
-    });
-    document.addEventListener('keyup', e => {
-      const p = kbTryMap[e.key.toLowerCase()];
-      if (p && kbCellMap[p]) kbCellMap[p].classList.remove('active');
-    });
-  }
-
-  // ── 인터랙티브 미리보기 (순차 진행) ────────────────────────────────────────
-  const previewNotes = SAMPLES[0].notes.slice(0, 7);
-  let tutExpIdx     = 0;   // 다음에 눌러야 할 음 인덱스
-  let tutAdvTimer   = null; // 자동 진행 타이머
-
-  function rerenderTutorial(hlIdx, expIdx) {
-    renderNotation(document.getElementById('tutorial-notation'), previewNotes, {
-      highlightIdx: hlIdx,
-      expectedIdx:  expIdx,
-      onNoteClick(idx, note) {
-        clearTimeout(tutAdvTimer);
-        audio.unlock(); audio.playNote(note.pitch, 0.4);
-        tutExpIdx = idx;
-        rerenderTutorial(idx, -1);
-        state.tutorialPianoCtrl?.clearExpected();
-        tutAdvTimer = setTimeout(() => {
-          tutAdvTimer = null;
-          const next = (idx + 1) % previewNotes.length;
-          tutExpIdx = next;
-          rerenderTutorial(-1, next);
-          state.tutorialPianoCtrl?.setExpected(previewNotes[next].pitch);
-        }, 700);
-      },
-    });
-    notationNavUpdate.tutorial();
-  }
-  rerenderTutorial(-1, 0);
-
-  const pianoEl      = document.getElementById('tutorial-piano');
-  const pianoWrapper = document.getElementById('tutorial-piano-wrapper');
-  state.tutorialPianoCtrl = buildPiano(pianoEl, pianoWrapper, {
+  const ctrl = buildPiano(wrap.querySelector('.piano'), wrap.querySelector('.piano-wrapper'), {
     showLabels: true,
-    navPrevEl:  document.getElementById('tutorial-oct-down'),
-    navNextEl:  document.getElementById('tutorial-oct-up'),
-    navLabelEl: document.getElementById('tutorial-oct-label'),
+    navPrevEl:  wrap.querySelector('[data-role="down"]'),
+    navNextEl:  wrap.querySelector('[data-role="up"]'),
+    navLabelEl: wrap.querySelector('[data-role="label"]'),
+    ...opts,
+  });
+  state.tutorialPianoCtrl = ctrl;
+  ctrl.setArrows(REF_ARROWS);
+  ctrl.setDots([{ note: 'C4', color: '#FF4444' }]);
+  return ctrl;
+}
+
+// "다음 음: 도" 배지 + 피아노로 순서대로 연주해보는 연습 독 (규칙2+3 페이지 전용).
+function buildPracticeDock(container, pitchSeq) {
+  container.innerHTML = `
+    <div class="tut-practice-head">
+      <strong>실시간으로 연주해보기</strong>
+      <span class="tut-next-note-badge" id="tut-dock-badge"></span>
+      <span id="tut-dock-feedback"></span>
+    </div>
+    <div id="tut-dock-piano"></div>`;
+
+  let idx = 0;
+  const badge    = document.getElementById('tut-dock-badge');
+  const feedback = document.getElementById('tut-dock-feedback');
+  const updateBadge = () => { badge.textContent = `다음 음: ${solfegeOf(pitchSeq[idx])}`; };
+  updateBadge();
+
+  const ctrl = buildTutPiano(document.getElementById('tut-dock-piano'), {
     onPress(note) {
-      if (tutAdvTimer !== null) return;   // 진행 대기 중엔 무시
-      const expNote = previewNotes[tutExpIdx];
-      if (!expNote) return;
-
-      if (note === expNote.pitch) {
-        // ✅ 정답 — highlight 후 다음 음으로 자동 진행
-        state.tutorialPianoCtrl.flashCorrect(note);
-        const prevIdx = tutExpIdx;
-        rerenderTutorial(prevIdx, -1);
-        state.tutorialPianoCtrl?.clearExpected();
-
-        tutAdvTimer = setTimeout(() => {
-          tutAdvTimer = null;
-          const next = (prevIdx + 1) % previewNotes.length;
-          tutExpIdx = next;
-          rerenderTutorial(-1, next);
-          state.tutorialPianoCtrl?.setExpected(previewNotes[next].pitch);
-        }, 450);
+      if (note === pitchSeq[idx]) {
+        ctrl.flashCorrect(note);
+        feedback.innerHTML = '<span class="tut-feedback-ok">✓</span>';
+        idx = (idx + 1) % pitchSeq.length;
+        updateBadge();
       } else {
-        // ❌ 오답 — 빨간 플래시만
-        state.tutorialPianoCtrl.flashWrong(note);
+        ctrl.flashWrong(note);
+        feedback.innerHTML = '<span class="tut-feedback-bad">✕</span>';
       }
+      setTimeout(() => { feedback.innerHTML = ''; }, 500);
     },
   });
+  ctrl.setExpected(pitchSeq[idx]);
+}
 
-  // 기준 화살표 + 가온다 빨간 점 + 첫 expected 표시
-  state.tutorialPianoCtrl.setArrows(REF_ARROWS);
-  state.tutorialPianoCtrl.setDots([{ note: 'C4', color: '#FF4444' }]);
-  setTimeout(() => state.tutorialPianoCtrl?.setExpected(previewNotes[0].pitch), 120);
+function buildQuizPage(order, targetNote) {
+  return {
+    chip: `테스트 ${order} / 3`,
+    caption: '어느 건반을 눌러야 할까요?',
+    render(top, bottom) {
+      top.innerHTML = '<div class="notation-container" id="tut-quiz-notation"></div>';
+      renderNotation(document.getElementById('tut-quiz-notation'),
+        [{ pitch: targetNote, duration: 2, beat: 1 }], {});
 
-  document.getElementById('btn-start').addEventListener('click', () => navigate('convert'));
+      bottom.innerHTML = `
+        <p class="tut-feedback-hint" id="tut-quiz-feedback">건반을 눌러 확인해보세요</p>
+        <div id="tut-quiz-piano"></div>`;
+      const feedback = document.getElementById('tut-quiz-feedback');
+      const ctrl = buildTutPiano(document.getElementById('tut-quiz-piano'), {
+        onPress(note) {
+          audio.unlock(); audio.playNote(note, 0.4);
+          if (note === targetNote) {
+            ctrl.flashCorrect(note);
+            feedback.innerHTML = '<span class="tut-feedback-ok">✓ 정답이에요!</span>';
+          } else {
+            ctrl.flashWrong(note);
+            feedback.innerHTML = '<span class="tut-feedback-bad">✕ 다시 시도해보세요</span>';
+          }
+        },
+      });
+    },
+  };
+}
+
+const TUT_PAGES = [
+  {
+    chip: '시작하기 전에',
+    caption: '전통 악보 대신, 색과 위치로 바로 읽는 커스텀 악보',
+    render(top, bottom) {
+      const introNotes = [
+        { pitch: 'C4', duration: 0.5, beat: 1 },
+        { pitch: 'E4', duration: 0.5, beat: 1 },
+        { pitch: 'G4', duration: 1,   beat: 2 },
+        { pitch: 'C5', duration: 2,   beat: 3 },
+      ];
+      top.innerHTML = '<p class="tut-compare-label">전통 오선 악보</p><div class="tut-staff-box" id="tut-staff-box"></div>';
+      bottom.innerHTML = '<p class="tut-compare-label">커스텀 악보 (같은 마디)</p><div class="notation-mini" id="tut-mini-notation"></div>';
+      renderMiniStaff(document.getElementById('tut-staff-box'), introNotes);
+      renderMiniNotation(document.getElementById('tut-mini-notation'), introNotes, { unitW: 100, cellH: 58 });
+    },
+  },
+  {
+    chip: '규칙 0',
+    caption: '흰 건반 도~시, 검은 건반 1~5 — 눌러서 들어보세요',
+    render(top, bottom) {
+      top.innerHTML = `
+        <p style="font-size:22px;color:var(--text-dim);text-align:center;max-width:520px;line-height:1.6;">
+          한 옥타브 = 흰 건반 7개 + 검은 건반 5개, 총 12음
+        </p>`;
+      renderLabeledOctave(bottom, { oct: 4 });
+    },
+  },
+  {
+    chip: '규칙 1',
+    caption: '세로 위치 = 음 높이 (위 오른손 · 아래 왼손)',
+    render(top, bottom) {
+      const trebleNotes = [
+        { pitch: 'C6', duration: 1, beat: 1 },
+        { pitch: 'G5', duration: 1, beat: 2 },
+        { pitch: 'C4', duration: 1, beat: 3 },
+      ];
+      const bassNotes = [
+        { pitch: 'C3', duration: 1, beat: 1 },
+        { pitch: 'G2', duration: 1, beat: 2 },
+        { pitch: 'C1', duration: 1, beat: 3 },
+      ];
+      top.innerHTML = '<div id="tut-r1-grand" style="width:100%;"></div>';
+      renderGrandStaff(document.getElementById('tut-r1-grand'), [
+        { clef: 'treble', notes: trebleNotes },
+        { clef: 'bass',   notes: bassNotes },
+      ]);
+
+      bottom.innerHTML = '<div class="tut-zone-legend" id="tut-r1-legend"></div><div id="tut-r1-piano"></div>';
+      const legend = document.getElementById('tut-r1-legend');
+      HAND_ZONES.forEach(z => {
+        legend.insertAdjacentHTML('beforeend',
+          `<span><i style="background:${z.hex}"></i>${z.hand} ${z.zone}</span>`);
+      });
+      const ctrl = buildTutPiano(document.getElementById('tut-r1-piano'), {
+        onPress(note) { audio.unlock(); audio.playNote(note, 0.4); },
+      });
+      ctrl.setZoneBands(HAND_ZONES.map(z => ({ fromNote: z.from, toNote: z.to, color: hexToRgba(z.hex, 0.4) })));
+    },
+  },
+  {
+    chip: '규칙 2 + 3',
+    caption: '셀 너비 = 음 길이, 테두리 색 = 박자',
+    render(top, bottom) {
+      const rule23Notes = [
+        { pitch: 'G4', duration: 0.5, beat: 1 },
+        { pitch: 'C5', duration: 1,   beat: 2 },
+        { pitch: 'E4', duration: 2,   beat: 3 },
+      ];
+      top.innerHTML = `
+        <div class="notation-container" id="tut-r23-notation"></div>
+        <div class="tut-zone-legend" id="tut-beat-legend"></div>`;
+      renderNotation(document.getElementById('tut-r23-notation'), rule23Notes, {});
+      const legend = document.getElementById('tut-beat-legend');
+      [1, 2, 3, 4].forEach(b => {
+        legend.insertAdjacentHTML('beforeend', `<span><i style="background:${BEAT_COLORS[b]}"></i>${b}박</span>`);
+      });
+
+      bottom.innerHTML = '<div class="tut-practice-dock" id="tut-practice-dock"></div>';
+      buildPracticeDock(document.getElementById('tut-practice-dock'), rule23Notes.map(n => n.pitch));
+    },
+  },
+  {
+    chip: '규칙 4',
+    caption: '화음 = 두 음을 동시에 눌러요',
+    render(top, bottom) {
+      const chordNote = { pitch: 'C4', duration: 2, beat: 1, chordNotes: ['E4'] };
+      top.innerHTML = '<div class="notation-container" id="tut-chord-notation"></div>';
+      renderNotation(document.getElementById('tut-chord-notation'), [chordNote], {});
+
+      bottom.innerHTML = '<div id="tut-chord-piano"></div>';
+      const target = [chordNote.pitch, ...chordNote.chordNotes];
+      const ctrl = buildTutPiano(document.getElementById('tut-chord-piano'), {
+        onPress(note) { audio.unlock(); audio.playNote(note, 0.5); },
+      });
+      ctrl.setDots(target.map(n => ({ note: n, color: '#0076CE' })));
+    },
+  },
+  buildQuizPage(1, 'E4'),
+  buildQuizPage(2, 'G#4'),
+  buildQuizPage(3, 'C5'),
+];
+
+let tutPageIdx = 0;
+
+function renderTutDots() {
+  const wrap = document.getElementById('tut-dots');
+  wrap.innerHTML = '';
+  TUT_PAGES.forEach((_, i) => {
+    const d = document.createElement('span');
+    d.className = 'tut-dot' + (i === tutPageIdx ? ' active' : '');
+    wrap.appendChild(d);
+  });
+}
+
+function renderTutPage(idx) {
+  tutPageIdx = idx;
+  resetShellScroll();
+  document.getElementById('screen-tutorial')?.scrollTo(0, 0);
+  state.tutorialPianoCtrl?.destroy();
+  state.tutorialPianoCtrl = null;
+
+  const page = TUT_PAGES[idx];
+  document.getElementById('tut-page-chip').textContent = page.chip;
+  document.getElementById('tut-caption').textContent = page.caption;
+  const top = document.getElementById('tut-split-top');
+  const bottom = document.getElementById('tut-split-bottom');
+  top.innerHTML = '';
+  bottom.innerHTML = '';
+  page.render(top, bottom);
+
+  renderTutDots();
+  document.getElementById('tut-prev').disabled = idx === 0;
+  document.getElementById('tut-next').textContent =
+    idx === TUT_PAGES.length - 1 ? '이해했어요 — 변환 시작하기 →' : '다음 →';
+}
+
+// 버튼 누를 때마다 화면이 뚝 끊기지 않도록, 나가는 방향으로 살짝 페이드아웃 →
+// 내용 교체 → 반대쪽에서 페이드인. 태블릿에서 체감이 크게 달라지는 부분이라 별도 함수로 분리.
+const TUT_ANIM_MS = 180;
+function goToTutPage(idx) {
+  if (idx < 0 || idx >= TUT_PAGES.length || idx === tutPageIdx) return;
+  const dir = idx > tutPageIdx ? 1 : -1; // 1=다음(왼쪽으로 퇴장), -1=이전(오른쪽으로 퇴장)
+  const frame = document.getElementById('tut-page-frame');
+
+  frame.style.transition = `opacity ${TUT_ANIM_MS}ms ease, transform ${TUT_ANIM_MS}ms ease`;
+  frame.style.opacity = '0';
+  frame.style.transform = `translateX(${dir * -18}px)`;
+
+  setTimeout(() => {
+    renderTutPage(idx);
+    frame.style.transition = 'none';
+    frame.style.transform = `translateX(${dir * 18}px)`;
+    void frame.offsetWidth; // 강제 리플로우 — 위 스타일을 실제로 적용시킨 뒤 아래 트랜지션 시작
+    frame.style.transition = `opacity ${TUT_ANIM_MS}ms ease, transform ${TUT_ANIM_MS}ms ease`;
+    frame.style.opacity = '1';
+    frame.style.transform = 'translateX(0)';
+  }, TUT_ANIM_MS);
+}
+
+function initTutorial() {
+  document.getElementById('tut-prev').addEventListener('click', () => {
+    if (tutPageIdx > 0) goToTutPage(tutPageIdx - 1);
+  });
+  document.getElementById('tut-next').addEventListener('click', () => {
+    if (tutPageIdx < TUT_PAGES.length - 1) goToTutPage(tutPageIdx + 1);
+    else navigate('convert');
+  });
+  renderTutPage(0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -328,16 +512,203 @@ function initConvert() {
     if (e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]);
   });
   document.getElementById('btn-save-notation').addEventListener('click', saveCurrentResult);
+  document.getElementById('btn-show-qr').addEventListener('click', showQrForCurrentResult);
+
+  // 전시 부스 진행요원 전용 — 실시간 AI 인식이 조명 등으로 꼬였을 때 즉시 대체 결과로 전환.
+  document.getElementById('btn-cheat-fallback')?.addEventListener('click', () => {
+    const s = SAMPLES.find(x => x.id === 'sample_butterfly') || SAMPLES[0];
+    const data = sampleToNotation(s, { id: generateId(), createdAt: Date.now() });
+    showLoading(); // output-placeholder를 확실히 숨긴 뒤(동기 실행) 바로 결과로 전환
+    showResult(data);
+  });
+
+  initCameraCapture();
+}
+
+// 전시 부스: 방금 변환한 악보를 방문자 폰으로 가져갈 수 있게 QR 코드를 띄운다.
+function showQrForCurrentResult() {
+  const data = state.convertResult;
+  if (!data?.id) return;
+  const panel = document.getElementById('qr-panel');
+  const img   = document.getElementById('qr-img');
+  const shareUrl = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}index.html?score=${encodeURIComponent(data.id)}`;
+  img.src = `/api/qr?data=${encodeURIComponent(shareUrl)}`;
+  panel.classList.toggle('hidden');
+}
+
+// 폰 카메라로 악보를 직접 촬영해서 업로드 — 기존 handleUpload() 흐름에 그대로 합류시킨다.
+// lib/screens/guided_camera_screen.dart의 뷰파인더 가이드를 그대로 이식 — 오선 1개/대보표(2개)
+// 토글, 어두운 마스크 + 코너 브래킷 + 실제 오선 줄 가이드, 촬영 시 그 박스 영역만 크롭해서
+// 넘긴다(자동 오선 검출에 온전히 맡기지 않고 촬영 UX로 프레이밍을 유도 — 인식률에 직결).
+const CAMERA_GUIDE_W_FRAC = 0.88;
+function cameraGuideHFrac(grandStaff) { return grandStaff ? 0.34 : 0.16; }
+
+function cameraGuideRectNative(vw, vh, grandStaff) {
+  const w = vw * CAMERA_GUIDE_W_FRAC;
+  const h = vh * cameraGuideHFrac(grandStaff);
+  return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
+}
+
+// object-fit:contain으로 보이는 비디오는 wrap 안에서 letterbox될 수 있으므로,
+// native(원본 해상도) 좌표 사각형을 실제 화면에 그려질 위치로 변환한다.
+function cameraNativeToDisplay(rect, vw, vh, ww, wh) {
+  const scale = Math.min(ww / vw, wh / vh);
+  const offX = (ww - vw * scale) / 2;
+  const offY = (wh - vh * scale) / 2;
+  return { x: offX + rect.x * scale, y: offY + rect.y * scale, w: rect.w * scale, h: rect.h * scale };
+}
+
+function cameraRoundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function cameraDrawStaffLines(ctx, x, y, w, h) {
+  const gap = h / 4;
+  for (let i = 0; i < 5; i++) {
+    const ly = y + gap * i;
+    ctx.beginPath(); ctx.moveTo(x, ly); ctx.lineTo(x + w, ly); ctx.stroke();
+  }
+}
+
+function drawCameraGuideOverlay(canvas, wrap, video, grandStaff) {
+  const ww = wrap.clientWidth, wh = wrap.clientHeight;
+  if (!ww || !wh) return;
+  canvas.width = ww; canvas.height = wh;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, ww, wh);
+
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return;
+
+  const rect = cameraNativeToDisplay(cameraGuideRectNative(vw, vh, grandStaff), vw, vh, ww, wh);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, ww, wh);
+  ctx.save();
+  cameraRoundRectPath(ctx, rect.x, rect.y, rect.w, rect.h, 8);
+  ctx.clip();
+  ctx.clearRect(0, 0, ww, wh);
+  ctx.restore();
+
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2.5;
+  cameraRoundRectPath(ctx, rect.x, rect.y, rect.w, rect.h, 8);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.lineWidth = 1.6;
+  if (grandStaff) {
+    cameraDrawStaffLines(ctx, rect.x, rect.y + rect.h * 0.10, rect.w, rect.h * 0.32);
+    cameraDrawStaffLines(ctx, rect.x, rect.y + rect.h * 0.58, rect.w, rect.h * 0.32);
+  } else {
+    cameraDrawStaffLines(ctx, rect.x, rect.y + rect.h * 0.30, rect.w, rect.h * 0.40);
+  }
+
+  const len = 22;
+  ctx.strokeStyle = '#0076CE';
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  [[rect.x, rect.y, 1, 1], [rect.x + rect.w, rect.y, -1, 1],
+   [rect.x, rect.y + rect.h, 1, -1], [rect.x + rect.w, rect.y + rect.h, -1, -1]]
+    .forEach(([cx, cy, sx, sy]) => {
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + len * sx, cy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + len * sy); ctx.stroke();
+    });
+}
+
+function initCameraCapture() {
+  const openBtn     = document.getElementById('btn-camera-open');
+  const cancelBtn   = document.getElementById('btn-camera-cancel');
+  const shutterBtn  = document.getElementById('btn-camera-shutter');
+  const captureBox  = document.getElementById('camera-capture');
+  const video       = document.getElementById('camera-video');
+  const canvas      = document.getElementById('camera-canvas');
+  const guideCanvas = document.getElementById('camera-guide-canvas');
+  const guideWrap   = document.querySelector('.camera-video-wrap');
+  const guideHint   = document.getElementById('camera-guide-hint');
+  const modeChips   = document.querySelectorAll('.camera-mode-chip');
+  const errorEl     = document.getElementById('camera-error');
+
+  let grandStaff = true; // flutter 쪽 기본값과 동일 — 피아노 악보는 대보표가 더 흔함
+
+  function updateHint() {
+    guideHint.textContent = grandStaff
+      ? '대보표(높은음자리+낮은음자리)를 박스 안에 맞춰주세요'
+      : '오선 하나를 박스 안에 맞춰주세요';
+  }
+  function redrawGuide() { drawCameraGuideOverlay(guideCanvas, guideWrap, video, grandStaff); }
+
+  modeChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      grandStaff = chip.dataset.grand === '1';
+      modeChips.forEach(c => c.classList.toggle('active', c === chip));
+      updateHint();
+      redrawGuide();
+    });
+  });
+
+  video.addEventListener('loadedmetadata', redrawGuide);
+  new ResizeObserver(redrawGuide).observe(guideWrap);
+
+  async function openCamera() {
+    errorEl.classList.add('hidden');
+    captureBox.classList.remove('hidden');
+    updateHint();
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      errorEl.textContent = '이 브라우저/연결에서는 카메라를 쓸 수 없습니다 (HTTPS 또는 localhost 접속이 필요해요) — 파일 선택을 이용해주세요';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+    try {
+      state.cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 } },
+        audio: false,
+      });
+      video.srcObject = state.cameraStream;
+    } catch (e) {
+      errorEl.textContent = '카메라 권한을 허용해주세요: ' + e.message;
+      errorEl.classList.remove('hidden');
+    }
+  }
+
+  openBtn.addEventListener('click', openCamera);
+  cancelBtn.addEventListener('click', stopCamera);
+
+  shutterBtn.addEventListener('click', () => {
+    if (!state.cameraStream || !video.videoWidth) return;
+    const rect = cameraGuideRectNative(video.videoWidth, video.videoHeight, grandStaff);
+    canvas.width  = rect.w;
+    canvas.height = rect.h;
+    canvas.getContext('2d').drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      stopCamera();
+      handleUpload(new File([blob], 'capture.jpg', { type: 'image/jpeg' }));
+    }, 'image/jpeg', 0.92);
+  });
+}
+
+// SAMPLES 항목을 화면에서 쓰는 notation 데이터 모양으로 변환 — staves(그랜드 스태프)가
+// 있으면 notes(=treble, 재생/미리보기용)도 함께 채운다. 이 변환을 여러 곳에서 각자
+// 손으로 반복하다가 한 곳(연주하기 초기 자동 로드)에서 staves를 빠뜨렸던 적이 있어
+// (반주 모드가 항상 비활성으로 보이는 버그로 발견) 한 곳으로 모았다.
+function sampleToNotation(s, overrides = {}) {
+  const base = { title: s.title, tempo: s.tempo, timeSignature: s.timeSignature };
+  return s.staves
+    ? { ...base, staves: s.staves, notes: s.staves[0].notes, ...overrides }
+    : { ...base, notes: s.notes, ...overrides };
 }
 
 function startConversion(sample) {
   showLoading();
-  const data = sample.staves
-    ? { id: generateId(), title: sample.title, tempo: sample.tempo,
-        timeSignature: sample.timeSignature, staves: sample.staves,
-        notes: sample.staves[0].notes, createdAt: Date.now() }
-    : { id: generateId(), title: sample.title, tempo: sample.tempo,
-        timeSignature: sample.timeSignature, notes: sample.notes, createdAt: Date.now() };
+  const data = sampleToNotation(sample, { id: generateId(), createdAt: Date.now() });
   setTimeout(() => showResult(data), 2200);
 }
 
@@ -356,19 +727,17 @@ async function handleUpload(file) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || `서버 오류 (${res.status})`);
     }
-    showResult(await res.json());
+    const json = await res.json();
+    json._fromServer = true; // QR "테이크아웃" 버튼은 서버에 실제 저장된 결과에만 노출
+    showResult(json);
   } catch (e) {
     if (e instanceof TypeError) {
       // 서버 미연결 → 샘플 데이터로 폴백
       toast('⚠️ OMR 서버 미연결 — 샘플로 시연합니다');
       const demo = SAMPLES[Math.floor(Math.random() * SAMPLES.length)];
-      const data = demo.staves
-        ? { id: generateId(), title: file.name.replace(/\.[^.]+$/, ''),
-            tempo: demo.tempo, timeSignature: demo.timeSignature,
-            staves: demo.staves, notes: demo.staves[0].notes, createdAt: Date.now() }
-        : { id: generateId(), title: file.name.replace(/\.[^.]+$/, ''),
-            tempo: demo.tempo, timeSignature: demo.timeSignature,
-            notes: demo.notes, createdAt: Date.now() };
+      const data = sampleToNotation(demo, {
+        id: generateId(), title: file.name.replace(/\.[^.]+$/, ''), createdAt: Date.now(),
+      });
       setTimeout(() => showResult(data), 800);
     } else {
       document.getElementById('output-loading').classList.add('hidden');
@@ -403,6 +772,10 @@ function showResult(data) {
   document.getElementById('output-result').classList.remove('hidden');
   document.getElementById('result-title').textContent = data.title;
   document.getElementById('save-title-input').value   = data.title;
+
+  document.getElementById('qr-panel')?.classList.add('hidden');
+  const qrBtn = document.getElementById('btn-show-qr');
+  qrBtn?.classList.toggle('hidden', !data._fromServer);
 
   const noteCount = data.staves
     ? data.staves.reduce((s, st) => s + st.notes.length, 0)
@@ -473,11 +846,7 @@ function initPlayScreen() {
   // 기본 샘플
   list.appendChild(sectionLabel('기본 샘플'));
   SAMPLES.forEach(s => {
-    const notation = s.staves
-      ? { id: s.id, title: s.title, tempo: s.tempo, timeSignature: s.timeSignature,
-          notes: s.staves[0].notes, staves: s.staves, createdAt: 0 }
-      : { id: s.id, title: s.title, tempo: s.tempo, timeSignature: s.timeSignature,
-          notes: s.notes, createdAt: 0 };
+    const notation = sampleToNotation(s, { id: s.id, createdAt: 0 });
     list.appendChild(makeItem(`${s.emoji} ${s.title}`, `${s.notes.length}음 · ${s.tempo}BPM`,
       () => loadPlayNotation(notation)));
   });
@@ -494,8 +863,7 @@ function initPlayScreen() {
   // 첫 진입 시 첫 샘플 자동 로드
   if (!state.playNotation) {
     const s = SAMPLES[0];
-    const notation = { id: s.id, title: s.title, tempo: s.tempo,
-                       timeSignature: s.timeSignature, notes: s.notes, createdAt: 0 };
+    const notation = sampleToNotation(s, { id: s.id, createdAt: 0 });
     setTimeout(() => loadPlayNotation(notation), 80);
   }
 
@@ -512,6 +880,10 @@ function initPlayScreen() {
 
   document.getElementById('toggle-note-names').addEventListener('change', e => {
     state.playPianoCtrl?.updateLabels(e.target.checked);
+  });
+
+  document.getElementById('toggle-accompaniment').addEventListener('change', e => {
+    state.accompanimentMode = e.target.checked;
   });
 
   const pianoEl      = document.getElementById('piano');
@@ -534,27 +906,20 @@ function initPlayScreen() {
         state.playPianoCtrl.flashCorrect(pressedNote);
         clearCountdown();
 
+        // Wait Mode 정답 — 악보 쪽도 짧게 초록 이펙트 (스코어가 스르륵 넘어가기 전 성취감 피드백)
+        const ncOk = document.getElementById('play-notation');
+        if (ncOk) {
+          ncOk.classList.add('notation-correct-flash');
+          setTimeout(() => ncOk.classList.remove('notation-correct-flash'), 400);
+        }
+
         const bpm    = parseInt(document.getElementById('tempo-slider').value);
         const beatMs = (60 / bpm) * expNote.duration * 1000;
 
         state.playedIdx = expIdx;
         renderPlay(expIdx, -1);
 
-        showCountdown(beatMs, () => {
-          const nextIdx = expIdx + 1;
-          if (nextIdx < state.playNotation.notes.length) {
-            state.playNoteIdx = nextIdx;
-            state.playedIdx   = -1;
-            renderPlay(-1, nextIdx);
-            state.playPianoCtrl.setExpected(state.playNotation.notes[nextIdx].pitch);
-          } else {
-            state.playNoteIdx = -1;
-            state.playedIdx   = -1;
-            state.playPianoCtrl.clearExpected();
-            renderPlay(-1, -1);
-            toast('🎉 연주 완료! 처음부터 다시 하려면 ⏹ 버튼을 누르세요');
-          }
-        });
+        showCountdown(beatMs, () => setExpectedNote(expIdx + 1));
       } else {
         state.playPianoCtrl.markWrong(pressedNote);
         // 악보 컨테이너도 빨간 깜빡임
@@ -591,6 +956,36 @@ function initPlayScreen() {
   state.playPianoCtrl.setDots([{ note: 'C4', color: '#FF4444' }]);
 }
 
+// 실제 사진에서 변환된 악보는 쉼표를 포함한다 — 쉼표는 키를 누를 필요가 없으므로
+// 여기서 다음 "실제로 눌러야 하는" 음표를 찾을 때까지 쉼표를 박자 길이만큼만
+// 자동으로 건너뛴다 (연속된 쉼표도 재귀적으로 처리).
+function setExpectedNote(idx) {
+  if (!state.playNotation) return;
+  const notes = state.playNotation.notes;
+  if (idx >= notes.length) {
+    state.playNoteIdx = -1;
+    state.playedIdx   = -1;
+    state.playPianoCtrl?.clearExpected();
+    renderPlay(-1, -1);
+    toast('🎉 연주 완료! 처음부터 다시 하려면 ⏹ 버튼을 누르세요');
+    return;
+  }
+
+  const note = notes[idx];
+  state.playNoteIdx = idx;
+  state.playedIdx   = -1;
+  renderPlay(-1, idx);
+
+  if (note.isRest) {
+    state.playPianoCtrl?.clearExpected();
+    const bpm    = parseInt(document.getElementById('tempo-slider').value);
+    const restMs = (60 / bpm) * note.duration * 1000;
+    showCountdown(restMs, () => setExpectedNote(idx + 1));
+  } else {
+    state.playPianoCtrl?.setExpected(note.pitch);
+  }
+}
+
 function loadPlayNotation(notation) {
   stopAutoPlay();
   clearCountdown();
@@ -604,8 +999,17 @@ function loadPlayNotation(notation) {
       el.querySelector('.item-title').textContent === notation.title);
   });
 
-  renderPlay(-1, 0);
-  state.playPianoCtrl?.setExpected(notation.notes[0].pitch);
+  // 반주 모드는 왼손(베이스) 보표가 있을 때만 의미가 있음 — 없으면 꺼서 숨긴다.
+  const hasBass = !!notation.staves?.[1];
+  const accompToggle = document.getElementById('toggle-accompaniment');
+  const accompWrap    = document.getElementById('accompaniment-toggle-wrap');
+  if (accompToggle) {
+    accompToggle.disabled = !hasBass;
+    if (!hasBass) { accompToggle.checked = false; state.accompanimentMode = false; }
+  }
+  accompWrap?.classList.toggle('hidden', !hasBass);
+
+  setExpectedNote(0);
 }
 
 function renderPlay(playedIdx, expectedIdx) {
@@ -699,44 +1103,137 @@ function renderPlay(playedIdx, expectedIdx) {
   notationNavUpdate.play();
 }
 
+// 전자 피아노(MIDI) 연결 UI — 한 번만 초기화. 입력 콜백은 그때그때의
+// state.playPianoCtrl을 참조하므로 연주하기 화면을 다시 그려도(피아노 재생성) 계속 동작한다.
+function initMidiControls() {
+  const btn       = document.getElementById('btn-midi-connect');
+  const dot       = document.getElementById('midi-dot');
+  const statusEl  = document.getElementById('midi-status');
+  const inputSel  = document.getElementById('midi-input-select');
+  const outputSel = document.getElementById('midi-output-select');
+  if (!btn) return;
+
+  function fillSelect(sel, devices, emptyLabel) {
+    sel.innerHTML = '';
+    if (devices.length === 0) {
+      sel.innerHTML = `<option value="">${emptyLabel}</option>`;
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    devices.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = d.name || d.id;
+      sel.appendChild(opt);
+    });
+  }
+
+  function connectSelected() {
+    if (inputSel.value) {
+      midi.setInput(inputSel.value, {
+        onNoteOn:  pitch => state.playPianoCtrl?.press(pitch, { silent: true }),
+        onNoteOff: pitch => state.playPianoCtrl?.release(pitch),
+      });
+    }
+    midi.setOutput(outputSel.value || null);
+  }
+
+  btn.addEventListener('click', async () => {
+    if (!midi.isSupported()) {
+      statusEl.textContent = '이 브라우저는 Web MIDI를 지원하지 않아요 (Chrome/Edge + HTTPS 또는 localhost 필요)';
+      return;
+    }
+    try {
+      await midi.requestAccess();
+      const inputs  = midi.listInputs();
+      const outputs = midi.listOutputs();
+      fillSelect(inputSel,  inputs,  '입력 기기 없음');
+      fillSelect(outputSel, outputs, '출력 기기 없음');
+      inputSel.classList.remove('hidden');
+      outputSel.classList.remove('hidden');
+      connectSelected();
+      if (inputs.length || outputs.length) {
+        dot.classList.add('connected');
+        statusEl.textContent = `입력: ${inputs[0]?.name ?? '없음'} · 출력: ${outputs[0]?.name ?? '없음'}`;
+      } else {
+        statusEl.textContent = 'USB로 피아노를 연결한 뒤 다시 눌러주세요';
+      }
+    } catch (e) {
+      statusEl.textContent = 'MIDI 연결 실패: ' + e.message;
+    }
+  });
+
+  inputSel.addEventListener('change', connectSelected);
+  outputSel.addEventListener('change', connectSelected);
+}
+
+// 자동재생 한 음마다: 화면 건반을 잠깐 파랗게 켜고, 전자 피아노가 연결돼 있으면
+// MIDI로도 실제 소리를 낸다. 미리듣기/반주 모드 둘 다 이 함수를 공유한다.
+function flashAutoPlayNote(note, bpm) {
+  const k = document.querySelector(`[data-note="${note.pitch}"]`);
+  if (k) {
+    const isB = k.classList.contains('bk');
+    k.style.background = '#0076CE';
+    setTimeout(() => { k.style.background = isB ? '#1c1c1c' : '#f4efe6'; },
+      note.duration * (60 / bpm) * 900);
+  }
+  if (midi.hasOutput() && note.pitch) {
+    midi.sendNoteOn(note.pitch, 100);
+    setTimeout(() => midi.sendNoteOff(note.pitch), note.duration * (60 / bpm) * 900);
+  }
+}
+
 function toggleAutoPlay() {
   const btn = document.getElementById('btn-auto-play');
   if (state.playCancel) {
     stopAutoPlay();
-  } else {
-    if (!state.playNotation) return;
+    return;
+  }
+  if (!state.playNotation) return;
+  const bpm = parseInt(document.getElementById('tempo-slider').value);
+
+  // 반주 모드: 왼손(베이스)만 처음부터 자체 템포로 독립 재생 — 오른손 Wait Mode
+  // 상태(state.playNoteIdx, 기대 음 하이라이트 등)는 그대로 둬서 동시에 연주할 수 있게 한다.
+  const bassNotes = state.playNotation.staves?.[1]?.notes;
+  if (state.accompanimentMode && bassNotes) {
     btn.textContent = '⏸';
-    clearCountdown();
-    state.playPianoCtrl?.clearExpected();
-
-    const bpm   = parseInt(document.getElementById('tempo-slider').value);
-    const start = Math.max(0, state.playNoteIdx < 0 ? 0 : state.playNoteIdx);
-    const notes = state.playNotation.notes.slice(start);
-
     state.playCancel = audio.playSequence(
-      notes, bpm,
-      stepIdx => {
-        const gIdx = start + stepIdx;
-        state.playNoteIdx = gIdx;
-        state.playedIdx   = gIdx;
-        renderPlay(gIdx, -1);
-        const note = state.playNotation.notes[gIdx];
-        state.playPianoCtrl?.clearExpected();
-        const k = document.querySelector(`[data-note="${note.pitch}"]`);
-        if (k) {
-          const isB = k.classList.contains('bk');
-          k.style.background = '#0076CE';
-          setTimeout(() => { k.style.background = isB ? '#1c1c1c' : '#f4efe6'; },
-            note.duration * (60 / bpm) * 900);
-        }
-      },
+      bassNotes, bpm,
+      stepIdx => flashAutoPlayNote(bassNotes[stepIdx], bpm),
       () => {
         state.playCancel = null;
         btn.textContent  = '▶';
-        toast('🎵 재생 완료');
+        toast('🎼 반주 재생 완료');
       },
     );
+    return;
   }
+
+  // 미리듣기: 트레블(또는 단일 보표) 전체를 자동 재생.
+  btn.textContent = '⏸';
+  clearCountdown();
+  state.playPianoCtrl?.clearExpected();
+
+  const start = Math.max(0, state.playNoteIdx < 0 ? 0 : state.playNoteIdx);
+  const notes = state.playNotation.notes.slice(start);
+
+  state.playCancel = audio.playSequence(
+    notes, bpm,
+    stepIdx => {
+      const gIdx = start + stepIdx;
+      state.playNoteIdx = gIdx;
+      state.playedIdx   = gIdx;
+      renderPlay(gIdx, -1);
+      state.playPianoCtrl?.clearExpected();
+      flashAutoPlayNote(state.playNotation.notes[gIdx], bpm);
+    },
+    () => {
+      state.playCancel = null;
+      btn.textContent  = '▶';
+      toast('🎵 재생 완료');
+    },
+  );
 }
 
 function stopAutoPlay() {
@@ -773,13 +1270,8 @@ function stepBack() {
 
 function resetPlay() {
   stopAutoPlay(); clearCountdown();
-  state.playNoteIdx = 0;
-  state.playedIdx   = -1;
   state.playPianoCtrl?.clearHighlights();
-  if (state.playNotation) {
-    renderPlay(-1, 0);
-    state.playPianoCtrl?.setExpected(state.playNotation.notes[0].pitch);
-  }
+  if (state.playNotation) setExpectedNote(0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -921,8 +1413,18 @@ document.addEventListener('click', e => {
 
 // ── 부팅 ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // 첫 화면(tutorial)은 transition 없이 즉시 표시
-  const firstScreen = document.getElementById('screen-tutorial');
+  // 전시 부스 킨스크 모드 — 태블릿1: ?kiosk=1(튜토리얼 고정), 태블릿2: ?kiosk=convert
+  // (악보 변환 화면 고정). 지정한 화면 하나만 남기고 다른 화면/로그인은 다 숨긴다.
+  const kioskParam = new URLSearchParams(location.search).get('kiosk');
+  state.kioskMode = kioskParam === null ? false : (kioskParam === 'convert' ? 'convert' : 'tutorial');
+  document.body.classList.toggle('kiosk-mode', !!state.kioskMode);
+  if (state.kioskMode) document.body.dataset.kiosk = state.kioskMode;
+
+  // 첫 화면은 transition 없이 즉시 표시 — HTML에는 tutorial에만 active가 박혀있으므로
+  // (kiosk=convert일 때) 다른 화면을 켜기 전에 먼저 다 꺼준다.
+  const firstScreenName = state.kioskMode === 'convert' ? 'convert' : 'tutorial';
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const firstScreen = document.getElementById('screen-' + firstScreenName);
   if (firstScreen) {
     firstScreen.classList.add('no-transition');
     firstScreen.classList.add('active');
@@ -934,7 +1436,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 악보 nav 버튼 초기화 (DOM 구성 후)
-  notationNavUpdate.tutorial = makeNotationNav('tutorial-notation', 'tutorial-notation-prev', 'tutorial-notation-next');
   notationNavUpdate.convert  = makeNotationNav('convert-notation',  'convert-notation-prev',  'convert-notation-next');
   notationNavUpdate.play     = makeNotationNav('play-notation',     'play-notation-prev',     'play-notation-next');
 
@@ -942,10 +1443,38 @@ document.addEventListener('DOMContentLoaded', () => {
   checkServerStatus();
   initTutorial();
   initConvert();
+  initMidiControls();
+
   // navigate는 이미 active를 설정했으므로 state만 맞춤
-  state.screen = 'tutorial';
-  document.querySelectorAll('.nav-tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.screen === 'tutorial'));
-  document.querySelectorAll('.page-dot').forEach(d =>
-    d.classList.toggle('active', d.dataset.screen === 'tutorial'));
+  function settleOn(name) {
+    state.screen = name;
+    document.querySelectorAll('.nav-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.screen === name));
+    document.querySelectorAll('.page-dot').forEach(d =>
+      d.classList.toggle('active', d.dataset.screen === name));
+  }
+
+  if (state.kioskMode) {
+    settleOn(firstScreenName);
+  } else {
+    loadSharedScoreFromQuery().then(loaded => { if (!loaded) settleOn('tutorial'); });
+  }
 });
+
+// 전시 부스 QR "테이크아웃" — ?score=<id>로 접속하면 그 결과를 바로 열어서 보여준다
+// (서버가 /api/recognize 성공 시 함께 저장해 둔 결과를 조회).
+async function loadSharedScoreFromQuery() {
+  const id = new URLSearchParams(location.search).get('score');
+  if (!id) return false;
+  try {
+    const res = await fetch(`/api/score/${encodeURIComponent(id)}`);
+    if (!res.ok) { toast('⚠️ 공유된 악보를 찾을 수 없습니다 (만료되었을 수 있어요)'); return false; }
+    const data = await res.json();
+    navigate('convert', { instant: true });
+    showResult(data);
+    toast('🎁 나만의 커스텀 악보를 불러왔어요!');
+    return true;
+  } catch {
+    return false;
+  }
+}

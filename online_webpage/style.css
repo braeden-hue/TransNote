@@ -61,6 +61,20 @@ input  { font-family: inherit; }
 /* ── Auth Area ─────────────────────────────────────────────── */
 .auth-area { margin-left: auto; flex-shrink: 0; }
 
+/* ── 전시 부스 킨스크 모드 ─────────────────────────────────────────────────
+   태블릿1(?kiosk=1)   → 튜토리얼 화면 고정
+   태블릿2(?kiosk=convert) → 악보 변환 화면 고정, "예시 악보 고르기 / 촬영하기"에만 집중
+   지정한 화면 밖으로 나가는 길(다른 탭/점/로그인)은 공통으로 다 지운다. */
+body[data-kiosk="tutorial"] .nav-tab:not([data-screen="tutorial"]) { display: none; }
+body[data-kiosk="convert"]  .nav-tab:not([data-screen="convert"])  { display: none; }
+body.kiosk-mode .auth-area,
+body.kiosk-mode .page-dots { display: none; }
+
+/* 태블릿2: 관람객이 볼 필요 없는 기술적 UI(인식 모델 선택, 서버 상태, 개발자 안내)는 숨김. */
+body[data-kiosk="convert"] .model-row,
+body[data-kiosk="convert"] .demo-notice,
+body[data-kiosk="convert"] .omr-coming-soon { display: none; }
+
 .btn-login {
   padding: 6px 14px; border-radius: 20px;
   background: var(--primary); color: #fff;
@@ -210,6 +224,14 @@ input  { font-family: inherit; }
 .link-btn { color: var(--primary); text-decoration: underline; font-size: inherit; }
 
 /* ── Notation container ────────────────────────────────────── */
+.stage-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.stage-badge {
+  font-size: 12px; font-weight: 600; color: var(--text-dim);
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 12px;
+}
+.stage-badge-primary { color: var(--primary); background: #E0F0FC; border-color: var(--border-hi); }
+
 .notation-container {
   background: #F8FBFF; border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 8px; min-height: 140px;
@@ -243,6 +265,13 @@ input  { font-family: inherit; }
 }
 .notation-wrong-flash { animation: wrong-flash 0.38s ease; }
 
+@keyframes correct-flash {
+  0%   { background: #F8FBFF; box-shadow: none; }
+  35%  { background: rgba(47,170,110,0.14); box-shadow: inset 0 0 0 2px var(--green); }
+  100% { background: #F8FBFF; box-shadow: none; }
+}
+.notation-correct-flash { animation: correct-flash 0.4s ease; }
+
 /* 틀린 건반 — 누르고 있는 동안 지속 빨간 깜빡임 */
 @keyframes wrong-key-blink {
   0%, 100% { opacity: 1;   box-shadow: 0 0 14px 5px rgba(255,40,40,0.9); }
@@ -257,58 +286,58 @@ input  { font-family: inherit; }
 }
 
 /* ── Tutorial ──────────────────────────────────────────────── */
-.tutorial-hero { text-align: center; padding: 40px 20px 36px; }
-.tutorial-hero h1 {
-  font-size: clamp(22px, 4vw, 38px); font-weight: 800; margin-bottom: 12px;
-  color: var(--primary);
+/* 태블릿1 대기열 온보딩 전용 화면. "단순함이 무기" — 화면을 위(악보)/아래(피아노)
+   절반으로 나눠 그 두 가지에만 집중시키고, 나머지 설명 텍스트는 한 줄 캡션으로 줄인다. */
+.tut-topbar { display: flex; align-items: center; gap: 14px; padding: 16px 0 12px; }
+.tut-chip {
+  display: inline-block; background: var(--primary); color: #fff; flex-shrink: 0;
+  font-size: 13px; font-weight: 700; padding: 5px 13px; border-radius: 20px;
 }
-.tutorial-hero p { color: var(--text-dim); font-size: 16px; }
+.tut-caption { flex: 1; font-size: 22px; font-weight: 800; color: var(--text); }
+.tut-dots   { display: flex; gap: 7px; flex-shrink: 0; }
+.tut-dot    { width: 11px; height: 11px; border-radius: 6px; background: var(--border-hi); transition: width .2s, background .2s; }
+.tut-dot.active { width: 30px; background: var(--primary); }
 
-.rule-cards {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 18px; margin-bottom: 40px;
+.tut-split { display: flex; flex-direction: column; gap: 14px; min-height: 64vh; }
+.tut-split-top, .tut-split-bottom {
+  flex: 1; min-height: 0;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; overflow: auto;
 }
-.rule-card {
-  background: linear-gradient(145deg, #ffffff 0%, #e8f6fd 100%);
-  border: 1px solid var(--border-hi);
-  border-radius: var(--radius); padding: 22px 18px;
-  box-shadow: 0 2px 10px rgba(79,195,247,0.12);
-  transition: border-color .2s, box-shadow .2s;
-}
-.rule-card:hover { border-color: var(--primary); box-shadow: 0 4px 18px rgba(0,118,206,0.18); }
-.rule-badge {
-  display: inline-block; background: var(--primary); color: #fff;
-  font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 20px; margin-bottom: 10px;
-}
-.rule-card h3 { font-size: 16px; margin-bottom: 8px; color: var(--text); }
-.rule-card p  { color: var(--text-dim); font-size: 13px; margin-bottom: 14px; line-height: 1.7; }
-.rule-card em { color: var(--primary); font-style: normal; font-weight: 600; }
-.rule-hint    { font-size: 12px; color: var(--text-mute); margin-top: 8px; text-align: center; }
+.tut-split-top { background: #fff; }
 
-.rule-demo { display: flex; flex-direction: column; gap: 8px; }
-.notation-mini { min-height: 52px; }
-.zone-labels { display: flex; flex-direction: column; font-size: 10px; color: var(--text-mute); height: 52px; justify-content: space-between; line-height: 1; }
-.dur-labels  { display: flex; justify-content: space-around; font-size: 11px; color: var(--text-dim); text-align: center; }
+.tut-nav { display: flex; justify-content: space-between; padding: 14px 0 24px; }
+.tut-nav button { font-size: 17px; padding: 14px 26px; }
 
-.beat-demo { flex-direction: row !important; }
-.beat-cell {
-  flex: 1; height: 54px; border-radius: 8px;
-  border: 2.5px solid var(--c);
-  background: color-mix(in srgb, var(--c) 12%, #FFFFFF);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700; color: var(--c); cursor: pointer;
-  transition: background .15s;
+@media (max-width: 800px) {
+  .tut-split { min-height: auto; }
+  .tut-split-top, .tut-split-bottom { min-height: 280px; }
 }
-.beat-cell:hover { background: color-mix(in srgb, var(--c) 24%, #FFFFFF); }
 
-.tutorial-preview {
-  background: var(--bg-panel); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 28px 24px; margin-bottom: 32px;
+/* ── 튜토리얼 페이지 보조 컴포넌트 ─────────────────────────────── */
+.tut-compare-label { font-size: 15px; font-weight: 700; color: var(--text-mute); }
+.tut-staff-box { width: 100%; max-width: 560px; }
+.tut-zone-legend { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; font-size: 15px; color: var(--text-dim); }
+.tut-zone-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.tut-zone-legend i { width: 16px; height: 16px; border-radius: 4px; display: inline-block; }
+
+.tut-practice-dock { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.tut-practice-head { display: flex; align-items: center; gap: 10px; }
+.tut-practice-head strong { font-size: 14px; color: var(--text-dim); font-weight: 700; }
+.tut-next-note-badge {
+  background: #E0F0FC; border: 1px solid var(--border-hi); color: var(--primary);
+  font-size: 14px; font-weight: 700; border-radius: 14px; padding: 4px 13px;
 }
-.tutorial-preview h2 { font-size: 20px; margin-bottom: 8px; color: var(--text); }
-.tutorial-preview > p { color: var(--text-dim); font-size: 14px; margin-bottom: 16px; }
+.tut-feedback-ok  { color: var(--green); font-size: 16px; font-weight: 700; }
+.tut-feedback-bad { color: #E64545; font-size: 16px; font-weight: 700; }
+.tut-feedback-hint { color: var(--text-mute); font-size: 16px; }
 
-.mini-piano { overflow-x: auto; margin-top: 16px; padding-bottom: 4px; }
+/* 튜토리얼 안의 악보/피아노만 확대 (연주하기 화면 등 다른 곳은 그대로 — zoom을 이 안에서만) */
+.tut-split .notation-container { zoom: 1.25; }
+.tut-split .mini-piano { zoom: 1.15; }
+
+.mini-piano { overflow-x: auto; margin-top: 20px; padding-bottom: 4px; }
 .kb-hint { font-size: 12px; color: var(--text-mute); margin-top: 10px; }
 kbd {
   background: #FFFFFF; border: 1px solid var(--border-hi);
@@ -316,23 +345,12 @@ kbd {
   color: var(--text);
 }
 
-.tutorial-cta { text-align: center; padding: 8px 0 16px; }
-
-/* ── Keyboard tryout section ────────────────────────────────── */
-.kb-tryout {
-  background: var(--bg-panel); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 28px 24px; margin-bottom: 28px;
-}
-.kb-tryout-header { margin-bottom: 20px; }
-.kb-tryout-header h2 { font-size: 20px; margin-bottom: 6px; color: var(--text); }
-.kb-tryout-header p  { color: var(--text-dim); font-size: 13px; }
-
 .kb-note-grid {
-  display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+  display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
 }
 .kb-note-cell {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  width: 72px; padding: 14px 8px 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  width: 92px; padding: 18px 10px 14px;
   border: 2px solid var(--nc, var(--border-hi));
   background: color-mix(in srgb, var(--nc, #0076CE) 8%, #FFFFFF);
   border-radius: var(--radius); cursor: pointer;
@@ -347,12 +365,12 @@ kbd {
   transform: translateY(2px);
 }
 .kb-note-symbol {
-  font-size: 22px; font-weight: 800;
+  font-size: 28px; font-weight: 800;
   color: var(--nc, var(--text));
   font-family: system-ui;
 }
 .kb-note-solfege {
-  font-size: 13px; color: var(--text-dim); font-weight: 500;
+  font-size: 16px; color: var(--text-dim); font-weight: 500;
 }
 .kb-key-badge {
   background: #FFFFFF; border: 1px solid var(--border-hi);
@@ -395,6 +413,45 @@ kbd {
 .drop-icon { font-size: 36px; }
 .demo-notice { margin-top: 10px; font-size: 12px; color: var(--text-mute); background: #FFF9F0; border: 1px solid #FFE0A0; border-radius: 6px; padding: 8px 12px; line-height: 1.5; }
 
+.cheat-fallback-btn {
+  position: absolute; bottom: 10px; right: 10px; z-index: 3;
+  width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent;
+  font-size: 14px; line-height: 1; opacity: 0.10; cursor: pointer; transition: opacity .15s;
+}
+.cheat-fallback-btn:hover { opacity: 0.55; background: var(--bg-hover); }
+
+.upload-btn-row { display: flex; gap: 8px; }
+
+.camera-capture {
+  margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px;
+}
+.camera-mode-chips { display: flex; gap: 8px; }
+.camera-mode-chip {
+  padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border-hi);
+  background: #fff; color: var(--text-dim); font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.camera-mode-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.camera-video-wrap {
+  position: relative; width: 100%; max-width: 420px; border-radius: var(--radius-sm);
+  overflow: hidden; background: #000; aspect-ratio: 4 / 3;
+}
+.camera-video-wrap video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+#camera-guide-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.camera-guide-hint {
+  position: absolute; top: 10px; left: 10px; right: 10px; text-align: center;
+  background: rgba(0,0,0,0.55); color: #fff; font-size: 12px;
+  border-radius: 20px; padding: 6px 12px; pointer-events: none;
+}
+.camera-controls { display: flex; gap: 10px; }
+.btn-shutter { font-size: 15px; padding: 10px 22px; }
+.camera-error {
+  font-size: 12px; color: #C0392B; background: #FDEDEC; border: 1px solid #F5B7B1;
+  border-radius: 6px; padding: 8px 12px; text-align: center;
+}
+
 .omr-coming-soon {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   background: #F0F8FF; border: 1px solid #C5D8EC;
@@ -435,6 +492,14 @@ kbd {
 .title-input:focus { outline: none; border-color: var(--primary); }
 .hidden { display: none !important; }
 
+.qr-panel {
+  margin-top: 12px; display: flex; align-items: center; gap: 14px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px;
+}
+.qr-panel img { background: #fff; border-radius: 6px; padding: 6px; flex-shrink: 0; }
+.qr-panel p { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+
 /* ── Play ──────────────────────────────────────────────────── */
 .play-layout { display: grid; grid-template-columns: 210px 1fr; gap: 20px; }
 @media (max-width: 900px) { .play-layout { grid-template-columns: 1fr; } }
@@ -457,7 +522,10 @@ kbd {
 .item-title { font-size: 14px; font-weight: 600; }
 .item-meta  { font-size: 11px; color: var(--text-mute); }
 
-.play-main { display: flex; flex-direction: column; gap: 14px; }
+/* min-width:0 없으면 grid 1fr 트랙이 오선 SVG(내용 기준 폭)에 맞춰 화면 밖까지 넓어져서
+   가로 스크롤이 아니라 레이아웃 자체가 깨짐 — 이번에 반주 모드 토글이 화면 밖으로
+   밀려나는 걸로 발견됨(기존부터 있던 문제, 오선이 짧을 땐 안 드러났을 뿐). */
+.play-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .play-notation-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .notation-title { font-size: 18px; font-weight: 700; color: var(--text); }
 
@@ -474,6 +542,12 @@ kbd {
 .tempo-control { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
 .tempo-control input[type=range] { accent-color: var(--primary); width: 90px; }
 
+.accompaniment-toggle {
+  margin-left: 4px; padding: 4px 10px; border-radius: 8px; font-size: 13px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+}
+.accompaniment-toggle:has(input:disabled) { opacity: 0.45; cursor: default; }
+
 /* カウントダウン bar */
 .countdown-wrap { display: flex; align-items: center; gap: 10px; }
 .countdown-track { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
@@ -486,6 +560,10 @@ kbd {
 .toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .toggle-label input[type=checkbox] { accent-color: var(--primary); width: 14px; height: 14px; }
 .piano-hint { color: var(--text-mute); font-size: 12px; }
+
+.midi-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.midi-controls .model-select { padding: 5px 8px; font-size: 12px; }
+.midi-status { font-size: 12px; color: var(--text-mute); }
 
 /* 옥타브 내비게이션 */
 .octave-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -552,6 +630,5 @@ kbd {
   .screen-content { padding: 20px 14px 48px; }
   .logo-text      { display: none; }
   .nav-tab        { padding: 6px 10px; font-size: 12px; }
-  .rule-cards     { grid-template-columns: 1fr; }
   .ctrl-btn       { width: 34px; height: 34px; font-size: 13px; }
 }
