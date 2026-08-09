@@ -14,9 +14,27 @@ class AudioEngine {
     this.master.connect(this.ctx.destination);
   }
 
+  // iOS Safari는 기기의 무음(벨소리) 스위치가 켜져 있으면 Web Audio API로 만든 소리를
+  // "ambient" 카테고리로 취급해 조용히 재생을 막는다(에러 없음, 그냥 안 들림) — resume()만
+  // 해서는 해결이 안 되고, "미디어 재생"으로 인식시켜야 스위치를 무시하고 소리가 난다.
+  // ① 최신 Safari의 AudioSession API로 재생 카테고리를 직접 지정(있으면)
+  // ② 구버전/다른 브라우저 대응으로 무음 오디오 태그를 함께 재생(표준 우회 트릭)
+  // 둘 다 반드시 사용자 제스처(클릭/터치) 핸들러 안에서 동기적으로 호출돼야 함.
   unlock() {
     this._init();
     if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this._unlocked) return;
+    this._unlocked = true;
+
+    if (navigator.audioSession) {
+      try { navigator.audioSession.type = 'playback'; } catch { /* 미지원 브라우저는 무시 */ }
+    }
+    try {
+      const silent = new Audio(
+        'data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQEAAACA'
+      );
+      silent.play().catch(() => {}); // 자동재생 정책으로 거부돼도 무시(그냥 시도가 중요)
+    } catch { /* Audio 생성 자체가 실패해도 무시 */ }
   }
 
   playNote(pitch, durationSec = 0.5) {
