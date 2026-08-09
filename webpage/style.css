@@ -863,6 +863,23 @@ kbd {
 .exp-camera-overlay .camera-mode-chip.active { background: var(--primary); border-color: var(--primary); }
 .exp-camera-overlay .btn-secondary { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.3); color: #fff; }
 
+/* 촬영 후 인식 대기 화면 — 임시(추후 진행률 등으로 교체 가능) */
+.exp-recognizing-overlay {
+  position: fixed; inset: 0; z-index: 450;
+  background: rgba(8,10,16,0.94); color: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  padding: 20px; text-align: center;
+}
+.exp-recognizing-overlay.hidden { display: none; }
+.exp-recognizing-spinner {
+  width: 52px; height: 52px; border-radius: 50%;
+  border: 5px solid rgba(255,255,255,0.2); border-top-color: var(--primary);
+  animation: exp-recognizing-spin 0.9s linear infinite;
+}
+@keyframes exp-recognizing-spin { to { transform: rotate(360deg); } }
+.exp-recognizing-text { font-size: 18px; font-weight: 700; }
+.exp-recognizing-hint { font-size: 13px; color: rgba(255,255,255,0.65); }
+
 /* 악보(한 마디) 화면 — 상하 스크롤 없이 화면에 맞춤(가로로 눕힌 짧은 화면 대비):
    제목/버튼은 고정 크기, 악보 행만 flex:1로 남는 공간을 차지하고 넘치면
    JS(autoFitExpScore)가 zoom으로 축소한다. */

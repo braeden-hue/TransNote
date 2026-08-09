@@ -37,6 +37,14 @@ class AudioEngine {
     } catch { /* Audio 생성 자체가 실패해도 무시 */ }
   }
 
+  // 그랜드피아노 톤(MuseScore4 기본 피아노 사운드 느낌)에 맞춰 합성 — 순수 배음 합성
+  // 오르간/신디사이저 소리가 나던 이전 버전 대비 두 가지를 추가했다:
+  // ① inharmonicity(배음 스트레치) — 실제 피아노 현은 강성 때문에 배음이 정확한
+  //    정수배가 아니라 위로 갈수록 살짝 날카로워진다. 이걸 넣어야 "너무 깨끗한"
+  //    신디사이저 배음이 아니라 실제 현악기 특유의 미세한 셔틀림이 느껴진다.
+  // ② sustain 없는 지속 감쇠 — 피아노는 오르간과 달리 건반을 누르고 있어도 평평하게
+  //    안 울리고 계속(느리게) 잦아든다. 높은 배음일수록 더 빨리 죽어서, 시간이
+  //    지날수록 밝던 타격음이 점점 부드러운 저음 위주로 어두워진다.
   playNote(pitch, durationSec = 0.5) {
     if (!pitch) return; // 쉼표(pitch 없음) — 소리 없이 넘어감
     this._init();
@@ -57,36 +65,65 @@ class AudioEngine {
     const bassAmt = Math.min(1, Math.max(0, (REF_HI - freq) / (REF_HI - REF_LO)));
     const loudnessBoost = 1 + bassAmt * 0.25; // 최대 25% 게인 보강
 
-    // ADSR envelope for piano-like sound
-    const peak = 0.9 * loudnessBoost;
-    const sustain = 0.6 * loudnessBoost;
-    env.gain.setValueAtTime(0, now);
-    env.gain.linearRampToValueAtTime(peak, now + 0.008);
-    env.gain.exponentialRampToValueAtTime(sustain, now + 0.08);
-    env.gain.setValueAtTime(sustain, now + Math.max(durationSec - 0.05, 0.05));
-    env.gain.exponentialRampToValueAtTime(0.001, now + durationSec + 0.35);
+    // 배음 스트레치 계수 — 저음현일수록(bassAmt↑) 물리적으로 더 두꺼워 stretch가 두드러짐
+    const B = 0.00055 + bassAmt * 0.0009;
+    const stretchedFreq = ratio => freq * ratio * Math.sqrt(1 + B * ratio * ratio);
 
-    // Fundamental + harmonics — 저음일수록(bassAmt↑) 기본음 비중을 줄이고
-    // 배음 비중/개수를 늘려 작은 스피커에서도 음높이가 들리게 한다.
+    // 엔벨로프 타임라인 — 절대시간이 아니라 이전 지점 기준 상대 오프셋으로 쌓아서,
+    // 아주 짧은 음(빠른 16분음표 등)이 와도 시간이 역전되는 일이 없게 한다.
+    const peak       = 0.95 * loudnessBoost;
+    const attackT     = now + 0.006;                                        // 타격(빠른 어택)
+    const decay1T     = attackT + Math.max(durationSec * 0.28, 0.03);       // 초반 급감쇠
+    const releaseT    = Math.max(decay1T + 0.01, now + durationSec);        // 건반을 뗀 시점(지속 중 계속 감쇠, sustain 없음)
+    const tailT       = releaseT + 0.55;                                    // 릴리즈 꼬리
+
+    env.gain.setValueAtTime(0, now);
+    env.gain.linearRampToValueAtTime(peak, attackT);
+    env.gain.exponentialRampToValueAtTime(peak * 0.35, decay1T);
+    env.gain.exponentialRampToValueAtTime(peak * 0.12, releaseT);
+    env.gain.exponentialRampToValueAtTime(0.0008, tailT);
+
+    // 배음별 상대 감쇠 속도(1에 가까울수록 오래 남음) — 높은 배음일수록 빨리 죽는다.
     const partials = [
-      { type: 'triangle', ratio: 1, gain: 0.65 - bassAmt * 0.15 },
-      { type: 'sine',     ratio: 2, gain: 0.22 + bassAmt * 0.10 },
-      { type: 'sine',     ratio: 3, gain: 0.08 + bassAmt * 0.08 },
-      { type: 'sine',     ratio: 4, gain: bassAmt * 0.08 },
-      { type: 'sine',     ratio: 5, gain: bassAmt * 0.04 },
+      { ratio: 1, gain: 0.60 - bassAmt * 0.12, decay: 1.00 },
+      { ratio: 2, gain: 0.26 + bassAmt * 0.08, decay: 0.85 },
+      { ratio: 3, gain: 0.14 + bassAmt * 0.07, decay: 0.68 },
+      { ratio: 4, gain: 0.07 + bassAmt * 0.06, decay: 0.55 },
+      { ratio: 5, gain: 0.04 + bassAmt * 0.05, decay: 0.45 },
+      { ratio: 6, gain: bassAmt * 0.035,       decay: 0.38 },
     ];
-    partials.forEach(({ type, ratio, gain }) => {
+    partials.forEach(({ ratio, gain, decay }) => {
       if (gain <= 0) return;
       const osc = this.ctx.createOscillator();
       const g   = this.ctx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq * ratio;
-      g.gain.value = gain;
+      osc.type = 'sine';
+      osc.frequency.value = stretchedFreq(ratio);
+      g.gain.setValueAtTime(gain, now);
+      g.gain.exponentialRampToValueAtTime(Math.max(gain * 0.001, 0.0001), releaseT + 0.55 * decay);
       osc.connect(g);
       g.connect(env);
       osc.start(now);
-      osc.stop(now + durationSec + 0.4);
+      osc.stop(tailT + 0.1);
     });
+
+    // 해머 타격 노이즈 — 아주 짧은(15ms) 필터링된 화이트노이즈로 "쳐지는" 어택감을 더한다.
+    const noiseDur = 0.015;
+    const bufferSize = Math.max(1, Math.floor(this.ctx.sampleRate * noiseDur));
+    const noiseBuf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const chan = noiseBuf.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) chan[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuf;
+    const noiseFilter = this.ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = Math.min(freq * 3, 4000);
+    noiseFilter.Q.value = 0.7;
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.value = 0.18 * loudnessBoost;
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(env);
+    noise.start(now);
   }
 
   // Returns a cancel function

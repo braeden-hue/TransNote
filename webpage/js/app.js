@@ -35,6 +35,7 @@ const state = {
   expHandMode:       'right', // 'right'(오른손만, 100점) | 'both'(양손, 150점)
   expPerform:        null,  // 연주 진행 중 상태 { nickname, notes, idx, correct, wrong, pianoCtrl }
   accompanimentMode: false, // 반주 모드 — ▶ 재생이 왼손(베이스)만 자체 템포로 연주
+  expPlayCancel:     [],    // 체험하기 "연주 듣기" 중인 재생의 취소 함수들(대보표면 최대 2개) — 중첩 재생 방지용
 };
 
 // 카메라 캡처 UI가 2군데(기존 변환 화면 / 체험하기)라 어느 쪽이 열려 있든 여기서 끌 수
@@ -250,7 +251,14 @@ function initAboutModal() {
 // 3) 연주하기 진입 시: 전자피아노 연결 테스트 + 닉네임 입력 대기 화면
 // 4) 연주 진행(전자피아노 연결 시 화면 건반 숨김) + 점수 결과
 // ═══════════════════════════════════════════════════════════════════════════════
+function stopExpPlayback() {
+  state.expPlayCancel.forEach(cancel => cancel?.());
+  state.expPlayCancel = [];
+  document.getElementById('exp-play-btn')?.classList.remove('playing');
+}
+
 function hideExpScreens() {
+  stopExpPlayback(); // 화면이 바뀌면(뒤로가기 포함) 재생 중이던 곡은 자동으로 멈춘다
   ['screen-exp-select', 'screen-exp-score', 'screen-exp-handmode', 'screen-exp-wait', 'screen-exp-perform']
     .forEach(id => document.getElementById(id)?.classList.add('hidden'));
 }
@@ -353,6 +361,7 @@ function playExpScore() {
   const data = state.expScoreData;
   if (!data) return;
   audio.unlock();
+  stopExpPlayback(); // 이전에 재생 중이던 게 있으면 먼저 멈추고 새로 시작 — 연타 시 중첩 방지
   const bpm = data.tempo || 90;
   const btn = document.getElementById('exp-play-btn');
   btn?.classList.add('playing');
@@ -365,22 +374,23 @@ function playExpScore() {
     const bass   = data.staves[1].notes;
     let pending = 0;
     const onEnd = () => { pending--; if (pending <= 0) done(); };
-    if (treble.length) { pending++; audio.playSequence(treble, bpm, () => {}, onEnd); }
-    if (bass.length)   { pending++; audio.playSequence(bass,   bpm, () => {}, onEnd); }
+    if (treble.length) { pending++; state.expPlayCancel.push(audio.playSequence(treble, bpm, () => {}, onEnd)); }
+    if (bass.length)   { pending++; state.expPlayCancel.push(audio.playSequence(bass,   bpm, () => {}, onEnd)); }
     if (!pending) done();
   } else {
     const notes = data.notes;
     if (!notes?.length) { done(); return; }
-    audio.playSequence(notes, bpm, () => {}, done);
+    state.expPlayCancel.push(audio.playSequence(notes, bpm, () => {}, done));
   }
 }
 
-// 체험하기용 촬영 결과 처리 — round3train 체크포인트(r15)로 서버가 실제 인식한다.
-// "변환 중"에도 새 로딩 화면을 따로 만들지 않고 지금 화면(선택 화면) 그대로 두고 토스트만
-// 띄운다. 촬영해서 만든 악보는 정해진 3곡과 달리 순위표 대상이 아님(_noScore).
+// 체험하기용 촬영 결과 처리 — train/checkpoints의 r15 체크포인트로 서버(RunPod GPU)가
+// 실제 인식한다. 인식 중에는 전용 대기 화면(#exp-recognizing-overlay, 임시)을 띄운다.
+// 촬영해서 만든 악보는 정해진 3곡과 달리 순위표 대상이 아님(_noScore).
 async function handleExpCameraCapture(file) {
   if (!file) return;
-  toast('🔍 악보 인식 중... (체크포인트로 추론 중)');
+  const overlay = document.getElementById('exp-recognizing-overlay');
+  overlay?.classList.remove('hidden');
   try {
     const form = new FormData();
     form.append('file', file);
@@ -396,6 +406,8 @@ async function handleExpCameraCapture(file) {
     showExpScore(sampleToNotation(demo, {
       id: generateId(), title: file.name.replace(/\.[^.]+$/, ''), createdAt: Date.now(), _noScore: true,
     }));
+  } finally {
+    overlay?.classList.add('hidden');
   }
 }
 

@@ -94,6 +94,13 @@
   </div>
   <canvas id="exp-camera-canvas" hidden></canvas>
 
+  <!-- 촬영 후 서버(RunPod GPU 체크포인트)로 인식하는 동안 보여주는 임시 대기 화면 -->
+  <div class="exp-recognizing-overlay hidden" id="exp-recognizing-overlay">
+    <div class="exp-recognizing-spinner"></div>
+    <p class="exp-recognizing-text">악보를 인식하고 있어요…</p>
+    <p class="exp-recognizing-hint">촬영한 사진을 분석하는 중이에요, 잠시만 기다려주세요</p>
+  </div>
+
   <!-- ══ 체험하기 2/4 — 선택한 곡의 커스텀 악보 한 마디 + 연주 듣기/연주하기 + 순위표 ══ -->
   <section class="exp-screen hidden" id="screen-exp-score">
     <button class="exp-home-btn" id="exp-score-home">← 처음으로</button>
