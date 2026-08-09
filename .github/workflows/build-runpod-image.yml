@@ -33,6 +33,14 @@ jobs:
           context: .
           file: runpod_serverless/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/transnote-omr:latest
+          # :latest만 쓰면 RunPod 쪽 인프라가 태그명이 안 바뀐다는 이유로 콜드스타트
+          # 워커에도 예전 이미지 레이어를 재사용해버리는 캐싱 문제가 있었다(2026-08-10,
+          # tie 병합 수정 배포 시 재현 확인 — Edit Endpoint Save/워커 재시작을 해도 반영
+          # 안 됨). 커밋마다 고유한 :<sha> 태그를 같이 붙여서, 확실한 재배포가 필요할 땐
+          # RunPod Container Image에 latest 대신 이 sha 태그를 넣으면 캐싱과 무관하게
+          # 무조건 이번에 빌드한 이미지를 받는다.
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/transnote-omr:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/transnote-omr:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

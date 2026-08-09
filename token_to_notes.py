@@ -8,6 +8,8 @@ lib/services/omr_token_parser.dart(Flutter)와 동일한 문법 파싱 로직의
 pitch 표기: 웹 쪽(online_webpage/js/samples.js)의 NOTE_NAMES/BLACK_LABEL이 샤프(#)
 표기만 이해하므로(예: 'C#4' -> '1'), 모델이 내는 플랫(Db/Eb/Gb/Ab/Bb) 표기는 여기서
 동일 음의 샤프 표기로 정규화한다.
+
+붙임줄(tie) 병합 로직(tie_active/pending_carry_duration)은 2026-08-10 추가.
 """
 
 from __future__ import annotations
