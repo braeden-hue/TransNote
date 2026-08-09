@@ -364,6 +364,19 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
 }
 
 /* ── 튜토리얼 페이지 보조 컴포넌트 ─────────────────────────────── */
+.tut-compare-wrap { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; width: 100%; display: flex; }
+.tut-bubble {
+  position: absolute; z-index: 5; max-width: 140px;
+  background: #fff; border: 1.5px solid var(--border-hi); border-radius: 12px;
+  padding: 6px 10px; font-size: 12px; font-weight: 700; line-height: 1.35; color: var(--text-dim);
+  box-shadow: 0 4px 14px rgba(0,40,80,0.16);
+}
+.tut-bubble::after {
+  content: ''; position: absolute; width: 10px; height: 10px;
+  background: #fff; border-right: 1.5px solid var(--border-hi); border-bottom: 1.5px solid var(--border-hi);
+}
+.tut-bubble-down::after { top: -6px; left: 18px; transform: rotate(-135deg); border-right: none; border-bottom: none; border-left: 1.5px solid var(--border-hi); border-top: 1.5px solid var(--border-hi); }
+.tut-bubble-up::after   { bottom: -6px; left: 18px; transform: rotate(45deg); }
 .tut-compare-label { font-size: 15px; font-weight: 700; color: var(--text-mute); }
 .tut-staff-box { width: 100%; max-width: 560px; }
 .tut-compare-img {
@@ -672,6 +685,23 @@ kbd {
 .empty-state { padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 14px; line-height: 2; }
 .hint { font-size: 12px; color: var(--text-mute); margin-top: 4px; }
 
+/* ── 튜토리얼 "처음으로" 버튼 — 오른쪽 중앙 부근, 돋보기(규칙2+에서 같은 자리 아래에
+   나타남)와 안 겹치게 그 위쪽에 고정 배치 ──────────────────────────────── */
+.tut-home-btn {
+  position: fixed; z-index: 260;
+  top: calc(50% - 88px); right: calc(14px + var(--safe-r));
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
+  border: 1px solid var(--border-hi); border-radius: 999px;
+  padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--text-dim);
+  box-shadow: 0 3px 14px rgba(79,195,247,0.3);
+  transition: transform .15s, box-shadow .15s;
+}
+.tut-home-btn:hover  { box-shadow: 0 4px 18px rgba(0,118,206,0.35); }
+.tut-home-btn:active { transform: scale(0.94); }
+@media (max-width: 480px) {
+  .tut-home-btn { right: calc(8px + var(--safe-r)); padding: 7px 11px; font-size: 12px; }
+}
+
 /* ── 12음 참고 돋보기 ──────────────────────────────────────────── */
 .octave-magnifier {
   position: fixed; z-index: 250;
@@ -858,14 +888,11 @@ kbd {
   .exp-sample-grid { grid-template-columns: 1fr; max-width: 280px; margin: 0 auto; }
 }
 
-.exp-camera-fab {
-  position: absolute; right: calc(20px + var(--safe-r)); bottom: calc(20px + var(--safe-b));
-  width: 62px; height: 62px; border-radius: 50%;
-  background: linear-gradient(135deg, #0076CE 0%, #4fc3f7 100%); color: #fff;
-  font-size: 26px; display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 18px rgba(0,118,206,0.4);
+/* 촬영 카드 — 예시 곡 카드와 같은 그리드 안, 살짝 다른 배경으로만 구분 */
+.exp-sample-card-camera {
+  background: linear-gradient(145deg, #ffffff 0%, #e0f0fd 100%);
+  border-style: dashed;
 }
-.exp-camera-fab:active { transform: scale(0.94); }
 
 /* 체험하기 촬영 가이드 오버레이 — 기존 변환 화면의 인라인 카메라와 달리 화면 전체를 덮음 */
 .exp-camera-overlay {
@@ -875,7 +902,9 @@ kbd {
   padding: 20px;
 }
 .exp-camera-overlay.hidden { display: none; }
-.exp-camera-overlay .camera-video-wrap { width: 100%; max-width: 520px; }
+/* 체험하기 카메라는 화면을 최대한 크게 써서 오선을 길게 담을 수 있게 함
+   (기존 변환 화면의 420px 기본값보다 훨씬 큼 — 화면 전체를 덮는 오버레이라 여유 있음). */
+.exp-camera-overlay .camera-video-wrap { width: 100%; max-width: min(92vw, 1300px); max-height: 82vh; }
 .exp-camera-overlay .camera-mode-chip {
   background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.3); color: #fff;
 }
@@ -898,6 +927,33 @@ kbd {
 @keyframes exp-recognizing-spin { to { transform: rotate(360deg); } }
 .exp-recognizing-text { font-size: 18px; font-weight: 700; }
 .exp-recognizing-hint { font-size: 13px; color: rgba(255,255,255,0.65); }
+
+/* 인식 결과 미리보기(사진 vs 디지털 악보 비교) — 다르면 재촬영 */
+.exp-preview-overlay {
+  position: fixed; inset: 0; z-index: 450;
+  background: rgba(8,10,16,0.96); color: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  padding: 20px;
+}
+.exp-preview-overlay.hidden { display: none; }
+.exp-preview-title { font-size: 16px; font-weight: 700; text-align: center; }
+.exp-preview-row { display: flex; gap: 16px; width: 100%; max-width: 1100px; flex: 1 1 auto; min-height: 0; }
+.exp-preview-col {
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.06); border-radius: var(--radius); padding: 12px;
+}
+.exp-preview-label { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.65); }
+.exp-preview-photo {
+  flex: 1 1 auto; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain;
+  border-radius: 8px; background: #000;
+}
+.exp-preview-notation {
+  flex: 1 1 auto; min-height: 0; width: 100%; max-width: 100%;
+  background: #fff; border-radius: 8px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.exp-preview-actions { display: flex; gap: 12px; flex: 0 0 auto; }
+.exp-preview-actions .btn-secondary { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.3); color: #fff; }
 
 /* 악보(한 마디) 화면 — 상하 스크롤 없이 화면에 맞춤(가로로 눕힌 짧은 화면 대비):
    제목/버튼은 고정 크기, 악보 행만 flex:1로 남는 공간을 차지하고 넘치면

@@ -77,7 +77,6 @@
     <div class="exp-select-body">
       <div class="exp-sample-grid" id="exp-sample-grid"></div>
     </div>
-    <button class="exp-camera-fab" id="exp-camera-btn" title="촬영하기">📷</button>
   </section>
 
   <!-- 체험하기용 촬영 가이드 오버레이 — 기존 변환 화면의 오선 1개/대보표 토글 + 뷰파인더
@@ -105,6 +104,25 @@
     <div class="exp-recognizing-spinner"></div>
     <p class="exp-recognizing-text">악보를 인식하고 있어요…</p>
     <p class="exp-recognizing-hint">촬영한 사진을 분석하는 중이에요, 잠시만 기다려주세요</p>
+  </div>
+
+  <!-- 인식 완료 직후 — 원본 사진과 변환된 디지털 악보를 나란히 놓고 비교, 다르면 재촬영 -->
+  <div class="exp-preview-overlay hidden" id="exp-preview-overlay">
+    <p class="exp-preview-title">이렇게 인식됐어요 — 촬영한 사진과 비슷한가요?</p>
+    <div class="exp-preview-row">
+      <div class="exp-preview-col">
+        <p class="exp-preview-label">촬영한 사진</p>
+        <img class="exp-preview-photo" id="exp-preview-photo" alt="촬영한 원본 사진">
+      </div>
+      <div class="exp-preview-col">
+        <p class="exp-preview-label">변환된 디지털 악보</p>
+        <div class="exp-preview-notation" id="exp-preview-notation"></div>
+      </div>
+    </div>
+    <div class="exp-preview-actions">
+      <button class="btn-secondary" id="exp-preview-retake">🔄 다시 촬영</button>
+      <button class="btn-primary" id="exp-preview-confirm">✅ 이대로 사용할게요</button>
+    </div>
   </div>
 
   <!-- ══ 체험하기 2/4 — 선택한 곡의 커스텀 악보 한 마디 + 연주 듣기/연주하기 + 순위표 ══ -->
@@ -191,6 +209,8 @@
           <span class="tut-caption" id="tut-caption"></span>
           <div class="tut-dots" id="tut-dots"></div>
         </div>
+
+        <button class="tut-home-btn" id="tut-home-btn" title="메인 화면으로">🏠 처음으로</button>
 
         <div class="tut-split" id="tut-page-frame">
           <div class="tut-split-top" id="tut-split-top"></div>

@@ -260,6 +260,7 @@ function stopExpPlayback() {
 
 function hideExpScreens() {
   stopExpPlayback(); // 화면이 바뀌면(뒤로가기 포함) 재생 중이던 곡은 자동으로 멈춘다
+  closeExpCapturePreview(); // 촬영 미리보기 도중 나가도 오버레이/objectURL이 남지 않게
   ['screen-exp-select', 'screen-exp-score', 'screen-exp-handmode', 'screen-exp-wait', 'screen-exp-perform']
     .forEach(id => document.getElementById(id)?.classList.add('hidden'));
 }
@@ -318,13 +319,9 @@ function renderLeaderboard(songKey) {
     : '<li class="exp-leaderboard-empty">아직 기록이 없어요</li>';
 }
 
-function showExpScore(data) {
-  state.expScoreData = data;
-  hideExpScreens();
-  document.getElementById('screen-exp-score')?.classList.remove('hidden');
-
-  document.getElementById('exp-score-title').textContent = data.title || '';
-  const container = document.getElementById('exp-score-notation');
+// 첫 마디만 잘라서 보표(대보표/단일보표)를 그려넣는 공통 로직 — 악보 화면과
+// 촬영 직후 미리보기(원본 사진과 비교)가 같은 방식으로 렌더링해야 하므로 공용화.
+function renderFirstMeasureInto(container, data) {
   container.innerHTML = '';
   if (data.staves?.length >= 2) {
     const trimmed = data.staves.map(s => ({ ...s, notes: firstMeasure(s.notes) }));
@@ -332,6 +329,15 @@ function showExpScore(data) {
   } else {
     renderNotation(container, firstMeasure(data.notes), {});
   }
+}
+
+function showExpScore(data) {
+  state.expScoreData = data;
+  hideExpScreens();
+  document.getElementById('screen-exp-score')?.classList.remove('hidden');
+
+  document.getElementById('exp-score-title').textContent = data.title || '';
+  renderFirstMeasureInto(document.getElementById('exp-score-notation'), data);
   autoFitExpScore();
 
   // 촬영으로 만든 악보는 정해진 3곡과 달리 순위 기록 대상이 아님(제목이 매번 달라
@@ -385,6 +391,24 @@ function playExpScore() {
   }
 }
 
+// 인식 성공 시 바로 악보 화면으로 넘기지 않고, 촬영한 사진과 변환된 디지털 악보를
+// 나란히 보여주는 미리보기(#exp-preview-overlay)를 한 번 거친다 — 사용자가 눈으로
+// 비교해보고 이상하면 재촬영할 수 있게. 확인/재촬영 버튼은 initExpFlow()에서 한 번만 연결.
+let pendingExpCapture = null; // { json, photoUrl }
+
+function showExpCapturePreview(json, photoUrl) {
+  pendingExpCapture = { json, photoUrl };
+  document.getElementById('exp-preview-photo').src = photoUrl;
+  renderFirstMeasureInto(document.getElementById('exp-preview-notation'), json);
+  document.getElementById('exp-preview-overlay')?.classList.remove('hidden');
+}
+
+function closeExpCapturePreview() {
+  document.getElementById('exp-preview-overlay')?.classList.add('hidden');
+  if (pendingExpCapture?.photoUrl) URL.revokeObjectURL(pendingExpCapture.photoUrl);
+  pendingExpCapture = null;
+}
+
 // 체험하기용 촬영 결과 처리 — train/checkpoints의 r15 체크포인트로 서버(RunPod GPU)가
 // 실제 인식한다. 인식 중에는 전용 대기 화면(#exp-recognizing-overlay, 임시)을 띄운다.
 // 촬영해서 만든 악보는 정해진 3곡과 달리 순위표 대상이 아님(_noScore).
@@ -399,7 +423,7 @@ async function handleExpCameraCapture(file) {
     if (!res.ok) throw new Error('server');
     const json = await res.json();
     json._noScore = true;
-    showExpScore(json);
+    showExpCapturePreview(json, URL.createObjectURL(file));
   } catch (e) {
     console.error('[handleExpCameraCapture] 인식 실패, 샘플로 대체:', e);
     toast('⚠️ OMR 서버 미연결 — 샘플로 보여드릴게요');
@@ -637,12 +661,32 @@ function initExpFlow() {
     });
     grid.appendChild(card);
   });
+  // 촬영 버튼도 예시 곡과 같은 칸 모양으로 — 우측 하단 별도 FAB 대신 그리드 안에 나란히.
+  // id는 기존 그대로(exp-camera-btn) 유지해서 setupCameraCapture()의 openBtn 참조가 그대로 작동.
+  const camCard = document.createElement('button');
+  camCard.className = 'exp-sample-card exp-sample-card-camera';
+  camCard.id = 'exp-camera-btn';
+  camCard.title = '촬영하기';
+  camCard.innerHTML = `<span class="exp-sample-emoji">📷</span><span class="exp-sample-title">직접 촬영</span>`;
+  grid.appendChild(camCard);
 
   setupCameraCapture({
     openBtn: 'exp-camera-btn', cancelBtn: 'exp-camera-cancel', shutterBtn: 'exp-camera-shutter',
     captureBox: 'exp-camera-capture', video: 'exp-camera-video', canvas: 'exp-camera-canvas',
     guideCanvas: 'exp-camera-guide-canvas', guideHint: 'exp-camera-guide-hint', error: 'exp-camera-error',
+    guideWFrac: 0.97, // 화면을 훨씬 키운 만큼 오선 가이드도 프레임 폭 거의 전체로 길게
   }, handleExpCameraCapture);
+
+  document.getElementById('exp-preview-confirm')?.addEventListener('click', () => {
+    const p = pendingExpCapture;
+    if (!p) return;
+    closeExpCapturePreview();
+    showExpScore(p.json);
+  });
+  document.getElementById('exp-preview-retake')?.addEventListener('click', () => {
+    closeExpCapturePreview();
+    document.getElementById('exp-camera-btn')?.click(); // 카메라 다시 열기
+  });
 
   document.getElementById('exp-handmode-right')?.addEventListener('click', () => showExpWait('right'));
   document.getElementById('exp-handmode-both')?.addEventListener('click', () => {
@@ -941,18 +985,43 @@ function buildQuizPage(order, spec) {
   };
 }
 
+// "시작하기 전에" 페이지 — 커스텀 악보 쪽 예시(화음 하나 포함, 오른쪽 끝 박자에
+// 배치해서 말풍선을 거기 고정으로 앵커링). 원본 이미지와 완전히 같은 곡은 아니지만
+// (원본은 정적 이미지라 정확한 음표 데이터가 없음) 같은 수준의 짧은 대보표 예시.
+const TUT_INTRO_CUSTOM_STAVES = [
+  { clef: 'treble', notes: [
+    { pitch: 'D5', duration: 1, beat: 1 },
+    { pitch: 'F5', duration: 1, beat: 2 },
+    { pitch: 'A5', duration: 1, beat: 3 },
+    { pitch: 'B5', duration: 1, beat: 4, chordNotes: ['D6'] },
+  ] },
+  { clef: 'bass', notes: [
+    { pitch: 'B3', duration: 1, beat: 1 },
+    { pitch: 'D4', duration: 1, beat: 2 },
+    { pitch: 'F4', duration: 1, beat: 3 },
+    { pitch: 'B3', duration: 1, beat: 4, chordNotes: ['D4', 'F4'] },
+  ] },
+];
+
 const TUT_PAGES = [
   {
     chip: '시작하기 전에',
-    caption: '우리의 목표 — 조표·옥타브 번호 같은 오선지의 복잡한 규칙 없이, 색과 위치로 바로 읽는 악보',
+    caption: '', // 설명 글 대신 아래 두 악보 위 말풍선으로 바로 보여준다
     splitDirection: 'row', // 위/아래 대신 좌/우로 두 악보를 나란히 비교
     render(top, bottom) {
       top.innerHTML = `
         <p class="tut-compare-label">전통 오선 악보</p>
-        <img class="tut-compare-img" src="assets/tut-intro-original.png" alt="전통 오선 악보 원본">`;
+        <div class="tut-compare-wrap">
+          <img class="tut-compare-img" src="assets/tut-intro-original.png" alt="전통 오선 악보 원본">
+          <div class="tut-bubble tut-bubble-down" style="top:34%; left:20%;">어... 이 조표는 뭐였지? 🤔</div>
+        </div>`;
       bottom.innerHTML = `
-        <p class="tut-compare-label">커스텀 악보 (같은 곡)</p>
-        <img class="tut-compare-img" src="assets/tut-intro-custom.png" alt="같은 곡을 커스텀 악보로 변환한 결과">`;
+        <p class="tut-compare-label">커스텀 악보 (같은 수준의 예시)</p>
+        <div class="tut-compare-wrap" id="tut-intro-custom-wrap">
+          <div class="tut-compare-img" id="tut-intro-custom-grand" style="display:flex;align-items:center;justify-content:center;"></div>
+          <div class="tut-bubble tut-bubble-up" style="bottom:30%; right:6%;">동시에 눌러요, 색으로 바로 보여요! 🎹</div>
+        </div>`;
+      renderGrandStaff(document.getElementById('tut-intro-custom-grand'), TUT_INTRO_CUSTOM_STAVES);
     },
   },
   {
@@ -1143,15 +1212,30 @@ function goToTutPage(idx) {
   }, TUT_ANIM_MS);
 }
 
+// 랜딩(메인 화면)으로 나갈 때 지금 화면이 서서히 사라지면서 전환 — 뚝 끊기지 않게.
+const FADE_EXIT_MS = 320;
+function fadeExitToLanding(screenId) {
+  const el = document.getElementById(screenId);
+  if (!el) { exitFlowToLanding(); return; }
+  el.style.transition = `opacity ${FADE_EXIT_MS}ms ease`;
+  el.style.opacity = '0';
+  setTimeout(() => {
+    exitFlowToLanding();
+    el.style.transition = '';
+    el.style.opacity = '';
+  }, FADE_EXIT_MS);
+}
+
 function initTutorial() {
+  document.getElementById('tut-home-btn')?.addEventListener('click', () => fadeExitToLanding('screen-tutorial'));
   document.getElementById('tut-prev').addEventListener('click', () => {
     if (tutPageIdx > 0) { goToTutPage(tutPageIdx - 1); return; }
-    if (state.flowFromLanding) exitFlowToLanding(); // 첫 페이지의 "이전" = 랜딩으로 나가기
+    if (state.flowFromLanding) fadeExitToLanding('screen-tutorial'); // 첫 페이지의 "이전" = 랜딩으로 나가기
   });
   document.getElementById('tut-next').addEventListener('click', () => {
     if (tutPageIdx < TUT_PAGES.length - 1) { goToTutPage(tutPageIdx + 1); return; }
     // 마지막 페이지: 튜토리얼 단독 흐름이면 랜딩으로, 아니면(자유 탐색/구 킨스크) 변환 화면으로
-    if (state.flowLock && !state.flowLock.includes('convert')) exitFlowToLanding();
+    if (state.flowLock && !state.flowLock.includes('convert')) fadeExitToLanding('screen-tutorial');
     else navigate('convert');
   });
   renderTutPage(0);
@@ -1209,11 +1293,11 @@ function showQrForCurrentResult() {
 // lib/screens/guided_camera_screen.dart의 뷰파인더 가이드를 그대로 이식 — 오선 1개/대보표(2개)
 // 토글, 어두운 마스크 + 코너 브래킷 + 실제 오선 줄 가이드, 촬영 시 그 박스 영역만 크롭해서
 // 넘긴다(자동 오선 검출에 온전히 맡기지 않고 촬영 UX로 프레이밍을 유도 — 인식률에 직결).
-const CAMERA_GUIDE_W_FRAC = 0.88;
+const CAMERA_GUIDE_W_FRAC = 0.88; // 기본값(기존 변환 화면) — 체험하기는 setupCameraCapture(ids)의 guideWFrac로 더 크게 오버라이드
 function cameraGuideHFrac(grandStaff) { return grandStaff ? 0.34 : 0.16; }
 
-function cameraGuideRectNative(vw, vh, grandStaff) {
-  const w = vw * CAMERA_GUIDE_W_FRAC;
+function cameraGuideRectNative(vw, vh, grandStaff, wFrac = CAMERA_GUIDE_W_FRAC) {
+  const w = vw * wFrac;
   const h = vh * cameraGuideHFrac(grandStaff);
   return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
 }
@@ -1245,7 +1329,7 @@ function cameraDrawStaffLines(ctx, x, y, w, h) {
   }
 }
 
-function drawCameraGuideOverlay(canvas, wrap, video, grandStaff) {
+function drawCameraGuideOverlay(canvas, wrap, video, grandStaff, wFrac) {
   const ww = wrap.clientWidth, wh = wrap.clientHeight;
   if (!ww || !wh) return;
   canvas.width = ww; canvas.height = wh;
@@ -1255,7 +1339,7 @@ function drawCameraGuideOverlay(canvas, wrap, video, grandStaff) {
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return;
 
-  const rect = cameraNativeToDisplay(cameraGuideRectNative(vw, vh, grandStaff), vw, vh, ww, wh);
+  const rect = cameraNativeToDisplay(cameraGuideRectNative(vw, vh, grandStaff, wFrac), vw, vh, ww, wh);
 
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(0, 0, ww, wh);
@@ -1308,13 +1392,14 @@ function setupCameraCapture(ids, onCaptured) {
   const modeChips = captureBox.querySelectorAll('.camera-mode-chip');
 
   let grandStaff = true; // flutter 쪽 기본값과 동일 — 피아노 악보는 대보표가 더 흔함
+  const guideWFrac = ids.guideWFrac ?? CAMERA_GUIDE_W_FRAC; // 체험하기는 더 큰 값으로 오버라이드
 
   function updateHint() {
     guideHint.textContent = grandStaff
       ? '대보표(높은음자리+낮은음자리)를 박스 안에 맞춰주세요'
       : '오선 하나를 박스 안에 맞춰주세요';
   }
-  function redrawGuide() { drawCameraGuideOverlay(guideCanvas, guideWrap, video, grandStaff); }
+  function redrawGuide() { drawCameraGuideOverlay(guideCanvas, guideWrap, video, grandStaff, guideWFrac); }
 
   modeChips.forEach(chip => {
     chip.addEventListener('click', () => {
@@ -1364,7 +1449,7 @@ function setupCameraCapture(ids, onCaptured) {
 
   shutterBtn.addEventListener('click', () => {
     if (!state.cameraStream || !video.videoWidth) return;
-    const rect = cameraGuideRectNative(video.videoWidth, video.videoHeight, grandStaff);
+    const rect = cameraGuideRectNative(video.videoWidth, video.videoHeight, grandStaff, guideWFrac);
     canvas.width  = rect.w;
     canvas.height = rect.h;
     canvas.getContext('2d').drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
