@@ -1393,7 +1393,7 @@ async function handleUpload(file) {
   if (file.size > 10 * 1024 * 1024)   { toast('파일 크기가 10MB를 초과합니다'); return; }
   showLoading();
 
-  const model = document.getElementById('model-select')?.value || 'andromr';
+  const model = document.getElementById('model-select')?.value || 'custom';
   const form  = new FormData();
   form.append('file', file);
 
@@ -2043,18 +2043,13 @@ async function checkServerStatus() {
   try {
     const res  = await fetch('/api/status');
     const s    = await res.json();
-    const both = s.andromr && s.custom;
-    const any  = s.andromr || s.custom;
     if (dot)   { dot.classList.add('connected'); dot.title = '서버 연결됨'; }
     if (badge) badge.textContent = '✅ OMR 서버 연결됨';
-    if (msg)   msg.textContent = `Andromr: ${s.andromr ? '✓' : '✗'}  커스텀: ${s.custom ? '✓' : '✗'}`;
+    if (msg)   msg.textContent = `커스텀 모델: ${s.custom ? '✓' : '✗'}`;
     // 연결된 모델만 select에 표시
     const sel = document.getElementById('model-select');
     if (sel) {
-      [...sel.options].forEach(opt => {
-        opt.disabled = !s[opt.value];
-        if (opt.disabled && sel.value === opt.value) sel.value = s.andromr ? 'andromr' : 'custom';
-      });
+      [...sel.options].forEach(opt => { opt.disabled = !s[opt.value]; });
     }
   } catch {
     if (dot)   dot.title = '서버 미연결';
