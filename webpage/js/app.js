@@ -435,9 +435,11 @@ function showExpCapturePreview(json, photoUrl) {
   document.getElementById('exp-preview-photo').src = photoUrl;
   // 촬영한 원본 사진과 직접 비교해야 하니, 우리 색상 커스텀 표기가 아니라 정식(디지털)
   // 오선보로 보여준다 — 커스텀 변환은 "이대로 사용" 확정 후 악보 화면에서 보여줌.
+  // 사진에 찍힌 마디 전체와 비교해야 하므로 첫 마디만이 아니라 인식된 전체를 보여준다
+  // (연습용 악보 화면은 여전히 한 마디씩만 — 이건 비교 전용 화면이라 다름).
   const staves = json.staves?.length >= 2
-    ? [{ clef: 'treble', notes: firstMeasure(json.staves[0].notes) }, { clef: 'bass', notes: firstMeasure(json.staves[1].notes) }]
-    : [{ clef: 'treble', notes: firstMeasure(json.notes) }];
+    ? [{ clef: 'treble', notes: json.staves[0].notes ?? [] }, { clef: 'bass', notes: json.staves[1].notes ?? [] }]
+    : [{ clef: 'treble', notes: json.notes ?? [] }];
   renderDigitalStaff(document.getElementById('exp-preview-notation'), staves);
   document.getElementById('exp-preview-overlay')?.classList.remove('hidden');
 }

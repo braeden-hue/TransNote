@@ -533,13 +533,29 @@ function _pitchStep(pitch, clef) {
   return { step: abs - bottomAbs, sharp };
 }
 
+const _CLEF_W = 34;   // clef 기호가 차지하는 폭
+const _BAR_GAP = 14;  // 마디선 하나가 차지하는 폭(선+양옆 여백)
+
+// notes 전체(여러 마디)를 pxPerBeat 기준으로 그렸을 때 필요한 총 폭(clef 폭 제외).
+function _staffContentWidth(notes, pxPerBeat) {
+  let w = 0;
+  notes.forEach((n, i) => {
+    if (n.beat === 1 && i > 0) w += _BAR_GAP; // 마디 경계(첫 음표 제외)마다 마디선 폭 추가
+    w += n.duration * pxPerBeat;
+  });
+  return w;
+}
+
 // 한 보표(clef 하나) 분량을 그려서 svg에 append. yOffset만큼 세로로 밀어서 대보표일 때
-// 두 번째 보표를 아래에 이어 그릴 수 있게 한다. 반환값: 다음 보표를 위한 y 오프셋.
-function _drawStaffInto(svg, notes, clef, x0, w, yOffset, gap) {
+// 두 번째 보표를 아래에 이어 그릴 수 있게 한다. 곡 전체(여러 마디)를 한 줄로 이어 그리며
+// beat===1 경계마다 마디선을 그려 넣는다 — 컨테이너가 넘치면 가로 스크롤로 본다.
+// 반환값: { nextY: 다음 보표 시작 y, width: 이 보표가 실제로 차지한 총 폭 }.
+function _drawStaffInto(svg, notes, clef, x0, yOffset, gap, pxPerBeat) {
   const top = yOffset + 18;
+  const contentW = _CLEF_W + _staffContentWidth(notes, pxPerBeat);
   for (let i = 0; i < 5; i++) {
     const y = top + i * gap;
-    svg.appendChild(el('line', { x1: x0, y1: y, x2: x0 + w, y2: y, stroke: '#6E6259', 'stroke-width': '1' }));
+    svg.appendChild(el('line', { x1: x0, y1: y, x2: x0 + contentW, y2: y, stroke: '#6E6259', 'stroke-width': '1' }));
   }
   // clef 기호(간단한 텍스트 표기 — 정밀 글리프 대신 눈에 띄는 라벨로 대체)
   const clefLabel = el('text', {
@@ -550,12 +566,15 @@ function _drawStaffInto(svg, notes, clef, x0, w, yOffset, gap) {
 
   const bottomY = top + 4 * gap;
   const stepToY = step => bottomY - step * (gap / 2);
-  const totalDur = notes.reduce((s, n) => s + n.duration, 0) || 1;
-  const usableW = w - 34;
-  let x = x0 + 34;
+  let x = x0 + _CLEF_W;
 
-  notes.forEach(note => {
-    const cellW = (note.duration / totalDur) * usableW;
+  notes.forEach((note, i) => {
+    if (note.beat === 1 && i > 0) {
+      const bx = x + _BAR_GAP / 2;
+      svg.appendChild(el('line', { x1: bx, y1: top, x2: bx, y2: top + 4 * gap, stroke: '#6E6259', 'stroke-width': '1.4' }));
+      x += _BAR_GAP;
+    }
+    const cellW = note.duration * pxPerBeat;
     const cx = x + cellW / 2;
 
     if (note.isRest) {
@@ -605,19 +624,28 @@ function _drawStaffInto(svg, notes, clef, x0, w, yOffset, gap) {
     x += cellW;
   });
 
-  return yOffset + 5 * gap + 26; // 다음 보표 시작 y
+  return { nextY: yOffset + 5 * gap + 26, width: x0 + contentW };
 }
 
 // container에 정식 오선보를 그린다. staves: [{clef, notes}] (1개=단일보표, 2개=대보표).
+// 곡 전체(여러 마디)를 한 줄로 이어 그리므로, 컨테이너보다 넓어지면 svg 자체를 그만큼
+// 넓게 만든다 — 부모(.exp-preview-notation 등)가 overflow:auto라 가로 스크롤로 볼 수 있다.
 export function renderDigitalStaff(container, staves) {
-  const W = Math.max(container.clientWidth || 400, 320);
   const GAP = 14;
+  const PX_PER_BEAT = 46;
+  const normalized = staves.map(s => ({
+    clef: s.clef ?? 'treble',
+    notes: s.notes?.length ? s.notes : [{ isRest: true, duration: 4 }],
+  }));
+  const contentWidths = normalized.map(s => _CLEF_W + _staffContentWidth(s.notes, PX_PER_BEAT) + 10);
+  const W = Math.max(container.clientWidth || 400, ...contentWidths, 320);
   const H = staves.length >= 2 ? 2 * (5 * GAP + 44) : (5 * GAP + 44);
-  const svg = el('svg', { width: '100%', height: H, viewBox: `0 0 ${W} ${H}` });
+  const svg = el('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}` });
 
   let y = 0;
-  staves.forEach(s => {
-    y = _drawStaffInto(svg, s.notes?.length ? s.notes : [{ isRest: true, duration: 4 }], s.clef ?? 'treble', 4, W - 14, y, GAP);
+  normalized.forEach(s => {
+    const result = _drawStaffInto(svg, s.notes, s.clef, 4, y, GAP, PX_PER_BEAT);
+    y = result.nextY;
   });
 
   container.innerHTML = '';

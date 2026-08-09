@@ -948,8 +948,11 @@ kbd {
 }
 .exp-preview-notation {
   flex: 1 1 auto; min-height: 120px; width: 100%; max-width: 100%;
-  background: #fff; border-radius: 8px; overflow: auto;
-  display: flex; align-items: center; justify-content: center;
+  background: #fff; border-radius: 8px; overflow: auto; padding: 4px 8px;
+  display: flex; align-items: center; justify-content: flex-start;
+  /* justify-content:center로 두면 내용이 컨테이너보다 넓어질 때 스크롤 시작 위치가
+     가운데로 잡혀 곡의 앞부분이 잘려 보이는 flexbox 고질 버그가 있음 — 왼쪽 정렬로
+     항상 곡 처음부터 보이게 한다(짧은 곡은 align-items로 세로만 가운데 정렬). */
 }
 .exp-preview-actions { display: flex; gap: 12px; flex: 0 0 auto; }
 .exp-preview-actions .btn-secondary { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.3); color: #fff; }
