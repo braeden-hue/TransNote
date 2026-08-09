@@ -862,17 +862,16 @@ function hexToRgba(hex, alpha) {
 }
 
 // 오른손(트레블) 3존 + 왼손(베이스) 4존(한 옥타브씩) — 88건반 위 색 띠 + 대보표 예시 음에
-// 공용으로 쓴다. 왼손은 3옥(=왼손 "높음", C3~B3)만 연한 주황이고 나머지(최저/낮음/중간)는
-// 전부 같은 진한 주황 — 3옥이 대보표 겹치는 구간(가온다 근처)에 가장 가깝다는 것만
-// 색으로 구분하고, 그 아래는 전부 "왼손 영역"이라는 동일 색으로 묶는다. 왼손 3옥과
-// 오른손 낮음(C4~B4)이 만나는 경계 자체는 setZoneDivider()로 회색 선을 따로 긋는다
-// (규칙1 렌더 코드 참고) — 존 색을 억지로 합치지 않고 경계선만 중립색으로 표시.
+// 공용으로 쓴다. 왼손 "높음"(C3~B3)과 오른손 "낮음"(C4~B4)은 대보표에서 서로 만나는
+// 겹치는 구간(가온다 근처, 양쪽 다 덧줄로 넘나들 수 있는 영역)이라 똑같은 회색으로
+// 맞춘다. 왼손 나머지는 중간(연한 주황) → 낮음/최저(진한 주황, "그 아래는 전부 진한
+// 주황"으로 묶음) 순으로 배치.
 const HAND_ZONES = [
   { hand: '왼손',  zone: '최저', from: 'A0', to: 'B0', hex: '#E8590C', note: 'A0' },
   { hand: '왼손',  zone: '낮음', from: 'C1', to: 'B1', hex: '#E8590C', note: 'C1' },
-  { hand: '왼손',  zone: '중간', from: 'C2', to: 'B2', hex: '#E8590C', note: 'G2' },
-  { hand: '왼손',  zone: '높음', from: 'C3', to: 'B3', hex: '#FFC98A', note: 'C3' },
-  { hand: '오른손', zone: '낮음', from: 'C4', to: 'B4', hex: '#5BB8F5', note: 'C4' },
+  { hand: '왼손',  zone: '중간', from: 'C2', to: 'B2', hex: '#FFC98A', note: 'G2' },
+  { hand: '왼손',  zone: '높음', from: 'C3', to: 'B3', hex: '#999999', note: 'C3' },
+  { hand: '오른손', zone: '낮음', from: 'C4', to: 'B4', hex: '#999999', note: 'C4' },
   { hand: '오른손', zone: '중간', from: 'C5', to: 'B5', hex: '#3A9EE0', note: 'G5' },
   { hand: '오른손', zone: '높음', from: 'C6', to: 'C8', hex: '#0076CE', note: 'C6' },
 ];
@@ -1103,7 +1102,6 @@ const TUT_PAGES = [
         onPress(note) { audio.unlock(); audio.playNote(note, 0.4); },
       });
       ctrl.setZoneBands(HAND_ZONES.map(z => ({ fromNote: z.from, toNote: z.to, color: hexToRgba(z.hex, 0.4) })));
-      ctrl.setZoneDivider('C4', '#999'); // 왼손 3옥(C3~B3)과 오른손 낮음(C4~B4)이 만나는 경계 — 회색 선
       // 가온다(C4, 오른손 기준점)에 더해 한 옥타브 아래 도(C3, 왼손 기준점)에도 빨간 점.
       ctrl.setDots([
         { note: 'C3', color: '#FF4444' },
