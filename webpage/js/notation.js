@@ -544,11 +544,12 @@ function _durToVexDur(d) {
 }
 
 // notes(우리 데이터 형식) -> VexFlow EasyScore 문자열 한 줄(쉼표로 구분된 음표 나열).
+// 쉼표는 EasyScore에서 "r/<길이>"(음이름 없음) 형태 — "B4/4/r" 같은 3단 구조가 아님(버그였음).
 function _notesToEasyScore(notes) {
-  if (!notes?.length) return 'B4/1/r'; // 빈 마디 — 온쉼표로 채움(EasyScore는 빈 보이스 허용 안 함)
+  if (!notes?.length) return 'r/w'; // 빈 마디 — 온쉼표로 채움(EasyScore는 빈 보이스 허용 안 함)
   return notes.map(n => {
     const vd = _durToVexDur(n.duration);
-    if (n.isRest) return `B4/${vd}/r`; // 쉼표는 위치 무의미, B4에 고정
+    if (n.isRest) return `r/${vd}`;
     const pitches = [n.pitch, ...(n.chordNotes || [])];
     const head = pitches.length > 1 ? `(${pitches.join(', ')})` : pitches[0];
     return `${head}/${vd}`;
@@ -573,10 +574,17 @@ export async function renderDigitalStaff(container, staves) {
     const score = factory.EasyScore();
     const system = factory.System({ width: width - 20 });
     const stave = system.addStave({
-      voices: staves.map(s => score.voice(score.notes(_notesToEasyScore(s.notes), {
-        stem: s.clef === 'bass' ? 'down' : 'up',
-        clef: s.clef ?? 'treble',
-      }))),
+      voices: staves.map(s => {
+        const voice = score.voice(score.notes(_notesToEasyScore(s.notes), {
+          stem: s.clef === 'bass' ? 'down' : 'up',
+          clef: s.clef ?? 'treble',
+        }));
+        // 실제 인식 데이터는 duration 반올림 때문에 박자 합이 시간표기와 딱 안 맞을 수
+        // 있음 — VexFlow의 엄격한 tick-count 검증(안 맞으면 예외 던짐)을 꺼서 미리보기가
+        // 깨지지 않게 한다(정밀 조판이 목적이 아니라 육안 비교용이므로 허용).
+        voice.setStrict(false);
+        return voice;
+      }),
     });
     staves.forEach(s => stave.addClef(s.clef ?? 'treble'));
     factory.draw();
