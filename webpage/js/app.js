@@ -451,7 +451,7 @@ function closeExpCapturePreview() {
 // 체험하기용 촬영 결과 처리 — train/checkpoints의 r15 체크포인트로 서버(RunPod GPU)가
 // 실제 인식한다. 인식 중에는 전용 대기 화면(#exp-recognizing-overlay, 임시)을 띄운다.
 // 촬영해서 만든 악보는 정해진 3곡과 달리 순위표 대상이 아님(_noScore).
-async function handleExpCameraCapture(file) {
+async function handleExpCameraCapture(file, fullFile) {
   if (!file) return;
   const overlay = document.getElementById('exp-recognizing-overlay');
   overlay?.classList.remove('hidden');
@@ -467,7 +467,9 @@ async function handleExpCameraCapture(file) {
     }
     const json = await res.json();
     json._noScore = true;
-    showExpCapturePreview(json, URL.createObjectURL(file));
+    // 미리보기엔 인식용으로 잘라 보낸 이미지가 아니라 촬영한 프레임 전체(fullFile)를
+    // 보여준다 — 없으면(구형 브라우저 등) 잘라낸 이미지로라도 대체.
+    showExpCapturePreview(json, URL.createObjectURL(fullFile || file));
   } catch (e) {
     console.error('[handleExpCameraCapture] 인식 실패, 샘플로 대체:', e);
     toast(`⚠️ ${e.message} — 샘플로 보여드릴게요`);
@@ -1511,10 +1513,22 @@ function setupCameraCapture(ids, onCaptured) {
     canvas.width  = Math.round(rect.w * scale);
     canvas.height = Math.round(rect.h * scale);
     canvas.getContext('2d').drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(blob => {
-      if (!blob) return;
-      state.activeCameraStop?.();
-      onCaptured(new File([blob], 'capture.jpg', { type: 'image/jpeg' }));
+    canvas.toBlob(cropBlob => {
+      if (!cropBlob) return;
+      // 인식 서버에는 지금처럼 가이드 영역만 잘라서 보내되(용량 제한/인식 정확도 유지),
+      // 미리보기 화면의 "찍은 사진"은 사용자가 실제로 본 프레임 전체를 보여줘야 무엇을
+      // 찍었는지 비교하기 쉽다 — 풀프레임을 별도로 한 번 더 캡처해서 같이 넘긴다.
+      const fullScale = Math.min(1, CAPTURE_MAX_DIM / Math.max(video.videoWidth, video.videoHeight));
+      const fullCanvas = document.createElement('canvas');
+      fullCanvas.width  = Math.round(video.videoWidth * fullScale);
+      fullCanvas.height = Math.round(video.videoHeight * fullScale);
+      fullCanvas.getContext('2d').drawImage(video, 0, 0, fullCanvas.width, fullCanvas.height);
+      fullCanvas.toBlob(fullBlob => {
+        state.activeCameraStop?.();
+        const cropFile = new File([cropBlob], 'capture.jpg', { type: 'image/jpeg' });
+        const fullFile = fullBlob ? new File([fullBlob], 'capture-full.jpg', { type: 'image/jpeg' }) : null;
+        onCaptured(cropFile, fullFile);
+      }, 'image/jpeg', 0.85);
     }, 'image/jpeg', 0.85);
   });
 }
