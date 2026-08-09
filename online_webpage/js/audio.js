@@ -85,7 +85,11 @@ class AudioEngine {
         return;
       }
       const note = notes[idx];
-      this.playNote(note.pitch, note.duration * qSec * 0.9);
+      const dur = note.duration * qSec * 0.9;
+      this.playNote(note.pitch, dur);
+      // 화음(chordNotes) — 딸린 음들도 같이 울려야 "화음"인데, 지금까지는 주 음(pitch)만
+      // 나가고 chordNotes는 소리 없이 무시되고 있었다(눈으로는 화음, 귀로는 단음).
+      note.chordNotes?.forEach(p => this.playNote(p, dur));
       onStep?.(idx);
       idx++;
       timeoutId = setTimeout(step, note.duration * qSec * 1000);

@@ -103,27 +103,13 @@ export function buildPiano(pianoEl, pianoWrapper, {
   }
 
   // ── 옥타브 네비게이션 ─────────────────────────────────────────────────────
+  // (예전엔 옥타브 스크롤 시 누르고 있던 건반을 새 옥타브의 같은 음이름 건반으로
+  // "재매핑"했었는데, setExpected()가 다음 음을 보여주려고 자동으로 스크롤을 걸 때도
+  // 이 로직이 같이 발동해서 — 예: 규칙2에서 솔(G4)을 누르는 순간 다음 기대음(도, C5)이
+  // 화면 밖이라 자동 스크롤되면서 방금 누른 G4가 엉뚱하게 G5를 누른 것처럼 보이는
+  // 버그가 있었다. 재매핑은 실제로 쓸모보다 혼란이 커서 통째로 제거.)
   function scrollToOct(oct) {
-    const prevOct = viewOct;
     viewOct = Math.max(1, Math.min(6, oct));
-    const octDelta = viewOct - prevOct;
-
-    // Re-map any currently pressed keys to the equivalent note in the new octave
-    if (octDelta !== 0 && pressedSet.size > 0) {
-      const oldPressed = [...pressedSet];
-      oldPressed.forEach(note => {
-        const noteName = note.slice(0, -1);
-        const noteOct  = parseInt(note.slice(-1));
-        const newNote  = noteName + (noteOct + octDelta);
-        pressedSet.delete(note);
-        applyVisual(note);
-        if (keyEls[newNote]) {
-          pressedSet.add(newNote);
-          applyVisual(newNote);
-        }
-      });
-    }
-
     pianoWrapper.scrollLeft = leftOfOct(viewOct);
     if (navLabel) navLabel.textContent = `C${viewOct} ~ B${viewOct + VISIBLE_OCTS - 1} 영역`;
     navPrev && (navPrev.disabled = viewOct <= 1);

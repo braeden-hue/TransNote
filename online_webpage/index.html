@@ -2,27 +2,168 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="format-detection" content="telephone=no">
   <title>악보의 재정의 — 직관적인 악보 기호</title>
+
+  <!-- PWA: 홈 화면에 추가하면 주소창 없는 standalone 앱으로 실행됨 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0076CE">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="악보의 재정의">
+  <link rel="icon" href="icons/favicon-64.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <header class="app-header">
-    <div class="header-inner">
-      <div class="logo">
-        <span class="logo-icon">♩</span>
-        <span class="logo-text">악보의 재정의</span>
+  <!-- ══ 랜딩 — 앱의 첫 화면. 방(mainpage.png) 사진 위 3개 지점을 눌러 진입한다.
+       튜토리얼/체험하기는 각각 그 흐름 밖으로 못 나가는 잠금 모드로 들어간다. ══ -->
+  <section class="landing-screen" id="screen-landing">
+    <!-- 세로 화면 등 사진과 비율이 다른 뷰포트에서 남는 여백을 흐린 배경으로 채움
+         (핫스팟과는 무관 — 순수 장식용, 아래 정확한 비율 프레임과 별개). -->
+    <img class="landing-bg-blur" src="assets/landing-bg.jpg" alt="" aria-hidden="true">
+    <!-- 사진과 정확히 같은 비율의 프레임 안에서만 핫스팟 %가 맞으므로, 뷰포트 비율이
+         달라도(세로 스마트폰 등) 사진 비율을 유지한 채 레터박스로 띄운다. -->
+    <div class="landing-frame">
+      <img class="landing-bg" src="assets/landing-bg.jpg" alt="피아노가 있는 방">
+      <div class="landing-hotspots">
+        <button class="landing-hotspot" id="landing-hotspot-tutorial" data-landing="tutorial"
+                title="튜토리얼" aria-label="튜토리얼" style="left:22.6%; top:65.8%;">
+          <span class="landing-hotspot-label">튜토리얼</span>
+        </button>
+        <button class="landing-hotspot" id="landing-hotspot-about" data-landing="about"
+                title="프로젝트에 대해" aria-label="프로젝트에 대해" style="left:49.9%; top:54.0%;">
+          <span class="landing-hotspot-label">프로젝트에 대해</span>
+        </button>
+        <button class="landing-hotspot" id="landing-hotspot-experience" data-landing="experience"
+                title="체험하기" aria-label="체험하기" style="left:75.5%; top:54.7%;">
+          <span class="landing-hotspot-label">체험하기</span>
+        </button>
       </div>
-      <nav class="nav-tabs">
-        <button class="nav-tab active" data-screen="tutorial">📖 튜토리얼</button>
-        <button class="nav-tab"        data-screen="convert">📷 악보 변환</button>
-        <button class="nav-tab"        data-screen="play">🎹 연주하기</button>
-        <button class="nav-tab"        data-screen="library">📁 내 악보함</button>
-      </nav>
-      <div id="auth-area" class="auth-area"></div>
     </div>
-  </header>
+    <p class="landing-hint">빛나는 점을 눌러 시작하세요</p>
+  </section>
+
+  <!-- 프로젝트에 대해 모달 -->
+  <div class="about-modal hidden" id="about-modal">
+    <div class="about-modal-backdrop" id="about-modal-backdrop"></div>
+    <div class="about-modal-card">
+      <button class="about-modal-close" id="about-modal-close" aria-label="닫기">✕</button>
+      <h2>프로젝트에 대해</h2>
+      <p>
+        전통 오선 악보는 조표, 옥타브 번호 같은 규칙을 미리 알아야 읽을 수 있어요.
+        이 프로젝트는 그 규칙 없이도 <strong>색과 위치</strong>만으로 바로 읽을 수 있는
+        커스텀 악보 표기법을 만들고, 카메라로 찍은 기존 악보를 그 자리에서 변환해
+        직접 연주까지 체험해볼 수 있게 합니다.
+      </p>
+      <p class="about-modal-note">※ 소개 문구는 임시 초안입니다 — 필요하면 언제든 다듬어 드릴게요.</p>
+      <button class="btn-primary" id="about-modal-ok">확인</button>
+    </div>
+  </div>
+
+  <!-- ══ 체험하기 1/2 — 샘플 3곡 + 촬영 버튼만 남긴 심플한 선택 화면 ══ -->
+  <section class="exp-screen hidden" id="screen-exp-select">
+    <button class="exp-home-btn" id="exp-select-home">← 처음으로</button>
+    <div class="exp-select-body">
+      <div class="exp-sample-grid" id="exp-sample-grid"></div>
+    </div>
+    <button class="exp-camera-fab" id="exp-camera-btn" title="촬영하기">📷</button>
+  </section>
+
+  <!-- 체험하기용 촬영 가이드 오버레이 — 기존 변환 화면의 오선 1개/대보표 토글 + 뷰파인더
+       가이드를 그대로 재사용(setupCameraCapture 공용 함수, ids만 다름). -->
+  <div class="exp-camera-overlay hidden" id="exp-camera-capture">
+    <div class="camera-mode-chips" id="exp-camera-mode-chips">
+      <button class="camera-mode-chip" data-grand="0">오선 1개</button>
+      <button class="camera-mode-chip active" data-grand="1">대보표(2개)</button>
+    </div>
+    <div class="camera-video-wrap">
+      <video id="exp-camera-video" autoplay playsinline muted></video>
+      <canvas id="exp-camera-guide-canvas"></canvas>
+      <div class="camera-guide-hint" id="exp-camera-guide-hint">대보표(높은음자리+낮은음자리)를 박스 안에 맞춰주세요</div>
+    </div>
+    <div class="camera-controls">
+      <button class="btn-secondary" id="exp-camera-cancel">취소</button>
+      <button class="btn-primary btn-shutter" id="exp-camera-shutter">📸 촬영</button>
+    </div>
+    <p class="camera-error hidden" id="exp-camera-error"></p>
+  </div>
+  <canvas id="exp-camera-canvas" hidden></canvas>
+
+  <!-- ══ 체험하기 2/4 — 선택한 곡의 커스텀 악보 한 마디 + 연주 듣기/연주하기 + 순위표 ══ -->
+  <section class="exp-screen hidden" id="screen-exp-score">
+    <button class="exp-home-btn" id="exp-score-home">← 처음으로</button>
+    <div class="exp-score-body">
+      <h2 class="exp-score-title" id="exp-score-title"></h2>
+      <p class="exp-score-hint">첫 마디만 먼저 보여드려요</p>
+      <div class="exp-score-row">
+        <div class="exp-score-notation" id="exp-score-notation"></div>
+        <div class="exp-leaderboard">
+          <div class="exp-leaderboard-note">🎵</div>
+          <p class="exp-leaderboard-title">TOP 3</p>
+          <ol class="exp-leaderboard-list" id="exp-leaderboard-list"></ol>
+        </div>
+      </div>
+      <div class="exp-score-actions">
+        <button class="exp-play-btn" id="exp-play-btn">▶ 연주 듣기</button>
+        <button class="exp-play-btn exp-perform-btn" id="exp-perform-btn">🎹 연주하기</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 체험하기 3/5 — 오른손만 / 양손 선택 ══ -->
+  <section class="exp-screen hidden" id="screen-exp-handmode">
+    <button class="exp-home-btn" id="exp-handmode-home">← 처음으로</button>
+    <div class="exp-handmode-body">
+      <h2>어떻게 연주할까요?</h2>
+      <div class="exp-handmode-options">
+        <button class="exp-handmode-card" id="exp-handmode-right">
+          <span class="exp-handmode-icon">✋</span>
+          <span class="exp-handmode-title">오른손만</span>
+          <span class="exp-handmode-sub">100점 만점</span>
+        </button>
+        <button class="exp-handmode-card" id="exp-handmode-both">
+          <span class="exp-handmode-icon">🙌</span>
+          <span class="exp-handmode-title">양손</span>
+          <span class="exp-handmode-sub">150점 만점</span>
+        </button>
+      </div>
+      <p class="exp-handmode-note">※ 단일 오선 악보는 양손 모드를 선택할 수 없어요</p>
+    </div>
+  </section>
+
+  <!-- ══ 체험하기 4/5 — 전자피아노 연결 확인 + 닉네임 입력 대기 화면 ══ -->
+  <section class="exp-screen hidden" id="screen-exp-wait">
+    <button class="exp-home-btn" id="exp-wait-home">← 처음으로</button>
+    <div class="exp-wait-body">
+      <p class="exp-wait-midi-status" id="exp-wait-midi-status">🎹 전자 피아노 연결 확인 중...</p>
+      <h2 class="exp-wait-msg">이제 연주를 시작하세요!</h2>
+      <input type="text" id="exp-nickname-input" class="exp-nickname-input" placeholder="닉네임을 입력하세요" maxlength="12">
+      <button class="exp-play-btn" id="exp-start-perform-btn">시작</button>
+    </div>
+  </section>
+
+  <!-- ══ 체험하기 5/5 — 연주 진행(곡 전체, 마디마다 자동 진행 + 필요시 화면 건반) + 결과 점수 ══ -->
+  <section class="exp-screen hidden" id="screen-exp-perform">
+    <button class="exp-home-btn" id="exp-perform-home">← 처음으로</button>
+    <div class="exp-perform-body">
+      <h2 class="exp-perform-title" id="exp-perform-title"></h2>
+      <div class="exp-score-notation" id="exp-perform-notation"></div>
+      <div class="exp-perform-piano" id="exp-perform-piano"></div>
+      <div class="exp-perform-result hidden" id="exp-perform-result">
+        <p class="exp-perform-score" id="exp-perform-score-text"></p>
+        <button class="exp-play-btn" id="exp-perform-done-btn">확인</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 헤더 대신 우상단에 떠 있는 최소 로그인 컨트롤. 웹사이트형 상단바를 없애기 위해
+       기능만 남기고 위치를 플로팅 필로 옮김(네이티브 앱의 프로필 아이콘 자리). -->
+  <div id="auth-area" class="auth-area-floating"></div>
 
   <main class="app-main">
   <div class="screens-wrapper">
@@ -277,13 +418,29 @@
   </div><!-- /.screens-wrapper -->
   </main>
 
-  <!-- 우측 섹션 인디케이터 -->
-  <nav class="page-dots" id="page-dots">
-    <button class="page-dot active" data-screen="tutorial" title="튜토리얼"></button>
-    <button class="page-dot" data-screen="convert" title="악보 변환"></button>
-    <button class="page-dot" data-screen="play" title="연주하기"></button>
-    <button class="page-dot" data-screen="library" title="내 악보함"></button>
+  <!-- 하단 고정 탭바 — 상단 가로 메뉴 대신 iOS/Android 앱과 동일한 네비게이션 위치 -->
+  <nav class="bottom-tabbar" id="bottom-tabbar">
+    <button class="nav-tab active" data-screen="tutorial">
+      <span class="tab-icon">📖</span><span class="tab-label">튜토리얼</span>
+    </button>
+    <button class="nav-tab" data-screen="convert">
+      <span class="tab-icon">📷</span><span class="tab-label">악보 변환</span>
+    </button>
+    <button class="nav-tab" data-screen="play">
+      <span class="tab-icon">🎹</span><span class="tab-label">연주하기</span>
+    </button>
+    <button class="nav-tab" data-screen="library">
+      <span class="tab-icon">📁</span><span class="tab-label">내 악보함</span>
+    </button>
   </nav>
+
+  <!-- 12음 참고 돋보기 — 규칙2 이후 튜토리얼 + 체험하기(변환/연주)에서 우측 중앙에 떠서
+       호버(터치는 탭)하면 규칙0의 라벨드 옥타브를 다시 보여준다. 화면 전환과 무관한
+       싱글턴이라 body 최상위에 둔다. -->
+  <div class="octave-magnifier hidden" id="octave-magnifier">
+    <button class="magnifier-btn" id="magnifier-btn" title="12음 참고표 보기">🔍</button>
+    <div class="magnifier-popup" id="magnifier-popup"></div>
+  </div>
 
   <div class="toast" id="toast"></div>
 

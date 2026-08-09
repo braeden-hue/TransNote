@@ -27,6 +27,9 @@ export function renderNotation(container, notes, {
   expectedIdx  = -1,
   onNoteClick,
   clef = 'treble',
+  zoneColors,     // 옵션: [z0색, z1색, z2색] — 지정 시 기본 회청색 줄무늬 대신 이 3색으로 존 배경을 칠함 (튜토리얼 규칙2 전용)
+  hideNoteNames = false, // 옵션: 음표 위 C/G 등 글자 라벨을 숨김 (튜토리얼 규칙2 전용 — 색/위치만으로 읽게 유도)
+  hideNotes = false, // 옵션: 음표 표시(밑줄·박스·글자) 자체를 아예 안 그리고 존 배경만 남김 (튜토리얼 규칙1 전용)
 } = {}) {
   if (!notes?.length) {
     container.innerHTML = '<p style="color:#555;padding:20px">음표 데이터가 없습니다</p>';
@@ -51,7 +54,8 @@ export function renderNotation(container, notes, {
     svg.appendChild(el('rect', {
       x: MARGIN_L, y: zy,
       width: svgW - MARGIN_L - 8, height: ZONE_H,
-      fill: z % 2 === 0 ? '#F0F6FC' : '#F8FBFF',
+      fill: zoneColors ? zoneColors[z] : (z % 2 === 0 ? '#F0F6FC' : '#F8FBFF'),
+      'fill-opacity': zoneColors ? '0.55' : '1',
     }));
     if (z > 0) {
       svg.appendChild(el('line', {
@@ -97,6 +101,10 @@ export function renderNotation(container, notes, {
     const isChord = note.chordNotes?.length > 0;
 
     noteXMap.push(x);
+
+    // 규칙1처럼 존 배경만 보여주고 싶을 땐 음표 자체(밑줄/박스/글자/화살표)를 아예 안
+    // 그림 — x 진행(너비 계산)은 그대로 유지해야 다른 옵션과 조합해도 스크롤 폭이 맞음.
+    if (hideNotes) { x += note.duration * UNIT_W; return; }
 
     // 배경 틴트 — 텍스트/테두리/하이라이트보다 먼저(아래 레이어) 그린다. 클릭 판정에
     // 관여하지 않도록 pointer-events: none (실제 클릭 타겟은 항상 이 뒤에 그려짐).
@@ -178,22 +186,24 @@ export function renderNotation(container, notes, {
       }
 
       // 모든 화음 음표 이름 세로 스택
-      const allNotes  = [note.pitch, ...(note.chordNotes || [])];
-      const lineH     = allNotes.length <= 2 ? 14 : 12;
-      const fs        = allNotes.length <= 2 ? 11 : 9;
-      const totalTxtH = allNotes.length * lineH;
-      allNotes.forEach((p, pi) => {
-        const t = el('text', {
-          x: x + w / 2,
-          y: y + h / 2 - totalTxtH / 2 + lineH * (pi + 0.8),
-          'text-anchor': 'middle',
-          fill: isHL ? '#fff' : isExp ? '#0076CE' : color,
-          'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
-          'pointer-events': 'none',
+      if (!hideNoteNames) {
+        const allNotes  = [note.pitch, ...(note.chordNotes || [])];
+        const lineH     = allNotes.length <= 2 ? 14 : 12;
+        const fs        = allNotes.length <= 2 ? 11 : 9;
+        const totalTxtH = allNotes.length * lineH;
+        allNotes.forEach((p, pi) => {
+          const t = el('text', {
+            x: x + w / 2,
+            y: y + h / 2 - totalTxtH / 2 + lineH * (pi + 0.8),
+            'text-anchor': 'middle',
+            fill: isHL ? '#fff' : isExp ? '#0076CE' : color,
+            'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
+            'pointer-events': 'none',
+          });
+          t.textContent = formatNoteName(p);
+          svg.appendChild(t);
         });
-        t.textContent = formatNoteName(p);
-        svg.appendChild(t);
-      });
+      }
     } else {
       // ── 단음: 사각형 박스 없이 텍스트 + 박자색 밑줄로만 셀 경계 표시 ─────────
       if (onNoteClick) {
@@ -214,16 +224,18 @@ export function renderNotation(container, notes, {
         'stroke-linecap': 'round',
       }));
 
-      const fs  = w < 26 ? 10 : w < 42 ? 12 : 14;
-      const txt = el('text', {
-        x: x + w / 2, y: y + h / 2 + 5,
-        'text-anchor': 'middle',
-        fill: isHL ? '#fff' : isExp ? '#0076CE' : color,
-        'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
-        'pointer-events': 'none',
-      });
-      txt.textContent = formatNoteName(note.pitch);
-      svg.appendChild(txt);
+      if (!hideNoteNames) {
+        const fs  = w < 26 ? 10 : w < 42 ? 12 : 14;
+        const txt = el('text', {
+          x: x + w / 2, y: y + h / 2 + 5,
+          'text-anchor': 'middle',
+          fill: isHL ? '#fff' : isExp ? '#0076CE' : color,
+          'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
+          'pointer-events': 'none',
+        });
+        txt.textContent = formatNoteName(note.pitch);
+        svg.appendChild(txt);
+      }
     }
 
     // ── expected 화살표 (단음/화음 공통) ──────────────────────────────────
@@ -287,26 +299,36 @@ export function renderNotation(container, notes, {
   };
 }
 
-// 오선 번호(0부터) → 표시 레이블 + 색상
+// 오선 번호(0부터) → 표시 레이블 + 색상. si가 아니라 실제 clef를 기준으로 판단해야
+// 순서가 바뀌어도(예: 규칙1의 왼쪽=베이스 배치) 라벨이 안 어긋난다.
 function staffLabel(si, clef) {
-  if (si === 0) return { label: '🎵 높은음자리 (Treble)', color: '#0076CE' };
-  if (si === 1 && clef === 'bass') return { label: '🎻 낮은음자리 (Bass)', color: '#5BB8F5' };
-  const clefName = clef === 'bass' ? '낮은음자리' : clef === 'alto' ? '알토' : '높은음자리';
+  if (clef === 'treble') return { label: '🎵 높은음자리 (Treble)', color: '#0076CE' };
+  if (clef === 'bass')   return { label: '🎻 낮은음자리 (Bass)', color: '#5BB8F5' };
+  const clefName = clef === 'alto' ? '알토' : '높은음자리';
   return { label: `Staff ${si + 1} (${clefName})`, color: '#7BB8A0' };
 }
 
 // ── 다중 오선 렌더러 (2개 이상 N개 지원) ─────────────────────────────────────
+// options.zoneColorsByClef: { treble: [c0,c1,c2], bass: [c0,c1,c2] } — 클렙별로 다른
+// zoneColors를 쓰고 싶을 때(튜토리얼 규칙1 전용). 지정 안 하면 기존 동작 그대로.
+// options.layout: 'column'(기본, 위/아래) | 'row'(좌/우 — 가로로 눕힌 화면에서 세로
+// 공간을 절반만 쓰게 해서 스크롤 없이 한 화면에 담기 위함, 튜토리얼 규칙1 전용).
 export function renderGrandStaff(container, staves, options = {}) {
   container.innerHTML = '';
+  const isRow = options.layout === 'row';
   const wrapper = document.createElement('div');
-  wrapper.style.cssText = 'display:flex; flex-direction:column; gap:10px;';
+  wrapper.style.cssText = isRow
+    ? 'display:flex; flex-direction:row; gap:12px; width:100%;'
+    : 'display:flex; flex-direction:column; gap:10px;';
 
   staves.forEach((stave, si) => {
     const clef = stave.clef ?? (si === 0 ? 'treble' : 'bass');
     const meta = staffLabel(si, clef);
 
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex; flex-direction:column; gap:3px;';
+    row.style.cssText = isRow
+      ? 'display:flex; flex-direction:column; gap:3px; flex:1; min-width:0;'
+      : 'display:flex; flex-direction:column; gap:3px;';
 
     const label = document.createElement('div');
     label.textContent = meta.label;
@@ -336,7 +358,13 @@ export function renderGrandStaff(container, staves, options = {}) {
     btnN.addEventListener('click', () => { inner.scrollLeft += inner.clientWidth * 0.8; setTimeout(updateGsNav, 350); });
     inner.addEventListener('scroll', updateGsNav);
 
-    renderNotation(inner, stave.notes, { ...options, clef });
+    renderNotation(inner, stave.notes, {
+      ...options, clef,
+      zoneColors: options.zoneColorsByClef?.[clef],
+      // 양손 연주 모드처럼 보표마다 "다음 기대 음" 인덱스가 서로 다를 때 사용
+      // (없으면 공용 expectedIdx로 폴백 — 기존 호출부는 그대로 동작).
+      expectedIdx: options.expectedIdxByClef?.[clef] ?? options.expectedIdx,
+    });
     setTimeout(updateGsNav, 50);
   });
 

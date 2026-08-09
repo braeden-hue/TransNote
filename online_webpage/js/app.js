@@ -1,6 +1,6 @@
 import { SAMPLES, BEAT_COLORS }          from './samples.js';
 import { audio }                           from './audio.js';
-import { renderNotation, renderMiniNotation, renderGrandStaff, renderMiniStaff } from './notation.js';
+import { renderNotation, renderGrandStaff } from './notation.js';
 import { buildPiano, renderLabeledOctave } from './piano.js';
 import { loadAll, saveNotation, deleteNotation, generateId } from './storage.js';
 import { signInWithGoogle, signOutUser, onAuthChange,
@@ -26,16 +26,21 @@ const state = {
   playPianoCtrl:     null,
   playNotationCtrl:  null,  // renderPlay 에서 반환된 ctrl
   cameraStream:      null,
-  kioskMode:         false, // false | 'tutorial'(태블릿1) | 'convert'(태블릿2) — 전시 부스 킨스크 고정 화면
+  activeCameraStop:  null, // 현재 열려 있는 카메라 캡처 UI를 정리하는 함수(둘 중 열린 쪽이 등록)
+  kioskMode:         false, // false | 'tutorial'(태블릿1) | 'convert'(태블릿2) — 전시 부스 킨스크 고정 화면(URL ?kiosk=)
+  flowLock:          null,  // null(자유 이동) | 허용 화면 이름 배열 — 랜딩에서 튜토리얼/체험하기 진입 시 그 화면(들)로만 제한
+  flowFromLanding:   false, // flowLock이 랜딩 클릭으로 걸린 것인지(첫 화면 "이전"이 랜딩으로 나가는 종료 버튼이 됨)
+  expScoreData:      null,  // 체험하기 화면에서 보여주는 중인 악보(원본 데이터)
+  expMidiConfirmed:  false, // 연주하기 진입 시 전자 피아노 연결 테스트 결과
+  expHandMode:       'right', // 'right'(오른손만, 100점) | 'both'(양손, 150점)
+  expPerform:        null,  // 연주 진행 중 상태 { nickname, notes, idx, correct, wrong, pianoCtrl }
   accompanimentMode: false, // 반주 모드 — ▶ 재생이 왼손(베이스)만 자체 템포로 연주
 };
 
+// 카메라 캡처 UI가 2군데(기존 변환 화면 / 체험하기)라 어느 쪽이 열려 있든 여기서 끌 수
+// 있게, 연 쪽이 자기 정리 함수를 등록해두고 이 함수는 그걸 호출만 한다.
 function stopCamera() {
-  state.cameraStream?.getTracks().forEach(t => t.stop());
-  state.cameraStream = null;
-  const video = document.getElementById('camera-video');
-  if (video) video.srcObject = null;
-  document.getElementById('camera-capture')?.classList.add('hidden');
+  state.activeCameraStop?.();
 }
 
 // ── 악보 화살표 nav 헬퍼 ──────────────────────────────────────────────────────
@@ -93,6 +98,7 @@ function resetShellScroll() {
 
 function navigate(name, { instant = false } = {}) {
   if (state.kioskMode && name !== state.kioskMode) return; // 킨스크: 지정된 화면 밖으로 못 나가게 고정
+  if (state.flowLock && !state.flowLock.includes(name)) return; // 랜딩발 가이드 흐름: 허용된 화면 밖으로 못 나가게 고정
   if (wheelLocked && !instant) return;
   resetShellScroll();
 
@@ -123,13 +129,9 @@ function navigate(name, { instant = false } = {}) {
     nextEl.classList.add('active');
   }
 
-  // nav-tab 업데이트
+  // 하단 탭바 업데이트
   document.querySelectorAll('.nav-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.screen === name));
-
-  // page-dots 업데이트
-  document.querySelectorAll('.page-dot').forEach(d =>
-    d.classList.toggle('active', d.dataset.screen === name));
 
   state.screen = name;
   if (name === 'play')    initPlayScreen();
@@ -162,6 +164,538 @@ window.addEventListener('wheel', e => {
     setTimeout(() => { wheelLocked = false; }, 800);
   }
 }, { passive: false });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 랜딩 화면 + 가이드 흐름(튜토리얼 전용 / 체험하기 전용)
+// mainpage.png 위 3개 핫스팟에서 진입 — 진입한 흐름 밖으로는 못 나가게(하단 탭바 재사용
+// CSS로 숨김) 잠그고, 각 흐름의 "이전" 맨 앞 단계에서만 랜딩으로 돌아가는 종료 통로를 둔다.
+// ═══════════════════════════════════════════════════════════════════════════════
+function showLanding() { document.getElementById('screen-landing')?.classList.remove('hidden'); }
+function hideLanding() { document.getElementById('screen-landing')?.classList.add('hidden'); }
+
+// screens: 이 흐름 안에서 허용할 화면 이름 배열 (예: ['tutorial'] 또는 ['convert','play'])
+function enterFlow(screens) {
+  state.flowLock = screens;
+  state.flowFromLanding = true;
+  // 하단 탭바/로그인 필 숨김 + (convert 포함 시) 부스용 개발자 UI 숨김을 킨스크 CSS 그대로 재사용
+  document.body.classList.add('kiosk-mode');
+  if (screens.includes('convert')) document.body.dataset.kiosk = 'convert';
+}
+
+function exitFlowToLanding() {
+  state.flowLock = null;
+  state.flowFromLanding = false;
+  document.body.classList.remove('kiosk-mode');
+  delete document.body.dataset.kiosk;
+  setMagnifierVisible(false);
+  showLanding();
+}
+
+// 핫스팟 %가 사진 원본 좌표 기준이라, .landing-frame이 사진과 정확히 같은 비율일 때만
+// 점 위치가 맞는다. 뷰포트 비율이 사진과 다르면(세로 스마트폰 등) 레터박스가 생기도록
+// 매 리사이즈마다 프레임 실측 px 크기를 직접 계산한다 — 순수 CSS로는 두 축을 동시에
+// "꽉 차지만 넘치지 않게"(contain) 못 맞춰서 JS로 처리.
+const LANDING_IMG_AR = 1374 / 768;
+function fitLandingFrame() {
+  const screenEl = document.getElementById('screen-landing');
+  const frame = document.querySelector('.landing-frame');
+  if (!screenEl || !frame) return;
+  const vw = screenEl.clientWidth, vh = screenEl.clientHeight;
+  if (!vw || !vh) return;
+  if (vw / vh > LANDING_IMG_AR) {
+    frame.style.height = vh + 'px';
+    frame.style.width  = (vh * LANDING_IMG_AR) + 'px';
+  } else {
+    frame.style.width  = vw + 'px';
+    frame.style.height = (vw / LANDING_IMG_AR) + 'px';
+  }
+}
+window.addEventListener('resize', fitLandingFrame);
+
+function initLanding() {
+  fitLandingFrame();
+  document.querySelectorAll('.landing-hotspot').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.landing;
+      if (target === 'about') { showAboutModal(); return; }
+      hideLanding();
+      if (target === 'tutorial') {
+        enterFlow(['tutorial']);
+        renderTutPage(0);
+        navigate('tutorial', { instant: true });
+      } else if (target === 'experience') {
+        showExpSelect();
+      }
+    });
+  });
+}
+
+// ── 프로젝트에 대해 모달 ──────────────────────────────────────────────────────
+function showAboutModal() { document.getElementById('about-modal')?.classList.remove('hidden'); }
+function hideAboutModal() { document.getElementById('about-modal')?.classList.add('hidden'); }
+
+function initAboutModal() {
+  document.getElementById('about-modal-close')?.addEventListener('click', hideAboutModal);
+  document.getElementById('about-modal-backdrop')?.addEventListener('click', hideAboutModal);
+  document.getElementById('about-modal-ok')?.addEventListener('click', hideAboutModal);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') hideAboutModal();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 체험하기 — 랜딩에서만 진입하는 완전히 독립된 흐름(기존 변환/연주 화면과 무관).
+// 1) 샘플 3곡 + 촬영 버튼만 있는 심플한 선택 화면
+// 2) 선택한 곡의 커스텀 악보 첫 마디 + 연주 듣기(전체 곡)/연주하기 + 순위표
+// 3) 연주하기 진입 시: 전자피아노 연결 테스트 + 닉네임 입력 대기 화면
+// 4) 연주 진행(전자피아노 연결 시 화면 건반 숨김) + 점수 결과
+// ═══════════════════════════════════════════════════════════════════════════════
+function hideExpScreens() {
+  ['screen-exp-select', 'screen-exp-score', 'screen-exp-handmode', 'screen-exp-wait', 'screen-exp-perform']
+    .forEach(id => document.getElementById(id)?.classList.add('hidden'));
+}
+
+function showExpSelect() {
+  hideExpScreens();
+  document.getElementById('screen-exp-select')?.classList.remove('hidden');
+}
+
+// notes에서 beat===1이 두 번째로 나오기 전까지만 잘라 "첫 마디"만 반환 (마디가
+// 하나뿐이면 전체 그대로).
+function firstMeasure(notes) {
+  if (!notes?.length) return [];
+  let seen = 0;
+  for (let i = 0; i < notes.length; i++) {
+    if (notes[i].beat === 1) {
+      seen++;
+      if (seen === 2) return notes.slice(0, i);
+    }
+  }
+  return notes;
+}
+
+// ── 곡별 순위표(상위 3명) — 서버가 없으니 이 브라우저(기기)에 localStorage로 저장 ──
+const EXP_LEADERBOARD_KEY = 'expLeaderboard_v1';
+
+function loadLeaderboard(songKey) {
+  try {
+    const all = JSON.parse(localStorage.getItem(EXP_LEADERBOARD_KEY) || '{}');
+    return all[songKey] || [];
+  } catch { return []; }
+}
+
+function saveLeaderboardEntry(songKey, nickname, score) {
+  let all = {};
+  try { all = JSON.parse(localStorage.getItem(EXP_LEADERBOARD_KEY) || '{}'); } catch { /* 무시 */ }
+  const list = all[songKey] || [];
+  list.push({ nickname, score });
+  list.sort((a, b) => b.score - a.score);
+  all[songKey] = list.slice(0, 3);
+  try { localStorage.setItem(EXP_LEADERBOARD_KEY, JSON.stringify(all)); } catch { /* 저장 공간 부족 등 무시 */ }
+  return all[songKey];
+}
+
+function renderLeaderboard(songKey) {
+  const el = document.getElementById('exp-leaderboard-list');
+  if (!el) return;
+  const list = loadLeaderboard(songKey);
+  el.innerHTML = list.length
+    ? list.map((e, i) => `
+        <li>
+          <span class="exp-lb-rank">${i + 1}</span>
+          <span class="exp-lb-name">${e.nickname}</span>
+          <span class="exp-lb-score">${e.score}점</span>
+        </li>`).join('')
+    : '<li class="exp-leaderboard-empty">아직 기록이 없어요</li>';
+}
+
+function showExpScore(data) {
+  state.expScoreData = data;
+  hideExpScreens();
+  document.getElementById('screen-exp-score')?.classList.remove('hidden');
+
+  document.getElementById('exp-score-title').textContent = data.title || '';
+  const container = document.getElementById('exp-score-notation');
+  container.innerHTML = '';
+  if (data.staves?.length >= 2) {
+    const trimmed = data.staves.map(s => ({ ...s, notes: firstMeasure(s.notes) }));
+    renderGrandStaff(container, trimmed);
+  } else {
+    renderNotation(container, firstMeasure(data.notes), {});
+  }
+  autoFitExpScore();
+
+  // 촬영으로 만든 악보는 정해진 3곡과 달리 순위 기록 대상이 아님(제목이 매번 달라
+  // 순위표 자체가 의미 없기도 함) — 패널을 숨긴다.
+  const lb = document.querySelector('.exp-leaderboard');
+  lb?.classList.toggle('hidden', !!data._noScore);
+  if (!data._noScore) renderLeaderboard(data.title);
+}
+
+// 튜토리얼의 autoFitTutBoxes()와 같은 원리 — 악보 박스가 화면보다 크면(가로로 눕힌
+// 짧은 화면 등) 축소해서 상하 스크롤 없이 맞춘다. 악보 화면/연주 화면 둘 다 씀.
+function autoFitExpScore(boxId = 'exp-score-notation') {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  Array.from(box.children).forEach(c => { c.style.zoom = ''; });
+  const overflow = box.scrollHeight - box.clientHeight;
+  if (overflow > 4 && box.clientHeight > 0) {
+    const zoom = Math.max(0.4, (box.clientHeight / box.scrollHeight) * 0.95);
+    Array.from(box.children).forEach(c => { c.style.zoom = zoom; });
+  }
+}
+window.addEventListener('resize', () => {
+  if (state.expScoreData) autoFitExpScore('exp-score-notation');
+  if (state.expPerform)   autoFitExpScore('exp-perform-notation');
+});
+
+function playExpScore() {
+  const data = state.expScoreData;
+  if (!data) return;
+  audio.unlock();
+  const bpm = data.tempo || 90;
+  const btn = document.getElementById('exp-play-btn');
+  btn?.classList.add('playing');
+  const done = () => btn?.classList.remove('playing');
+
+  // 화면엔 첫 마디만 보여주지만, 재생은 곡 전체(모든 마디)를 들려준다.
+  if (data.staves?.length >= 2) {
+    // 대보표 악보 한정 — 왼손·오른손 전체를 같은 템포로 동시에 재생
+    const treble = data.staves[0].notes;
+    const bass   = data.staves[1].notes;
+    let pending = 0;
+    const onEnd = () => { pending--; if (pending <= 0) done(); };
+    if (treble.length) { pending++; audio.playSequence(treble, bpm, () => {}, onEnd); }
+    if (bass.length)   { pending++; audio.playSequence(bass,   bpm, () => {}, onEnd); }
+    if (!pending) done();
+  } else {
+    const notes = data.notes;
+    if (!notes?.length) { done(); return; }
+    audio.playSequence(notes, bpm, () => {}, done);
+  }
+}
+
+// 체험하기용 촬영 결과 처리 — round3train 체크포인트(r15)로 서버가 실제 인식한다.
+// "변환 중"에도 새 로딩 화면을 따로 만들지 않고 지금 화면(선택 화면) 그대로 두고 토스트만
+// 띄운다. 촬영해서 만든 악보는 정해진 3곡과 달리 순위표 대상이 아님(_noScore).
+async function handleExpCameraCapture(file) {
+  if (!file) return;
+  toast('🔍 악보 인식 중... (체크포인트로 추론 중)');
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/recognize?model=andromr', { method: 'POST', body: form });
+    if (!res.ok) throw new Error('server');
+    const json = await res.json();
+    json._noScore = true;
+    showExpScore(json);
+  } catch {
+    toast('⚠️ OMR 서버 미연결 — 샘플로 보여드릴게요');
+    const demo = SAMPLES[Math.floor(Math.random() * SAMPLES.length)];
+    showExpScore(sampleToNotation(demo, {
+      id: generateId(), title: file.name.replace(/\.[^.]+$/, ''), createdAt: Date.now(), _noScore: true,
+    }));
+  }
+}
+
+// ── 전자 피아노 연결 테스트 ────────────────────────────────────────────────
+// 단순히 "MIDI 기기가 잡히는가"만 보면 실제로 안 눌러도 "연결됨"으로 오판할 수 있어서,
+// 커스텀 악보 첫 음에 해당하는 건반을 실제로 눌러보게 해서 신호가 오는지까지 확인한다.
+function testMidiConnection(targetNote, { timeoutMs = 6000 } = {}) {
+  return new Promise(resolve => {
+    if (!targetNote || !midi.isSupported()) { resolve(false); return; }
+    midi.requestAccess().then(() => {
+      const inputs = midi.listInputs();
+      if (!inputs.length) { resolve(false); return; }
+      let done = false;
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      function finish(ok) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(ok);
+      }
+      midi.setInput(inputs[0].id, {
+        onNoteOn: pitch => { if (pitch === targetNote) finish(true); },
+        onNoteOff: () => {},
+      });
+    }).catch(() => resolve(false));
+  });
+}
+
+// notes를 beat===1 기준으로 마디 배열로 쪼갠다: [[마디1 음표들], [마디2 음표들], ...]
+function splitMeasures(notes) {
+  if (!notes?.length) return [];
+  const measures = [];
+  let cur = [];
+  notes.forEach(n => {
+    if (n.beat === 1 && cur.length) { measures.push(cur); cur = []; }
+    cur.push(n);
+  });
+  if (cur.length) measures.push(cur);
+  return measures;
+}
+
+// ── 3/5: 오른손만 / 양손 선택 ─────────────────────────────────────────────
+function showExpHandMode() {
+  hideExpScreens();
+  document.getElementById('screen-exp-handmode')?.classList.remove('hidden');
+  const bothBtn = document.getElementById('exp-handmode-both');
+  bothBtn?.classList.toggle('exp-handmode-disabled', !(state.expScoreData?.staves?.length >= 2));
+}
+
+// ── 4/5: 전자피아노 연결 확인 + 닉네임 대기 화면 ───────────────────────────
+function showExpWait(handMode) {
+  state.expHandMode = handMode;
+  hideExpScreens();
+  document.getElementById('screen-exp-wait')?.classList.remove('hidden');
+
+  const statusEl = document.getElementById('exp-wait-midi-status');
+  const data = state.expScoreData;
+  const firstNote = firstMeasure(data?.staves?.[0]?.notes ?? data?.notes)?.[0]?.pitch;
+
+  state.expMidiConfirmed = false;
+  if (!firstNote) {
+    statusEl.textContent = '📱 화면 건반으로 연주해요';
+  } else {
+    statusEl.textContent = `🎹 전자 피아노에서 ${solfegeOf(firstNote)} 음을 눌러 연결을 확인해주세요`;
+    testMidiConnection(firstNote).then(ok => {
+      state.expMidiConfirmed = ok;
+      statusEl.textContent = ok
+        ? '🎹 전자 피아노 연결을 확인했어요 — 화면 건반 없이 연주해요'
+        : '📱 화면 건반으로 연주해요 (전자 피아노 신호를 못 받았어요)';
+    });
+  }
+}
+
+// ── 5/5: 연주 진행(곡 전체, 마디마다 자연스럽게 다음 마디로) + 점수 ─────────
+function startExpPerform(nickname) {
+  const data = state.expScoreData;
+  if (!data) return;
+  const handMode = state.expHandMode === 'both' && data.staves?.length >= 2 ? 'both' : 'right';
+
+  const trebleNotes = (data.staves?.[0]?.notes ?? data.notes ?? []).filter(n => !n.isRest);
+  const bassNotes   = handMode === 'both' ? (data.staves[1].notes ?? []).filter(n => !n.isRest) : [];
+
+  state.expPerform = {
+    nickname, handMode,
+    maxScore: handMode === 'both' ? 150 : 100,
+    noScore: !!data._noScore,
+    trebleMeasures: splitMeasures(trebleNotes),
+    bassMeasures:   splitMeasures(bassNotes),
+    measureIdx: 0, tIdx: 0, bIdx: 0,
+    tHit: new Set(), bHit: new Set(), // 현재 스텝(화음 포함)에서 이미 맞힌 음들 — 화음은 전부 눌러야 그 손이 다음으로 넘어감
+    correct: 0, wrong: 0,
+    pianoCtrl: null,
+  };
+
+  hideExpScreens();
+  document.getElementById('screen-exp-perform')?.classList.remove('hidden');
+  document.getElementById('exp-perform-title').textContent = data.title || '';
+  document.getElementById('exp-perform-result').classList.add('hidden');
+
+  const notationEl = document.getElementById('exp-perform-notation');
+
+  function currentMeasures() {
+    const p = state.expPerform;
+    return { t: p.trebleMeasures[p.measureIdx] ?? [], b: p.bassMeasures[p.measureIdx] ?? [] };
+  }
+  // 지금 이 스텝에서 요구되는 전체 음 목록(주음 + 화음 딸린 음) — 화음이면 원래 음정
+  // 그대로 여러 개, 아니면 1개.
+  function stepPitches(measureNotes, idx) {
+    if (!measureNotes || idx >= measureNotes.length) return [];
+    const n = measureNotes[idx];
+    return [n.pitch, ...(n.chordNotes || [])];
+  }
+  function renderMeasure() {
+    const p = state.expPerform;
+    const { t, b } = currentMeasures();
+    notationEl.innerHTML = '';
+    if (p.handMode === 'both') {
+      renderGrandStaff(notationEl, [{ clef: 'treble', notes: t }, { clef: 'bass', notes: b }], {
+        expectedIdxByClef: { treble: p.tIdx, bass: p.bIdx },
+      });
+    } else {
+      renderNotation(notationEl, t, { expectedIdx: p.tIdx });
+    }
+    autoFitExpScore('exp-perform-notation');
+  }
+  // 화면 건반엔 "아직 안 누른" 음들만 표시 — 화음 중 이미 누른 음은 더 이상 안내하지 않음.
+  function updateHighlight() {
+    const p = state.expPerform;
+    const { t, b } = currentMeasures();
+    const tRemain = stepPitches(t, p.tIdx).filter(n => !p.tHit.has(n));
+    const bRemain = p.handMode === 'both' ? stepPitches(b, p.bIdx).filter(n => !p.bHit.has(n)) : [];
+    p.pianoCtrl?.setExpected(tRemain[0] ?? bRemain[0] ?? null);
+    if (p.handMode === 'both') {
+      p.pianoCtrl?.setDots([
+        ...tRemain.map(n => ({ note: n, color: '#0076CE' })), // 오른손 = 파랑
+        ...bRemain.map(n => ({ note: n, color: '#FF8A3D' })), // 왼손 = 주황
+      ]);
+    }
+  }
+  renderMeasure();
+
+  const pianoWrap = document.getElementById('exp-perform-piano');
+  pianoWrap.innerHTML = '';
+  // 전자 피아노 연결이 확인됐으면 화면 건반은 띄우지 않음(실물로 연주) — 아니면 화면 건반 표시.
+  pianoWrap.classList.toggle('hidden', state.expMidiConfirmed);
+
+  // 오른손/왼손이 동시에 눌려야 하는 화음도 "어느 손이 지금 이 음을 낼 차례인가"를
+  // 헷갈리지 않게 판단 — 오른손(트레블) 스텝에 아직 안 채워진 음이면 오른손으로,
+  // 아니면 왼손 스텝을 본다. 둘 다 아니면 오답.
+  function handleExpNote(pitch) {
+    const p = state.expPerform;
+    const { t, b } = currentMeasures();
+    const tStep = stepPitches(t, p.tIdx);
+    const bStep = p.handMode === 'both' ? stepPitches(b, p.bIdx) : [];
+
+    let matched = false;
+    if (tStep.includes(pitch) && !p.tHit.has(pitch)) {
+      p.tHit.add(pitch);
+      matched = true;
+      if (p.tHit.size >= tStep.length) { p.tIdx++; p.tHit.clear(); }
+    } else if (bStep.includes(pitch) && !p.bHit.has(pitch)) {
+      p.bHit.add(pitch);
+      matched = true;
+      if (p.bHit.size >= bStep.length) { p.bIdx++; p.bHit.clear(); }
+    }
+
+    if (!matched) {
+      p.wrong++;
+      p.pianoCtrl?.flashWrong(pitch);
+      return;
+    }
+    p.correct++;
+    p.pianoCtrl?.flashCorrect(pitch);
+
+    const tDone = p.tIdx >= t.length;
+    const bDone = p.handMode !== 'both' || p.bIdx >= b.length;
+    if (tDone && bDone) {
+      const totalMeasures = Math.max(p.trebleMeasures.length, p.bassMeasures.length);
+      if (p.measureIdx + 1 >= totalMeasures) { finishExpPerform(); return; }
+      // 한 마디를 다 치면 자연스럽게 다음 마디로 — 양손 모드면 위/아래 악보가 같이 넘어감
+      p.measureIdx++; p.tIdx = 0; p.bIdx = 0; p.tHit.clear(); p.bHit.clear();
+    }
+    renderMeasure();
+    updateHighlight();
+  }
+
+  if (state.expMidiConfirmed) {
+    const inputs = midi.listInputs();
+    if (inputs.length) midi.setInput(inputs[0].id, { onNoteOn: handleExpNote, onNoteOff: () => {} });
+  } else {
+    const wrap = document.createElement('div');
+    wrap.className = 'piano-wrapper mini-piano';
+    const pianoEl = document.createElement('div');
+    pianoEl.className = 'piano';
+    wrap.appendChild(pianoEl);
+    pianoWrap.appendChild(wrap);
+    state.expPerform.pianoCtrl = buildPiano(pianoEl, wrap, { showLabels: true, onPress: handleExpNote });
+  }
+  updateHighlight();
+}
+
+function finishExpPerform() {
+  const p = state.expPerform;
+  if (!p) return;
+  if (p.noScore) {
+    document.getElementById('exp-perform-score-text').textContent = `${p.nickname}님, 수고하셨어요! 🎉`;
+    document.getElementById('exp-perform-result').classList.remove('hidden');
+    return;
+  }
+  const total = p.correct + p.wrong;
+  const score = total > 0 ? Math.round((p.correct / total) * p.maxScore * 10) / 10 : 0;
+  document.getElementById('exp-perform-score-text').textContent =
+    `${p.nickname}님, ${score}점이에요! (${p.maxScore}점 만점)`;
+  document.getElementById('exp-perform-result').classList.remove('hidden');
+  saveLeaderboardEntry(state.expScoreData?.title, p.nickname, score);
+}
+
+function initExpFlow() {
+  const grid = document.getElementById('exp-sample-grid');
+  SAMPLES.forEach(s => {
+    const card = document.createElement('button');
+    card.className = 'exp-sample-card';
+    card.innerHTML = `<span class="exp-sample-emoji">${s.emoji}</span><span class="exp-sample-title">${s.title}</span>`;
+    card.addEventListener('click', () => {
+      showExpScore(sampleToNotation(s, { id: generateId(), createdAt: Date.now() }));
+    });
+    grid.appendChild(card);
+  });
+
+  setupCameraCapture({
+    openBtn: 'exp-camera-btn', cancelBtn: 'exp-camera-cancel', shutterBtn: 'exp-camera-shutter',
+    captureBox: 'exp-camera-capture', video: 'exp-camera-video', canvas: 'exp-camera-canvas',
+    guideCanvas: 'exp-camera-guide-canvas', guideHint: 'exp-camera-guide-hint', error: 'exp-camera-error',
+  }, handleExpCameraCapture);
+
+  document.getElementById('exp-handmode-right')?.addEventListener('click', () => showExpWait('right'));
+  document.getElementById('exp-handmode-both')?.addEventListener('click', () => {
+    if (state.expScoreData?.staves?.length >= 2) showExpWait('both');
+  });
+
+  document.getElementById('exp-play-btn')?.addEventListener('click', playExpScore);
+  document.getElementById('exp-perform-btn')?.addEventListener('click', showExpHandMode);
+
+  document.getElementById('exp-start-perform-btn')?.addEventListener('click', () => {
+    const nickname = document.getElementById('exp-nickname-input').value.trim() || '익명';
+    startExpPerform(nickname);
+  });
+  document.getElementById('exp-perform-done-btn')?.addEventListener('click', () => {
+    showExpScore(state.expScoreData); // 순위표 갱신 포함해서 악보 화면으로 복귀
+  });
+
+  const goHome = () => { hideExpScreens(); showLanding(); };
+  document.getElementById('exp-select-home')?.addEventListener('click', goHome);
+  document.getElementById('exp-score-home')?.addEventListener('click', goHome);
+  document.getElementById('exp-handmode-home')?.addEventListener('click', goHome);
+  document.getElementById('exp-wait-home')?.addEventListener('click', goHome);
+  document.getElementById('exp-perform-home')?.addEventListener('click', goHome);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 12음 참고 돋보기 — 규칙2 이후 튜토리얼 + 체험하기(변환/연주)에서 우측 중앙 고정.
+// 호버(데스크톱)/탭(터치)하면 규칙0에서 봤던 라벨드 옥타브를 다시 띄워 12음 매핑을 상기시킴.
+// ═══════════════════════════════════════════════════════════════════════════════
+let magnifierPopupBuilt = false;
+
+function ensureMagnifierPopup() {
+  if (magnifierPopupBuilt) return;
+  magnifierPopupBuilt = true;
+  const popup = document.getElementById('magnifier-popup');
+  popup.innerHTML = `
+    <p class="magnifier-popup-title">12음 참고표</p>
+    <div class="magnifier-popup-scale"><div class="magnifier-popup-scale-inner" id="magnifier-octave"></div></div>`;
+  renderLabeledOctave(document.getElementById('magnifier-octave'), { oct: 4 });
+}
+
+function initOctaveMagnifier() {
+  const wrap  = document.getElementById('octave-magnifier');
+  const btn   = document.getElementById('magnifier-btn');
+  const popup = document.getElementById('magnifier-popup');
+  if (!wrap || !btn || !popup) return;
+
+  const show = () => { ensureMagnifierPopup(); popup.classList.add('visible'); };
+  const hide = () => popup.classList.remove('visible');
+
+  btn.addEventListener('mouseenter', show);
+  btn.addEventListener('mouseleave', hide);
+  // 터치 기기는 hover가 없으므로 탭으로 토글
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    ensureMagnifierPopup();
+    popup.classList.toggle('visible');
+  });
+  document.addEventListener('click', e => {
+    if (!wrap.contains(e.target)) hide();
+  });
+}
+
+// 돋보기 표시 여부 전환 — 튜토리얼 규칙2 이후 페이지, 체험하기 모드에서 호출.
+function setMagnifierVisible(visible) {
+  document.getElementById('octave-magnifier')?.classList.toggle('hidden', !visible);
+}
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
 function toast(msg, ms = 2600) {
@@ -218,15 +752,26 @@ function hexToRgba(hex, alpha) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
-// 오른손(트레블)/왼손(베이스) 각 3개 존 — 88건반 위 색 띠 + 대보표 예시 음에 공용으로 쓴다.
+// 오른손(트레블) 3존 + 왼손(베이스) 4존(한 옥타브씩) — 88건반 위 색 띠 + 대보표 예시 음에
+// 공용으로 쓴다. 왼손 "최저"(0옥, A0~B0)는 스피커에서 잘 안 들릴 수 있지만 옥타브 구분을
+// 위해 일단 별도 색으로 넣어둠 — 왼손도 오른손처럼 한 옥타브 = 한 색 원칙으로 통일.
 const HAND_ZONES = [
-  { hand: '왼손',  zone: '낮음', from: 'A0', to: 'B1', hex: '#FF8A3D', note: 'C1' },
+  { hand: '왼손',  zone: '최저', from: 'A0', to: 'B0', hex: '#E8590C', note: 'A0' },
+  { hand: '왼손',  zone: '낮음', from: 'C1', to: 'B1', hex: '#FF8A3D', note: 'C1' },
   { hand: '왼손',  zone: '중간', from: 'C2', to: 'B2', hex: '#FFA85C', note: 'G2' },
   { hand: '왼손',  zone: '높음', from: 'C3', to: 'B3', hex: '#FFC98A', note: 'C3' },
   { hand: '오른손', zone: '낮음', from: 'C4', to: 'B4', hex: '#5BB8F5', note: 'C4' },
   { hand: '오른손', zone: '중간', from: 'C5', to: 'B5', hex: '#3A9EE0', note: 'G5' },
   { hand: '오른손', zone: '높음', from: 'C6', to: 'C8', hex: '#0076CE', note: 'C6' },
 ];
+
+// 규칙1 전용 — 악보 존 배경을 하단 피아노 존 밴드와 같은 색으로(z0=높음→z2=낮음 순).
+// HAND_ZONES에서 그대로 뽑아 쓰므로 팔레트가 어긋날 일이 없음.
+function zoneColorsForHand(hand) {
+  return ['높음', '중간', '낮음'].map(zone => HAND_ZONES.find(z => z.hand === hand && z.zone === zone).hex);
+}
+const TREBLE_ZONE_COLORS = zoneColorsForHand('오른손');
+const BASS_ZONE_COLORS   = zoneColorsForHand('왼손');
 
 // 옥타브 내비게이션 + 피아노를 container 안에 새로 만들고 state.tutorialPianoCtrl에 연결.
 // (페이지 전환마다 renderTutPage()가 이전 피아노를 destroy()하므로 리스너가 쌓이지 않는다.)
@@ -278,6 +823,7 @@ function buildPracticeDock(container, pitchSeq) {
         feedback.innerHTML = '<span class="tut-feedback-ok">✓</span>';
         idx = (idx + 1) % pitchSeq.length;
         updateBadge();
+        ctrl.setExpected(pitchSeq[idx]); // 다음 음으로 하늘색 기대 하이라이트를 옮겨줌 (버그: 누락되어 있었음)
       } else {
         ctrl.flashWrong(note);
         feedback.innerHTML = '<span class="tut-feedback-bad">✕</span>';
@@ -288,31 +834,95 @@ function buildPracticeDock(container, pitchSeq) {
   ctrl.setExpected(pitchSeq[idx]);
 }
 
-function buildQuizPage(order, targetNote) {
+// spec: { type: 'note', note } | { type: 'chord', notes:[n1,n2] } | { type: 'sequence', notes:[...] }
+// 셋 다 공통으로: 정답을 맞히면 짧게 ✓를 보여준 뒤 자동으로 다음 테스트로 넘어간다
+// (규칙2 연습 도크와 달리 "테스트"라 정답 확인이 곧 다음 문제로 이어지는 게 자연스러움).
+function buildQuizPage(order, spec) {
+  const isChord = spec.type === 'chord';
+  const isSeq   = spec.type === 'sequence';
+  const targets = spec.type === 'note' ? [spec.note] : spec.notes;
+
   return {
-    chip: `테스트 ${order} / 3`,
-    caption: '어느 건반을 눌러야 할까요?',
+    chip: `테스트 ${order} / 5`,
+    caption: isChord ? '어느 화음을 눌러야 할까요? (두 음을 동시에)'
+           : isSeq   ? '한 마디 — 순서대로 눌러보세요'
+           : '어느 건반을 눌러야 할까요?',
     render(top, bottom) {
       top.innerHTML = '<div class="notation-container" id="tut-quiz-notation"></div>';
-      renderNotation(document.getElementById('tut-quiz-notation'),
-        [{ pitch: targetNote, duration: 2, beat: 1 }], {});
+      const noteData = isChord
+        ? [{ pitch: targets[0], duration: 2, beat: 1, chordNotes: targets.slice(1) }]
+        : isSeq
+          ? targets.map((p, i) => ({ pitch: p, duration: 1, beat: i + 1 }))
+          : [{ pitch: targets[0], duration: 2, beat: 1 }];
+      renderNotation(document.getElementById('tut-quiz-notation'), noteData,
+        isSeq ? { expectedIdx: 0 } : {});
 
       bottom.innerHTML = `
-        <p class="tut-feedback-hint" id="tut-quiz-feedback">건반을 눌러 확인해보세요</p>
+        <p class="tut-feedback-hint" id="tut-quiz-feedback">${isSeq ? '첫 음부터 순서대로 눌러보세요' : '건반을 눌러 확인해보세요'}</p>
         <div id="tut-quiz-piano"></div>`;
       const feedback = document.getElementById('tut-quiz-feedback');
+
+      let seqIdx = 0;
+      const chordPressed = new Set();
+
+      function goNext() {
+        setTimeout(() => {
+          if (tutPageIdx < TUT_PAGES.length - 1) goToTutPage(tutPageIdx + 1);
+        }, 700); // ✓ 표시를 잠깐 보여준 뒤 자동 전환
+      }
+
       const ctrl = buildTutPiano(document.getElementById('tut-quiz-piano'), {
         onPress(note) {
           audio.unlock(); audio.playNote(note, 0.4);
-          if (note === targetNote) {
+
+          if (isChord) {
+            if (targets.includes(note)) {
+              chordPressed.add(note);
+              ctrl.flashCorrect(note);
+              if (targets.every(n => chordPressed.has(n))) {
+                feedback.innerHTML = '<span class="tut-feedback-ok">✓ 정답이에요!</span>';
+                goNext();
+              }
+            } else {
+              chordPressed.clear();
+              ctrl.flashWrong(note);
+              feedback.innerHTML = '<span class="tut-feedback-bad">✕ 다시 시도해보세요</span>';
+            }
+            return;
+          }
+
+          if (isSeq) {
+            if (note === targets[seqIdx]) {
+              ctrl.flashCorrect(note);
+              seqIdx++;
+              renderNotation(document.getElementById('tut-quiz-notation'), noteData, { expectedIdx: seqIdx });
+              if (seqIdx >= targets.length) {
+                feedback.innerHTML = '<span class="tut-feedback-ok">✓ 정답이에요!</span>';
+                goNext();
+              } else {
+                feedback.innerHTML = `<span class="tut-feedback-ok">✓ (${seqIdx}/${targets.length})</span>`;
+                ctrl.setExpected(targets[seqIdx]);
+              }
+            } else {
+              ctrl.flashWrong(note);
+              feedback.innerHTML = '<span class="tut-feedback-bad">✕ 다시 시도해보세요</span>';
+            }
+            return;
+          }
+
+          // 단일 음
+          if (note === targets[0]) {
             ctrl.flashCorrect(note);
             feedback.innerHTML = '<span class="tut-feedback-ok">✓ 정답이에요!</span>';
+            goNext();
           } else {
             ctrl.flashWrong(note);
             feedback.innerHTML = '<span class="tut-feedback-bad">✕ 다시 시도해보세요</span>';
           }
         },
       });
+
+      if (isSeq) ctrl.setExpected(targets[0]);
     },
   };
 }
@@ -320,18 +930,15 @@ function buildQuizPage(order, targetNote) {
 const TUT_PAGES = [
   {
     chip: '시작하기 전에',
-    caption: '전통 악보 대신, 색과 위치로 바로 읽는 커스텀 악보',
+    caption: '우리의 목표 — 조표·옥타브 번호 같은 오선지의 복잡한 규칙 없이, 색과 위치로 바로 읽는 악보',
+    splitDirection: 'row', // 위/아래 대신 좌/우로 두 악보를 나란히 비교
     render(top, bottom) {
-      const introNotes = [
-        { pitch: 'C4', duration: 0.5, beat: 1 },
-        { pitch: 'E4', duration: 0.5, beat: 1 },
-        { pitch: 'G4', duration: 1,   beat: 2 },
-        { pitch: 'C5', duration: 2,   beat: 3 },
-      ];
-      top.innerHTML = '<p class="tut-compare-label">전통 오선 악보</p><div class="tut-staff-box" id="tut-staff-box"></div>';
-      bottom.innerHTML = '<p class="tut-compare-label">커스텀 악보 (같은 마디)</p><div class="notation-mini" id="tut-mini-notation"></div>';
-      renderMiniStaff(document.getElementById('tut-staff-box'), introNotes);
-      renderMiniNotation(document.getElementById('tut-mini-notation'), introNotes, { unitW: 100, cellH: 58 });
+      top.innerHTML = `
+        <p class="tut-compare-label">전통 오선 악보</p>
+        <img class="tut-compare-img" src="assets/tut-intro-original.png" alt="전통 오선 악보 원본">`;
+      bottom.innerHTML = `
+        <p class="tut-compare-label">커스텀 악보 (같은 곡)</p>
+        <img class="tut-compare-img" src="assets/tut-intro-custom.png" alt="같은 곡을 커스텀 악보로 변환한 결과">`;
     },
   },
   {
@@ -339,8 +946,10 @@ const TUT_PAGES = [
     caption: '흰 건반 도~시, 검은 건반 1~5 — 눌러서 들어보세요',
     render(top, bottom) {
       top.innerHTML = `
-        <p style="font-size:22px;color:var(--text-dim);text-align:center;max-width:520px;line-height:1.6;">
-          한 옥타브 = 흰 건반 7개 + 검은 건반 5개, 총 12음
+        <p class="tut-compare-label">방금 본 커스텀 악보의 높은음자리(오른손) 부분</p>
+        <img class="tut-compare-img" src="assets/rule0-treble.png" alt="커스텀 악보 높은음자리 부분 — 음 이름이 D, G, B 등으로 표시됨">
+        <p style="font-size:16px;color:var(--text-dim);text-align:center;max-width:520px;line-height:1.6;margin-top:6px;">
+          여기 쓰인 음 이름들은 한 옥타브 = 흰 건반 7개 + 검은 건반 5개, 총 12음에서 나와요
         </p>`;
       renderLabeledOctave(bottom, { oct: 4 });
     },
@@ -359,11 +968,18 @@ const TUT_PAGES = [
         { pitch: 'G2', duration: 1, beat: 2 },
         { pitch: 'C1', duration: 1, beat: 3 },
       ];
-      top.innerHTML = '<div id="tut-r1-grand" style="width:100%;"></div>';
+      top.innerHTML = '<div id="tut-r1-grand" style="width:100%; height:100%;"></div>';
+      // 이 화면 한정: 존 배경을 하단 피아노 존 밴드와 같은 색으로 칠하고, 음표 자체(밑줄
+      // 포함)는 아예 안 그려서 순수 존 색상만 보이게 함. 왼쪽=낮은음자리, 오른쪽=높은음자리로
+      // 나란히 배치 — 가로로 눕힌 화면에서 세로 공간을 절반만 써서 스크롤 없이 들어오게.
       renderGrandStaff(document.getElementById('tut-r1-grand'), [
-        { clef: 'treble', notes: trebleNotes },
         { clef: 'bass',   notes: bassNotes },
-      ]);
+        { clef: 'treble', notes: trebleNotes },
+      ], {
+        hideNotes: true,
+        layout: 'row',
+        zoneColorsByClef: { treble: TREBLE_ZONE_COLORS, bass: BASS_ZONE_COLORS },
+      });
 
       bottom.innerHTML = '<div class="tut-zone-legend" id="tut-r1-legend"></div><div id="tut-r1-piano"></div>';
       const legend = document.getElementById('tut-r1-legend');
@@ -378,7 +994,7 @@ const TUT_PAGES = [
     },
   },
   {
-    chip: '규칙 2 + 3',
+    chip: '규칙 2',
     caption: '셀 너비 = 음 길이, 테두리 색 = 박자',
     render(top, bottom) {
       const rule23Notes = [
@@ -389,6 +1005,8 @@ const TUT_PAGES = [
       top.innerHTML = `
         <div class="notation-container" id="tut-r23-notation"></div>
         <div class="tut-zone-legend" id="tut-beat-legend"></div>`;
+      // 존별 다른 색 + 음표 글자 숨김은 규칙1 전용 — 규칙2는 기본 반투명 존 배경 +
+      // 음표 글자(G, C, E) 표시 그대로.
       renderNotation(document.getElementById('tut-r23-notation'), rule23Notes, {});
       const legend = document.getElementById('tut-beat-legend');
       [1, 2, 3, 4].forEach(b => {
@@ -400,7 +1018,7 @@ const TUT_PAGES = [
     },
   },
   {
-    chip: '규칙 4',
+    chip: '규칙 3',
     caption: '화음 = 두 음을 동시에 눌러요',
     render(top, bottom) {
       const chordNote = { pitch: 'C4', duration: 2, beat: 1, chordNotes: ['E4'] };
@@ -415,9 +1033,11 @@ const TUT_PAGES = [
       ctrl.setDots(target.map(n => ({ note: n, color: '#0076CE' })));
     },
   },
-  buildQuizPage(1, 'E4'),
-  buildQuizPage(2, 'G#4'),
-  buildQuizPage(3, 'C5'),
+  buildQuizPage(1, { type: 'note', note: 'E4' }),
+  buildQuizPage(2, { type: 'note', note: 'G#4' }),
+  buildQuizPage(3, { type: 'note', note: 'C5' }),
+  buildQuizPage(4, { type: 'chord', notes: ['C4', 'E4'] }),
+  buildQuizPage(5, { type: 'sequence', notes: ['C4', 'D4', 'E4', 'F4'] }),
 ];
 
 let tutPageIdx = 0;
@@ -430,6 +1050,23 @@ function renderTutDots() {
     d.className = 'tut-dot' + (i === tutPageIdx ? ' active' : '');
     wrap.appendChild(d);
   });
+}
+
+// 화면 고정(상하 스크롤 금지) 원칙을 지키기 위해, 위/아래 박스 내용이 박스 높이보다
+// 크면(특히 가로로 눕힌 짧은 화면에서 규칙1/2/3처럼 내용이 많은 페이지) 자동으로 축소해서
+// 맞춘다. 페이지별로 값을 하드코딩하지 않고 실제 렌더된 높이를 재서 계산 — 어떤 화면
+// 크기에서도 같은 원리로 동작한다. 좌우(피아노/오선) 스크롤은 그대로 유지.
+function autoFitTutBoxes() {
+  [document.getElementById('tut-split-top'), document.getElementById('tut-split-bottom')]
+    .forEach(box => {
+      if (!box) return;
+      Array.from(box.children).forEach(c => { c.style.zoom = ''; });
+      const overflow = box.scrollHeight - box.clientHeight;
+      if (overflow > 4 && box.clientHeight > 0) {
+        const zoom = Math.max(0.34, (box.clientHeight / box.scrollHeight) * 0.95);
+        Array.from(box.children).forEach(c => { c.style.zoom = zoom; });
+      }
+    });
 }
 
 function renderTutPage(idx) {
@@ -446,12 +1083,27 @@ function renderTutPage(idx) {
   const bottom = document.getElementById('tut-split-bottom');
   top.innerHTML = '';
   bottom.innerHTML = '';
+  document.getElementById('tut-page-frame')
+    .classList.toggle('tut-split-row', page.splitDirection === 'row');
   page.render(top, bottom);
+  autoFitTutBoxes();
 
   renderTutDots();
-  document.getElementById('tut-prev').disabled = idx === 0;
+  // 랜딩에서 들어온 흐름은 첫 페이지 "이전"이 비활성화 대신 랜딩으로 나가는 종료 버튼이 됨
+  const atFirst = idx === 0;
+  const prevBtn = document.getElementById('tut-prev');
+  prevBtn.disabled = atFirst && !state.flowFromLanding;
+  prevBtn.textContent = atFirst && state.flowFromLanding ? '← 처음으로' : '← 이전';
+
+  const atLast = idx === TUT_PAGES.length - 1;
+  // 튜토리얼 단독 흐름(체험하기로 안 이어짐)에서는 마지막 페이지도 "변환 시작"이 아니라 처음으로
+  const tutorialOnly = state.flowLock && !state.flowLock.includes('convert');
   document.getElementById('tut-next').textContent =
-    idx === TUT_PAGES.length - 1 ? '이해했어요 — 변환 시작하기 →' : '다음 →';
+    atLast ? (tutorialOnly ? '이해했어요 — 처음으로' : '이해했어요 — 변환 시작하기 →') : '다음 →';
+
+  // 규칙2(인덱스 3)부터 12음 참고 돋보기 노출 — 그 전 페이지들은 아직 12음/옥타브를
+  // 처음 배우는 단계라 돋보기가 오히려 혼란을 줄 수 있어 숨긴다.
+  setMagnifierVisible(idx >= 3);
 }
 
 // 버튼 누를 때마다 화면이 뚝 끊기지 않도록, 나가는 방향으로 살짝 페이드아웃 →
@@ -479,10 +1131,13 @@ function goToTutPage(idx) {
 
 function initTutorial() {
   document.getElementById('tut-prev').addEventListener('click', () => {
-    if (tutPageIdx > 0) goToTutPage(tutPageIdx - 1);
+    if (tutPageIdx > 0) { goToTutPage(tutPageIdx - 1); return; }
+    if (state.flowFromLanding) exitFlowToLanding(); // 첫 페이지의 "이전" = 랜딩으로 나가기
   });
   document.getElementById('tut-next').addEventListener('click', () => {
-    if (tutPageIdx < TUT_PAGES.length - 1) goToTutPage(tutPageIdx + 1);
+    if (tutPageIdx < TUT_PAGES.length - 1) { goToTutPage(tutPageIdx + 1); return; }
+    // 마지막 페이지: 튜토리얼 단독 흐름이면 랜딩으로, 아니면(자유 탐색/구 킨스크) 변환 화면으로
+    if (state.flowLock && !state.flowLock.includes('convert')) exitFlowToLanding();
     else navigate('convert');
   });
   renderTutPage(0);
@@ -622,18 +1277,21 @@ function drawCameraGuideOverlay(canvas, wrap, video, grandStaff) {
     });
 }
 
-function initCameraCapture() {
-  const openBtn     = document.getElementById('btn-camera-open');
-  const cancelBtn   = document.getElementById('btn-camera-cancel');
-  const shutterBtn  = document.getElementById('btn-camera-shutter');
-  const captureBox  = document.getElementById('camera-capture');
-  const video       = document.getElementById('camera-video');
-  const canvas      = document.getElementById('camera-canvas');
-  const guideCanvas = document.getElementById('camera-guide-canvas');
-  const guideWrap   = document.querySelector('.camera-video-wrap');
-  const guideHint   = document.getElementById('camera-guide-hint');
-  const modeChips   = document.querySelectorAll('.camera-mode-chip');
-  const errorEl     = document.getElementById('camera-error');
+// 가이드 오버레이 촬영 UI 조립 — 기존 변환 화면과 체험하기 화면 둘 다 이 함수로 만든다
+// (ids만 다르게, 촬영 완료 시 onCaptured(file)로 각자 원하는 곳으로 라우팅).
+function setupCameraCapture(ids, onCaptured) {
+  const openBtn     = document.getElementById(ids.openBtn);
+  const cancelBtn   = document.getElementById(ids.cancelBtn);
+  const shutterBtn  = document.getElementById(ids.shutterBtn);
+  const captureBox  = document.getElementById(ids.captureBox);
+  const video       = document.getElementById(ids.video);
+  const canvas      = document.getElementById(ids.canvas);
+  const guideCanvas = document.getElementById(ids.guideCanvas);
+  const guideHint   = document.getElementById(ids.guideHint);
+  const errorEl     = document.getElementById(ids.error);
+  if (!openBtn || !captureBox) return;
+  const guideWrap = captureBox.querySelector('.camera-video-wrap');
+  const modeChips = captureBox.querySelectorAll('.camera-mode-chip');
 
   let grandStaff = true; // flutter 쪽 기본값과 동일 — 피아노 악보는 대보표가 더 흔함
 
@@ -656,9 +1314,18 @@ function initCameraCapture() {
   video.addEventListener('loadedmetadata', redrawGuide);
   new ResizeObserver(redrawGuide).observe(guideWrap);
 
+  function cleanup() {
+    state.cameraStream?.getTracks().forEach(t => t.stop());
+    state.cameraStream = null;
+    video.srcObject = null;
+    captureBox.classList.add('hidden');
+    state.activeCameraStop = null;
+  }
+
   async function openCamera() {
     errorEl.classList.add('hidden');
     captureBox.classList.remove('hidden');
+    state.activeCameraStop = cleanup;
     updateHint();
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -679,7 +1346,7 @@ function initCameraCapture() {
   }
 
   openBtn.addEventListener('click', openCamera);
-  cancelBtn.addEventListener('click', stopCamera);
+  cancelBtn.addEventListener('click', () => state.activeCameraStop?.());
 
   shutterBtn.addEventListener('click', () => {
     if (!state.cameraStream || !video.videoWidth) return;
@@ -689,10 +1356,18 @@ function initCameraCapture() {
     canvas.getContext('2d').drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
     canvas.toBlob(blob => {
       if (!blob) return;
-      stopCamera();
-      handleUpload(new File([blob], 'capture.jpg', { type: 'image/jpeg' }));
+      state.activeCameraStop?.();
+      onCaptured(new File([blob], 'capture.jpg', { type: 'image/jpeg' }));
     }, 'image/jpeg', 0.92);
   });
+}
+
+function initCameraCapture() {
+  setupCameraCapture({
+    openBtn: 'btn-camera-open', cancelBtn: 'btn-camera-cancel', shutterBtn: 'btn-camera-shutter',
+    captureBox: 'camera-capture', video: 'camera-video', canvas: 'camera-canvas',
+    guideCanvas: 'camera-guide-canvas', guideHint: 'camera-guide-hint', error: 'camera-error',
+  }, handleUpload);
 }
 
 // SAMPLES 항목을 화면에서 쓰는 notation 데이터 모양으로 변환 — staves(그랜드 스태프)가
@@ -1402,11 +2077,11 @@ document.addEventListener('click', e => {
   const nav = e.target.dataset.nav || e.target.closest('[data-nav]')?.dataset.nav;
   if (nav) { wheelLocked = false; navigate(nav); return; }
 
-  // nav-tab / page-dot 클릭은 wheelLocked 무시하고 즉시 전환
-  const isTab = e.target.classList.contains('nav-tab') || e.target.classList.contains('page-dot');
-  const scr   = e.target.dataset.screen;
+  // 하단 탭바 클릭(아이콘/라벨 span 클릭 포함)은 wheelLocked 무시하고 즉시 전환
+  const tabBtn = e.target.closest('.nav-tab');
+  const scr = tabBtn?.dataset.screen ?? e.target.dataset.screen;
   if (scr) {
-    if (isTab) { wheelLocked = false; }
+    if (tabBtn) wheelLocked = false;
     navigate(scr);
   }
 });
@@ -1444,20 +2119,27 @@ document.addEventListener('DOMContentLoaded', () => {
   initTutorial();
   initConvert();
   initMidiControls();
+  initOctaveMagnifier();
+  initLanding();
+  initExpFlow();
+  initAboutModal();
 
   // navigate는 이미 active를 설정했으므로 state만 맞춤
   function settleOn(name) {
     state.screen = name;
     document.querySelectorAll('.nav-tab').forEach(t =>
       t.classList.toggle('active', t.dataset.screen === name));
-    document.querySelectorAll('.page-dot').forEach(d =>
-      d.classList.toggle('active', d.dataset.screen === name));
   }
 
   if (state.kioskMode) {
+    // 전시 부스 물리 킨스크(URL) — 랜딩 없이 지정된 화면으로 바로 고정
     settleOn(firstScreenName);
+    hideLanding();
   } else {
-    loadSharedScoreFromQuery().then(loaded => { if (!loaded) settleOn('tutorial'); });
+    loadSharedScoreFromQuery().then(loaded => {
+      if (loaded) hideLanding(); // QR로 결과를 바로 열람 — 랜딩 건너뜀 (navigate('convert')는 그 안에서 이미 처리됨)
+      else settleOn('tutorial'); // 기본 상태 — 기본 상태(HTML 기본값)인 랜딩이 그대로 보임
+    });
   }
 });
 

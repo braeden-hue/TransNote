@@ -14,61 +14,51 @@
   --sky:       #5BB8F5;
   --green:     #2FAA6E;
   --purple:    #5B7FD6;
-  --header-h:  56px;
+  --tabbar-h:  58px;
   --radius:    10px;
   --radius-sm: 6px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
 }
 
 /* ── Reset ─────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; }
-html { scroll-behavior: smooth; }
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+@supports (height: 100dvh) { html, body { height: 100dvh; } }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 body {
+  display: flex; flex-direction: column;
   background: linear-gradient(160deg, #ffffff 0%, #e0f4ff 50%, #b3e0f7 100%);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   font-size: 15px; line-height: 1.6;
+  -webkit-tap-highlight-color: transparent;
 }
-button { cursor: pointer; border: none; background: none; font-family: inherit; }
+button {
+  cursor: pointer; border: none; background: none; font-family: inherit;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
 input  { font-family: inherit; }
 
-/* ── Header ────────────────────────────────────────────────── */
-.app-header {
-  position: relative; z-index: 100;
-  height: var(--header-h);
-  background: linear-gradient(90deg, #ffffff 0%, #e0f4ff 60%, #b3e0f7 100%);
-  border-bottom: 1px solid var(--border-hi);
-  box-shadow: 0 2px 8px rgba(79,195,247,0.15);
-}
-.header-inner {
-  max-width: 1280px; margin: 0 auto;
-  height: 100%; padding: 0 20px;
-  display: flex; align-items: center; gap: 24px;
-}
-.logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; white-space: nowrap; }
-.logo-icon { font-size: 22px; color: var(--primary); }
-.logo-text  { color: var(--primary); }
+/* ── 앱 형태를 위한 조치: 이 웹앱은 상단 브라우저형 메뉴바 대신 하단 고정 탭바를
+   쓴다(iOS/Android 네이티브 앱과 동일한 위치 — 태블릿/스마트폰 모두 엄지로 바로 닿음).
+   로그인 등 부가 기능은 상단 브라우저 헤더 대신 화면 우상단에 떠 있는 최소 필로 옮겼다. ── */
 
-.nav-tabs { display: flex; gap: 4px; overflow-x: auto; }
-.nav-tab {
-  padding: 6px 14px; border-radius: 20px;
-  color: var(--text-dim); font-size: 13px; font-weight: 500;
-  white-space: nowrap; transition: all 0.18s;
+/* ── 우상단 플로팅 로그인 필 ───────────────────────────────────────────── */
+.auth-area-floating {
+  position: fixed; z-index: 300;
+  top: calc(10px + var(--safe-t)); right: calc(10px + var(--safe-r));
 }
-.nav-tab:hover  { color: var(--text); background: var(--bg-hover); }
-.nav-tab.active { color: #fff; background: var(--primary); font-weight: 600; }
-
-/* ── Auth Area ─────────────────────────────────────────────── */
-.auth-area { margin-left: auto; flex-shrink: 0; }
+.auth-area-floating:empty { display: none; }
 
 /* ── 전시 부스 킨스크 모드 ─────────────────────────────────────────────────
    태블릿1(?kiosk=1)   → 튜토리얼 화면 고정
    태블릿2(?kiosk=convert) → 악보 변환 화면 고정, "예시 악보 고르기 / 촬영하기"에만 집중
-   지정한 화면 밖으로 나가는 길(다른 탭/점/로그인)은 공통으로 다 지운다. */
-body[data-kiosk="tutorial"] .nav-tab:not([data-screen="tutorial"]) { display: none; }
-body[data-kiosk="convert"]  .nav-tab:not([data-screen="convert"])  { display: none; }
-body.kiosk-mode .auth-area,
-body.kiosk-mode .page-dots { display: none; }
+   지정한 화면 밖으로 나가는 길(하단 탭바/로그인)은 공통으로 다 지운다. */
+body.kiosk-mode .bottom-tabbar,
+body.kiosk-mode .auth-area-floating { display: none; }
 
 /* 태블릿2: 관람객이 볼 필요 없는 기술적 UI(인식 모델 선택, 서버 상태, 개발자 안내)는 숨김. */
 body[data-kiosk="convert"] .model-row,
@@ -76,19 +66,23 @@ body[data-kiosk="convert"] .demo-notice,
 body[data-kiosk="convert"] .omr-coming-soon { display: none; }
 
 .btn-login {
-  padding: 6px 14px; border-radius: 20px;
+  padding: 8px 16px; border-radius: 20px;
   background: var(--primary); color: #fff;
   font-size: 13px; font-weight: 600;
+  box-shadow: 0 2px 10px rgba(0,118,206,0.3);
   transition: background 0.18s;
   white-space: nowrap;
 }
-.btn-login:hover { background: var(--primary-dk); }
+.btn-login:hover  { background: var(--primary-dk); }
+.btn-login:active { transform: scale(0.96); }
 
 .user-chip {
   display: flex; align-items: center; gap: 8px;
-  background: var(--bg-panel); border-radius: 20px;
+  background: rgba(255,255,255,0.9); backdrop-filter: blur(6px);
+  border-radius: 20px;
   padding: 4px 12px 4px 6px;
   border: 1px solid var(--border-hi);
+  box-shadow: 0 2px 10px rgba(79,195,247,0.2);
 }
 .user-avatar {
   width: 26px; height: 26px; border-radius: 50%;
@@ -124,12 +118,42 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
 .server-dot.connected { background: #2FAA6E; box-shadow: 0 0 0 3px rgba(47,170,110,.2); }
 
 /* ── Screens — fullpage scroll ─────────────────────────────── */
-.app-header { position: relative; z-index: 100; }
-
 .app-main {
-  height: calc(100vh - var(--header-h));
+  flex: 1 1 auto; min-height: 0;
   overflow: hidden;
   position: relative;
+}
+
+/* ── 하단 탭바 ─────────────────────────────────────────────────
+   body가 flex-column이라 일반 흐름의 마지막 요소로 두면 되고, app-main이
+   자동으로 그만큼 줄어들어서 콘텐츠가 탭바 뒤에 가려지는 문제가 애초에 없다. */
+.bottom-tabbar {
+  flex: 0 0 auto; z-index: 200;
+  display: flex;
+  background: rgba(255,255,255,0.88); backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border-hi);
+  box-shadow: 0 -2px 10px rgba(79,195,247,0.15);
+  padding-bottom: var(--safe-b);
+  padding-left: var(--safe-l); padding-right: var(--safe-r);
+}
+.bottom-tabbar .nav-tab {
+  flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; padding: 7px 4px 6px;
+  color: var(--text-mute);
+  transition: color .15s;
+}
+.bottom-tabbar .nav-tab .tab-icon  { font-size: 20px; line-height: 1; }
+.bottom-tabbar .nav-tab .tab-label { font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.bottom-tabbar .nav-tab:active     { transform: scale(0.94); }
+.bottom-tabbar .nav-tab.active     { color: var(--primary); }
+.bottom-tabbar .nav-tab.active .tab-icon { transform: translateY(-1px); }
+
+/* 가로 고정 태블릿 등 세로 공간이 좁을 때 탭바를 더 컴팩트하게 */
+@media (max-height: 480px) {
+  .bottom-tabbar .nav-tab    { flex-direction: row; gap: 6px; padding: 6px 4px; }
+  .bottom-tabbar .nav-tab .tab-icon  { font-size: 16px; }
+  .bottom-tabbar .nav-tab .tab-label { font-size: 10px; }
 }
 
 .screens-wrapper {
@@ -166,22 +190,6 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
 }
 
 .screen-content { max-width: 1200px; margin: 0 auto; padding: 36px 24px 60px; overflow-x: hidden; }
-
-/* ── Page dots ─────────────────────────────────────────────── */
-.page-dots {
-  position: fixed; right: 20px; top: 50%;
-  transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: 10px;
-  z-index: 200;
-}
-.page-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--border-hi); border: none; cursor: pointer;
-  transition: background .2s, transform .2s;
-  padding: 0;
-}
-.page-dot:hover   { background: var(--sky); transform: scale(1.3); }
-.page-dot.active  { background: var(--primary); transform: scale(1.4); }
 
 .section-header { margin-bottom: 28px; }
 .section-header h2 { font-size: 26px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
@@ -287,38 +295,68 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
 
 /* ── Tutorial ──────────────────────────────────────────────── */
 /* 태블릿1 대기열 온보딩 전용 화면. "단순함이 무기" — 화면을 위(악보)/아래(피아노)
-   절반으로 나눠 그 두 가지에만 집중시키고, 나머지 설명 텍스트는 한 줄 캡션으로 줄인다. */
-.tut-topbar { display: flex; align-items: center; gap: 14px; padding: 16px 0 12px; }
+   절반으로 나눠 그 두 가지에만 집중시키고, 나머지 설명 텍스트는 한 줄 캡션으로 줄인다.
+   랜딩 화면처럼 스크롤 없이 한 화면에 꽉 들어오도록 화면 자체를 고정(overflow:hidden)하고
+   topbar/nav는 고정 높이, 가운데 tut-split만 남는 공간을 정확히 채운다. */
+#screen-tutorial { overflow: hidden; }
+#screen-tutorial .screen-content {
+  height: 100%; padding: 14px 22px 14px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.tut-topbar { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; row-gap: 6px; gap: 14px; padding: 4px 0 10px; }
 .tut-chip {
   display: inline-block; background: var(--primary); color: #fff; flex-shrink: 0;
   font-size: 13px; font-weight: 700; padding: 5px 13px; border-radius: 20px;
 }
-.tut-caption { flex: 1; font-size: 22px; font-weight: 800; color: var(--text); }
+.tut-caption { flex: 1 1 0; min-width: 0; font-size: 22px; font-weight: 800; color: var(--text); }
 .tut-dots   { display: flex; gap: 7px; flex-shrink: 0; }
 .tut-dot    { width: 11px; height: 11px; border-radius: 6px; background: var(--border-hi); transition: width .2s, background .2s; }
 .tut-dot.active { width: 30px; background: var(--primary); }
 
-.tut-split { display: flex; flex-direction: column; gap: 14px; min-height: 64vh; }
+/* 좁은 폰 폭: 캡션이 좁은 칸에 갇혀 한 글자씩 세로로 쌓이는 걸 막기 위해
+   칩+점은 한 줄, 캡션은 그 아래 전체 폭으로 줄바꿈 */
+@media (max-width: 480px) {
+  .tut-caption   { flex: 1 1 100%; order: 3; font-size: 18px; }
+  .tut-dots      { order: 2; margin-left: auto; }
+}
+
+.tut-split { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .tut-split-top, .tut-split-bottom {
-  flex: 1; min-height: 0;
+  flex: 1; min-height: 0; min-width: 0;
   background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px; overflow: auto;
+  padding: 12px 16px; display: flex; flex-direction: column; align-items: center;
+  /* safe center: 내용이 박스보다 크면 위쪽 정렬로 떨어져서 스크롤해도 맨 위 내용이 항상
+     보임(그냥 center면 넘치는 콘텐츠의 위쪽이 스크롤 top:0에서도 잘려 안 보이는 문제 있음) */
+  justify-content: safe center;
+  gap: 8px; overflow: auto;
 }
 .tut-split-top { background: #fff; }
 
-.tut-nav { display: flex; justify-content: space-between; padding: 14px 0 24px; }
-.tut-nav button { font-size: 17px; padding: 14px 26px; }
+/* "시작하기 전에" 전용 — 위/아래 대신 좌/우로 배치 (박스 두 개를 나란히) */
+.tut-split-row { flex-direction: row; }
+.tut-split-row .tut-split-top, .tut-split-row .tut-split-bottom { flex: 1 1 0; }
 
-@media (max-width: 800px) {
-  .tut-split { min-height: auto; }
-  .tut-split-top, .tut-split-bottom { min-height: 280px; }
+.tut-nav { flex: 0 0 auto; display: flex; justify-content: space-between; padding: 8px 0 4px; }
+.tut-nav button { font-size: 16px; padding: 11px 24px; }
+
+@media (max-height: 700px) {
+  .tut-nav button { font-size: 14px; padding: 9px 20px; }
+  .tut-caption { font-size: 18px; }
 }
 
 /* ── 튜토리얼 페이지 보조 컴포넌트 ─────────────────────────────── */
 .tut-compare-label { font-size: 15px; font-weight: 700; color: var(--text-mute); }
 .tut-staff-box { width: 100%; max-width: 560px; }
-.tut-zone-legend { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; font-size: 15px; color: var(--text-dim); }
+.tut-compare-img {
+  /* flex:1로 라벨(형제 요소)이 쓰는 만큼을 자연히 빼고 남는 공간만 차지 — 그래야
+     라벨+이미지 합이 박스보다 커져서 스크롤이 생기는 일이 없다. */
+  flex: 1 1 auto; min-height: 0; min-width: 0;
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  border-radius: 8px; background: #fff;
+  box-shadow: 0 2px 10px rgba(79,195,247,0.18);
+}
+.tut-zone-legend { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; font-size: 15px; color: var(--text-dim); margin-top: 8px; }
+.tut-zone-legend:first-of-type { margin-top: 10px; }
 .tut-zone-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .tut-zone-legend i { width: 16px; height: 16px; border-radius: 4px; display: inline-block; }
 
@@ -333,7 +371,9 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
 .tut-feedback-bad { color: #E64545; font-size: 16px; font-weight: 700; }
 .tut-feedback-hint { color: var(--text-mute); font-size: 16px; }
 
-/* 튜토리얼 안의 악보/피아노만 확대 (연주하기 화면 등 다른 곳은 그대로 — zoom을 이 안에서만) */
+/* 튜토리얼 안의 악보/피아노만 확대 (연주하기 화면 등 다른 곳은 그대로 — zoom을 이 안에서만).
+   단, 박스보다 콘텐츠가 커서 상하 스크롤이 필요해지면 JS(autoFitTutBoxes)가 이 zoom을
+   상황에 맞는 값으로 인라인 덮어써서 화면(특히 가로로 눕힌 짧은 화면)에 맞춘다. */
 .tut-split .notation-container { zoom: 1.25; }
 .tut-split .mini-piano { zoom: 1.15; }
 
@@ -421,6 +461,10 @@ kbd {
 .cheat-fallback-btn:hover { opacity: 0.55; background: var(--bg-hover); }
 
 .upload-btn-row { display: flex; gap: 8px; }
+.upload-btn-row .btn-secondary { flex: 1; white-space: nowrap; }
+@media (max-width: 420px) {
+  .upload-btn-row { flex-direction: column; }
+}
 
 .camera-capture {
   margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px;
@@ -487,7 +531,7 @@ kbd {
 .title-input {
   flex: 1; min-width: 160px; background: #FFFFFF;
   border: 1px solid var(--border-hi); border-radius: 6px;
-  padding: 9px 12px; color: var(--text); font-size: 14px;
+  padding: 9px 12px; color: var(--text); font-size: 16px; /* iOS는 16px 미만 입력창에 포커스 시 자동 확대함 */
 }
 .title-input:focus { outline: none; border-color: var(--primary); }
 .hidden { display: none !important; }
@@ -609,9 +653,49 @@ kbd {
 .empty-state { padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 14px; line-height: 2; }
 .hint { font-size: 12px; color: var(--text-mute); margin-top: 4px; }
 
+/* ── 12음 참고 돋보기 ──────────────────────────────────────────── */
+.octave-magnifier {
+  position: fixed; z-index: 250;
+  top: 50%; right: calc(14px + var(--safe-r)); transform: translateY(-50%);
+}
+.magnifier-btn {
+  width: 46px; height: 46px; border-radius: 50%;
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
+  border: 1px solid var(--border-hi); box-shadow: 0 3px 14px rgba(79,195,247,0.3);
+  font-size: 20px; display: flex; align-items: center; justify-content: center;
+  transition: transform .15s, box-shadow .15s;
+}
+.magnifier-btn:hover  { box-shadow: 0 4px 18px rgba(0,118,206,0.35); }
+.magnifier-btn:active { transform: scale(0.92); }
+
+.magnifier-popup {
+  position: absolute; top: 50%; right: 58px; transform: translateY(-50%) scale(0.96);
+  width: 322px; max-width: 78vw;
+  background: #fff; border-radius: var(--radius); border: 1px solid var(--border-hi);
+  box-shadow: 0 10px 34px rgba(0,40,80,0.28);
+  padding: 14px 10px 4px;
+  opacity: 0; pointer-events: none;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.magnifier-popup.visible { opacity: 1; transform: translateY(-50%) scale(1); pointer-events: auto; }
+.magnifier-popup-title { font-size: 13px; font-weight: 700; color: var(--text-dim); text-align: center; margin-bottom: 6px; }
+/* 바깥(outer): 축소된 뒤의 실제 시각적 크기만큼만 높이를 잡고 넘치는 부분을 자름.
+   안쪽(inner): transform:scale만 걸고 자기 콘텐츠는 원본 크기 그대로 레이아웃 — CSS
+   transform은 클리핑 박스 크기에 영향을 안 주므로, 축소 후 크기는 바깥에서 잡아야 함. */
+.magnifier-popup-scale       { height: 110px; overflow: hidden; }
+.magnifier-popup-scale-inner { transform: scale(0.42); transform-origin: top left; width: fit-content; }
+
+/* 좁은 화면에서 팝업이 화면 밖으로 나가지 않도록 왼쪽으로 붙여서 표시 */
+@media (max-width: 480px) {
+  .octave-magnifier { right: calc(8px + var(--safe-r)); }
+  .magnifier-popup { right: 54px; width: 240px; }
+  .magnifier-popup-scale       { height: 90px; }
+  .magnifier-popup-scale-inner { transform: scale(0.34); }
+}
+
 /* ── Toast ─────────────────────────────────────────────────── */
 .toast {
-  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+  position: fixed; bottom: calc(var(--tabbar-h) + var(--safe-b) + 16px); left: 50%; transform: translateX(-50%) translateY(20px);
   background: var(--primary); border: none;
   color: #fff; padding: 10px 22px; border-radius: 24px;
   font-size: 14px; pointer-events: none;
@@ -628,7 +712,248 @@ kbd {
 /* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 600px) {
   .screen-content { padding: 20px 14px 48px; }
-  .logo-text      { display: none; }
-  .nav-tab        { padding: 6px 10px; font-size: 12px; }
+  .bottom-tabbar .nav-tab .tab-label { font-size: 9.5px; }
   .ctrl-btn       { width: 34px; height: 34px; font-size: 13px; }
 }
+
+/* ── 랜딩 화면 ──────────────────────────────────────────────── */
+.landing-screen {
+  position: fixed; inset: 0; z-index: 400;
+  background: #0c0a08;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.landing-screen.hidden { display: none; }
+.landing-bg-blur {
+  position: absolute; inset: 0; z-index: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  filter: blur(28px) brightness(0.55) saturate(1.1);
+  transform: scale(1.15); /* blur가 가장자리를 투명하게 갉아먹는 것 방지 */
+}
+/* 사진 원본 비율(1374:768)을 유지한 프레임 — 핫스팟 %가 이 프레임 기준이라, 뷰포트
+   비율이 달라도(세로 스마트폰 등) 사진·점 위치가 항상 일치해야 함. 두 축을 동시에
+   maX로 맞추는 건 순수 CSS로 신뢰하기 어려워 실제 px 크기는 JS(fitLandingFrame)가 정함. */
+.landing-frame { position: relative; z-index: 1; }
+.landing-bg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.landing-hotspots { position: absolute; inset: 0; }
+.landing-hotspot {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(255,255,255,0.85); border: 2px solid rgba(255,255,255,0.95);
+  box-shadow: 0 0 0 6px rgba(255,255,255,0.16), 0 2px 12px rgba(0,0,0,0.5);
+  cursor: pointer; touch-action: manipulation;
+  animation: landing-pulse 2.4s ease-in-out infinite;
+  transition: background .15s, transform .15s;
+}
+.landing-hotspot:hover, .landing-hotspot:focus-visible {
+  background: #fff; transform: translate(-50%, -50%) scale(1.15);
+  box-shadow: 0 0 0 9px rgba(255,255,255,0.24), 0 2px 16px rgba(0,0,0,0.55);
+}
+.landing-hotspot:active { transform: translate(-50%, -50%) scale(0.92); }
+@keyframes landing-pulse {
+  0%, 100% { box-shadow: 0 0 0 6px rgba(255,255,255,0.16), 0 2px 12px rgba(0,0,0,0.5); }
+  50%      { box-shadow: 0 0 0 12px rgba(255,255,255,0.05), 0 2px 12px rgba(0,0,0,0.5); }
+}
+.landing-hotspot-label {
+  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  background: rgba(15,15,20,0.88); color: #fff; font-size: 13px; font-weight: 700;
+  padding: 6px 14px; border-radius: 18px; white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.landing-hotspot:hover .landing-hotspot-label,
+.landing-hotspot:focus-visible .landing-hotspot-label {
+  opacity: 1; transform: translateX(-50%) translateY(-3px);
+}
+.landing-hint {
+  position: absolute; z-index: 1; left: 50%; bottom: calc(22px + var(--safe-b)); transform: translateX(-50%);
+  color: rgba(255,255,255,0.75); font-size: 13px; font-weight: 600;
+  background: rgba(0,0,0,0.35); backdrop-filter: blur(4px);
+  padding: 6px 16px; border-radius: 20px; white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .landing-hotspot { width: 24px; height: 24px; }
+  .landing-hotspot-label { font-size: 12px; padding: 5px 11px; }
+}
+
+/* ── 프로젝트에 대해 모달 ──────────────────────────────────────── */
+.about-modal { position: fixed; inset: 0; z-index: 600; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.about-modal.hidden { display: none; }
+.about-modal-backdrop { position: absolute; inset: 0; background: rgba(10,14,20,0.55); backdrop-filter: blur(2px); }
+.about-modal-card {
+  position: relative; z-index: 1; max-width: 460px; width: 100%;
+  background: #fff; border-radius: var(--radius); padding: 28px 24px 24px;
+  box-shadow: 0 20px 60px rgba(0,20,40,0.4);
+}
+.about-modal-card h2 { font-size: 20px; margin-bottom: 12px; color: var(--text); }
+.about-modal-card p { font-size: 14.5px; line-height: 1.7; color: var(--text-dim); margin-bottom: 12px; }
+.about-modal-note { font-size: 12px; color: var(--text-mute); }
+.about-modal-card .btn-primary { width: 100%; margin-top: 4px; }
+.about-modal-close {
+  position: absolute; top: 14px; right: 14px;
+  width: 30px; height: 30px; border-radius: 50%;
+  color: var(--text-mute); font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.about-modal-close:hover { background: var(--bg-hover); color: var(--text); }
+
+/* ── 체험하기 (샘플 선택 + 단일 마디 악보) ─────────────────────────── */
+.exp-screen {
+  position: fixed; inset: 0; z-index: 420;
+  background: linear-gradient(160deg, #ffffff 0%, #e0f4ff 50%, #b3e0f7 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: calc(20px + var(--safe-t)) calc(20px + var(--safe-r)) calc(20px + var(--safe-b)) calc(20px + var(--safe-l));
+}
+.exp-screen.hidden { display: none; }
+
+.exp-home-btn {
+  position: absolute; top: calc(16px + var(--safe-t)); left: calc(16px + var(--safe-l));
+  background: rgba(255,255,255,0.9); border: 1px solid var(--border-hi);
+  border-radius: 20px; padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--primary);
+  box-shadow: 0 2px 10px rgba(79,195,247,0.2);
+}
+.exp-home-btn:active { transform: scale(0.96); }
+
+/* 선택 화면 — 오직 3개 샘플 버튼 */
+.exp-select-body { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; max-width: 640px; }
+.exp-sample-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 18px; width: 100%; max-width: 460px;
+}
+.exp-sample-card {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: linear-gradient(145deg, #ffffff 0%, #e8f6fd 100%);
+  border: 1px solid var(--border-hi); border-radius: 18px;
+  padding: 28px 12px; box-shadow: 0 4px 16px rgba(79,195,247,0.16);
+  transition: transform .12s, box-shadow .12s;
+}
+.exp-sample-card:hover  { border-color: var(--primary); box-shadow: 0 6px 22px rgba(0,118,206,0.22); }
+.exp-sample-card:active { transform: scale(0.96); }
+.exp-sample-emoji { font-size: 40px; }
+.exp-sample-title { font-size: 15px; font-weight: 700; color: var(--text); text-align: center; }
+@media (max-width: 560px) {
+  .exp-sample-grid { grid-template-columns: 1fr; max-width: 280px; margin: 0 auto; }
+}
+
+.exp-camera-fab {
+  position: absolute; right: calc(20px + var(--safe-r)); bottom: calc(20px + var(--safe-b));
+  width: 62px; height: 62px; border-radius: 50%;
+  background: linear-gradient(135deg, #0076CE 0%, #4fc3f7 100%); color: #fff;
+  font-size: 26px; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 18px rgba(0,118,206,0.4);
+}
+.exp-camera-fab:active { transform: scale(0.94); }
+
+/* 체험하기 촬영 가이드 오버레이 — 기존 변환 화면의 인라인 카메라와 달리 화면 전체를 덮음 */
+.exp-camera-overlay {
+  position: fixed; inset: 0; z-index: 440;
+  background: rgba(8,10,16,0.94);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: 20px;
+}
+.exp-camera-overlay.hidden { display: none; }
+.exp-camera-overlay .camera-video-wrap { width: 100%; max-width: 520px; }
+.exp-camera-overlay .camera-mode-chip {
+  background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.3); color: #fff;
+}
+.exp-camera-overlay .camera-mode-chip.active { background: var(--primary); border-color: var(--primary); }
+.exp-camera-overlay .btn-secondary { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.3); color: #fff; }
+
+/* 악보(한 마디) 화면 — 상하 스크롤 없이 화면에 맞춤(가로로 눕힌 짧은 화면 대비):
+   제목/버튼은 고정 크기, 악보 행만 flex:1로 남는 공간을 차지하고 넘치면
+   JS(autoFitExpScore)가 zoom으로 축소한다. */
+.exp-score-body { height: 100%; max-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; width: 100%; max-width: 820px; }
+.exp-score-title { flex: 0 0 auto; font-size: 22px; font-weight: 800; color: var(--text); }
+.exp-score-hint { flex: 0 0 auto; font-size: 13px; color: var(--text-mute); margin-top: -6px; }
+.exp-score-row { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; gap: 14px; }
+.exp-score-notation {
+  flex: 1 1 auto; min-height: 0; min-width: 0; width: 100%;
+  background: #fff; border: 1px solid var(--border-hi); border-radius: var(--radius);
+  padding: 14px; box-shadow: 0 4px 16px rgba(79,195,247,0.16);
+  display: flex; justify-content: center; align-items: center;
+  overflow: auto;
+}
+
+/* 오른쪽 노트 모양 순위표 */
+.exp-leaderboard {
+  flex: 0 0 168px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: linear-gradient(160deg, #ffffff 0%, #eef8ff 100%);
+  border: 1px solid var(--border-hi); border-radius: var(--radius);
+  padding: 14px 10px; box-shadow: 0 4px 16px rgba(79,195,247,0.16);
+}
+.exp-leaderboard-note { font-size: 34px; line-height: 1; }
+.exp-leaderboard-title { font-size: 11px; font-weight: 800; color: var(--text-mute); letter-spacing: .06em; margin-bottom: 4px; }
+.exp-leaderboard-list { list-style: none; width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.exp-leaderboard-list li {
+  display: flex; align-items: center; gap: 6px; font-size: 12.5px;
+  background: var(--bg-panel); border-radius: 8px; padding: 5px 8px;
+}
+.exp-lb-rank { font-weight: 800; color: var(--primary); width: 14px; flex-shrink: 0; }
+.exp-lb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
+.exp-lb-score { color: var(--text-dim); font-weight: 700; flex-shrink: 0; }
+.exp-leaderboard-empty { font-size: 12px; color: var(--text-mute); text-align: center; padding: 8px 0; }
+@media (max-width: 640px) {
+  .exp-score-row { flex-direction: column; }
+  .exp-leaderboard { flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  .exp-leaderboard-list { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+}
+
+.exp-score-actions { flex: 0 0 auto; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.exp-play-btn {
+  background: linear-gradient(135deg, #0076CE 0%, #4fc3f7 100%); color: #fff;
+  font-size: 17px; font-weight: 700; padding: 14px 40px; border-radius: 28px;
+  box-shadow: 0 4px 16px rgba(0,118,206,0.35);
+}
+.exp-play-btn:active { transform: scale(0.96); }
+.exp-play-btn.playing { filter: brightness(0.92); }
+.exp-play-btn.exp-perform-btn { background: linear-gradient(135deg, #5B7FD6 0%, #8FA8E8 100%); box-shadow: 0 4px 16px rgba(91,127,214,0.35); }
+@media (max-width: 480px) {
+  .exp-score-actions { flex-direction: column; width: 100%; max-width: 260px; }
+  .exp-play-btn { padding: 13px 20px; }
+}
+
+/* ── 체험하기: 오른손만/양손 선택 ──────────────────────────────────── */
+.exp-handmode-body { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.exp-handmode-body h2 { font-size: 22px; font-weight: 800; color: var(--text); }
+.exp-handmode-options { display: flex; gap: 18px; }
+.exp-handmode-card {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: linear-gradient(145deg, #ffffff 0%, #e8f6fd 100%);
+  border: 1px solid var(--border-hi); border-radius: 18px;
+  padding: 26px 34px; box-shadow: 0 4px 16px rgba(79,195,247,0.16);
+  transition: transform .12s, box-shadow .12s;
+}
+.exp-handmode-card:hover  { border-color: var(--primary); box-shadow: 0 6px 22px rgba(0,118,206,0.22); }
+.exp-handmode-card:active { transform: scale(0.96); }
+.exp-handmode-icon { font-size: 36px; }
+.exp-handmode-title { font-size: 16px; font-weight: 800; color: var(--text); }
+.exp-handmode-sub { font-size: 12px; color: var(--text-mute); font-weight: 600; }
+.exp-handmode-card.exp-handmode-disabled { opacity: 0.4; pointer-events: none; }
+.exp-handmode-note { font-size: 12px; color: var(--text-mute); }
+@media (max-width: 480px) {
+  .exp-handmode-options { flex-direction: column; }
+  .exp-handmode-card { padding: 20px 26px; }
+}
+
+/* ── 체험하기: 전자피아노 연결 확인 + 닉네임 대기 화면 ─────────────────── */
+.exp-wait-body { display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 380px; text-align: center; }
+.exp-wait-midi-status { font-size: 14px; font-weight: 600; color: var(--primary); background: #E0F0FC; border-radius: 20px; padding: 8px 16px; }
+.exp-wait-msg { font-size: 24px; font-weight: 800; color: var(--text); }
+.exp-nickname-input {
+  width: 100%; font-size: 16px; padding: 12px 16px; border-radius: 12px;
+  border: 1.5px solid var(--border-hi); background: #fff; color: var(--text); text-align: center;
+}
+.exp-nickname-input:focus { outline: none; border-color: var(--primary); }
+
+/* ── 체험하기: 연주 진행 + 결과 ─────────────────────────────────────── */
+.exp-perform-body { height: 100%; max-height: 100%; width: 100%; max-width: 620px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.exp-perform-title { flex: 0 0 auto; font-size: 20px; font-weight: 800; color: var(--text); }
+.exp-perform-piano { flex: 0 0 auto; width: 100%; }
+.exp-perform-piano.hidden { display: none; }
+.exp-perform-result { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.exp-perform-result.hidden { display: none; }
+.exp-perform-score { font-size: 22px; font-weight: 800; color: var(--primary); }
