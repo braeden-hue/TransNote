@@ -454,13 +454,18 @@ async function handleExpCameraCapture(file) {
     const form = new FormData();
     form.append('file', file);
     const res = await fetch('/api/recognize?model=custom', { method: 'POST', body: form });
-    if (!res.ok) throw new Error('server');
+    if (!res.ok) {
+      // 서버가 돌려준 실제 에러 메시지를 그대로 살려서 던진다 — 예전엔 "server"로만
+      // 뭉뚱그려서 원인(타임아웃/콜드스타트/인식실패 등)을 전혀 구분할 수 없었음.
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `서버 오류 (HTTP ${res.status})`);
+    }
     const json = await res.json();
     json._noScore = true;
     showExpCapturePreview(json, URL.createObjectURL(file));
   } catch (e) {
     console.error('[handleExpCameraCapture] 인식 실패, 샘플로 대체:', e);
-    toast('⚠️ OMR 서버 미연결 — 샘플로 보여드릴게요');
+    toast(`⚠️ ${e.message} — 샘플로 보여드릴게요`);
     const demo = SAMPLES[Math.floor(Math.random() * SAMPLES.length)];
     showExpScore(sampleToNotation(demo, {
       id: generateId(), title: file.name.replace(/\.[^.]+$/, ''), createdAt: Date.now(), _noScore: true,
@@ -1490,17 +1495,22 @@ function setupCameraCapture(ids, onCaptured) {
   openBtn.addEventListener('click', openCamera);
   cancelBtn.addEventListener('click', () => state.activeCameraStop?.());
 
+  // Vercel 서버리스 함수는 요청 본문 4.5MB 하드 제한이 있어서(설정으로 못 늘림) — 카메라
+  // 화면/가이드를 크게 키운 뒤로 원본 해상도 그대로 올리면 넘기기 쉽다. 캡처 시점에
+  // 긴 변 기준 CAPTURE_MAX_DIM으로 미리 축소해서 올린다(OMR 인식엔 이 정도 해상도로 충분).
+  const CAPTURE_MAX_DIM = 1600;
   shutterBtn.addEventListener('click', () => {
     if (!state.cameraStream || !video.videoWidth) return;
     const rect = cameraGuideRectNative(video.videoWidth, video.videoHeight, grandStaff, guideWFrac);
-    canvas.width  = rect.w;
-    canvas.height = rect.h;
-    canvas.getContext('2d').drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+    const scale = Math.min(1, CAPTURE_MAX_DIM / Math.max(rect.w, rect.h));
+    canvas.width  = Math.round(rect.w * scale);
+    canvas.height = Math.round(rect.h * scale);
+    canvas.getContext('2d').drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
     canvas.toBlob(blob => {
       if (!blob) return;
       state.activeCameraStop?.();
       onCaptured(new File([blob], 'capture.jpg', { type: 'image/jpeg' }));
-    }, 'image/jpeg', 0.92);
+    }, 'image/jpeg', 0.85);
   });
 }
 
