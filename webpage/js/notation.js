@@ -569,7 +569,10 @@ export async function renderDigitalStaff(container, staves) {
     container.innerHTML = '';
     if (!container.id) container.id = `vf-container-${Math.random().toString(36).slice(2)}`;
     const width = Math.max(container.clientWidth || 400, 320);
-    const height = staves.length >= 2 ? 260 : 160;
+    // 실제 컨테이너 높이를 우선 쓴다 — 고정값(260/160)이 실제 레이아웃보다 크면 SVG가
+    // container의 overflow:hidden에 잘려서 "빈 화면처럼" 보이는 문제가 있었음.
+    const fallbackHeight = staves.length >= 2 ? 260 : 160;
+    const height = Math.max(container.clientHeight || fallbackHeight, 120);
     const factory = new _VF.Factory({ renderer: { elementId: container.id, width, height } });
     const score = factory.EasyScore();
     const system = factory.System({ width: width - 20 });
@@ -588,7 +591,8 @@ export async function renderDigitalStaff(container, staves) {
     });
     staves.forEach(s => stave.addClef(s.clef ?? 'treble'));
     factory.draw();
-  } catch {
+  } catch (e) {
+    console.error('[renderDigitalStaff] 조판 실패:', e);
     container.innerHTML = '<p style="color:#888;font-size:13px;padding:12px;">이 악보는 미리보기로 표시하기 어려워요(사진은 그대로 확인하실 수 있어요)</p>';
   }
 }

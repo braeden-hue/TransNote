@@ -947,8 +947,8 @@ kbd {
   border-radius: 8px; background: #000;
 }
 .exp-preview-notation {
-  flex: 1 1 auto; min-height: 0; width: 100%; max-width: 100%;
-  background: #fff; border-radius: 8px; overflow: hidden;
+  flex: 1 1 auto; min-height: 120px; width: 100%; max-width: 100%;
+  background: #fff; border-radius: 8px; overflow: auto;
   display: flex; align-items: center; justify-content: center;
 }
 .exp-preview-actions { display: flex; gap: 12px; flex: 0 0 auto; }
