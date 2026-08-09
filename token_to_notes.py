@@ -65,9 +65,11 @@ def tokens_to_score(tokens: List[str]) -> Dict:
 
     pending_pitch: Optional[str] = None
     pending_duration = 1.0
+    pending_carry_duration = 0.0  # 붙임줄(tie)로 앞 음표에서 넘어온 지속시간 — 병합 시 최종 duration에 더해짐
     pending_chord: List[str] = []
     pending_dynamic: Optional[str] = None
     has_pending = False
+    tie_active = False  # 방금 'tie' 토큰을 봤음 — 바로 다음 음표가 같은 피치면 합침
 
     def push(pitch: str, duration: float, chord: Optional[List[str]] = None,
              is_rest: bool = False, dynamic_mark: Optional[str] = None) -> None:
@@ -96,16 +98,18 @@ def tokens_to_score(tokens: List[str]) -> Dict:
             treble_beat = (treble_beat - 1 + advance) % 4 + 1
 
     def finalize_pending() -> None:
-        nonlocal pending_pitch, pending_duration, pending_chord, pending_dynamic, has_pending
+        nonlocal pending_pitch, pending_duration, pending_carry_duration, pending_chord, pending_dynamic, has_pending, tie_active
         if not has_pending:
             return
-        push(pending_pitch or '', pending_duration, chord=list(pending_chord),
+        push(pending_pitch or '', pending_duration + pending_carry_duration, chord=list(pending_chord),
              dynamic_mark=pending_dynamic)
         pending_pitch = None
         pending_duration = 1.0
+        pending_carry_duration = 0.0
         pending_chord = []
         pending_dynamic = None
         has_pending = False
+        tie_active = False
 
     def mark_end_repeat() -> None:
         target = bass if on_bass else treble
@@ -124,10 +128,25 @@ def tokens_to_score(tokens: List[str]) -> Dict:
             finalize_pending()
             on_bass = True
         elif tok.startswith('note-'):
-            finalize_pending()
-            pending_pitch = tok[5:]
-            pending_duration = 1.0
-            has_pending = True
+            new_pitch = tok[5:]
+            # 붙임줄(tie) 병합: 방금 'tie' 토큰을 봤고(tie_active) 아직 push 안 된 이전
+            # 음표(has_pending)가 있고 피치가 같으면, 새 음표를 별도로 밀어내지 않고
+            # 이전 음표의 지속시간에 이어 붙여서 최종적으로 "한 음"으로 재생되게 한다
+            # (커스텀 악보 규칙). has_pending이 이미 False라는 건 그 사이 staff-bass/
+            # barline/rest가 끼어서 finalize된 것 — 즉 마디를 넘거나 보표를 바꾸는 tie는
+            # 자연스럽게 이 분기를 타지 않고 기존처럼 두 음표로 남는다(스코프 밖, 안전한 폴백).
+            if (tie_active and has_pending
+                    and _normalize_pitch(pending_pitch or '') == _normalize_pitch(new_pitch)):
+                pending_carry_duration += pending_duration
+                pending_duration = 1.0
+                pending_chord = []
+                tie_active = False
+            else:
+                finalize_pending()
+                pending_pitch = new_pitch
+                pending_duration = 1.0
+                pending_carry_duration = 0.0
+                has_pending = True
         elif tok.startswith('dur-'):
             if has_pending:
                 pending_duration = _fraction_to_quarters(tok[4:])
@@ -150,7 +169,9 @@ def tokens_to_score(tokens: List[str]) -> Dict:
             treble_beat = 1
             bass_beat = 1
             on_bass = False
-        # artic-*/fermata/ornament-*/tie/slur-*/trill-*/tuplet-*/ottava-*/hairpin-*: 무시.
+        elif tok == 'tie':
+            tie_active = True
+        # artic-*/fermata/ornament-*/slur-*/trill-*/tuplet-*/ottava-*/hairpin-*: 무시.
 
     finalize_pending()
 
