@@ -59,7 +59,14 @@ def recognize():
         return jsonify({"error": f"RunPod 요청 실패: {e}"}), 502
 
     if resp.status_code != 200:
-        return jsonify({"error": f"RunPod 오류 (HTTP {resp.status_code}): {resp.text[:300]}"}), 502
+        # 디버그용 — 실제로 어떤 URL/ID로 요청을 보냈는지까지 에러 메시지에 그대로 노출
+        # (ENDPOINT_ID는 API 키와 달리 비밀값이 아니라 노출돼도 안전 - 공백/오타 확인용).
+        return jsonify({
+            "error": (
+                f"RunPod 오류 (HTTP {resp.status_code}) url={base_url}/run "
+                f"id_repr={RUNPOD_ENDPOINT_ID!r} body={resp.text[:200]}"
+            )
+        }), 502
 
     job_id = resp.json().get("id")
     if not job_id:
