@@ -1,17 +1,111 @@
-# musicscore_flutter
+# TransNote
 
-A new Flutter project.
+악보 이미지를 촬영/업로드하면 자체 학습한 OMR(광학 악보 인식) 모델이 음표를 인식해
+**사용자 정의 표기법(커스텀 악보)**으로 변환해주는 웹 앱. 변환된 악보로 화면 위 가상 피아노
+또는 연결된 전자 피아노(MIDI)로 바로 연주 연습까지 이어진다.
 
-## Getting Started
+악보를 처음 접하거나 오선보 읽기가 어려운 사람을 위해, 복잡한 조표·옥타브 규칙 없이
+"세로 위치 = 음높이, 가로 폭 = 음길이, 테두리 색 = 박자 위치"만으로 읽을 수 있는 표기법을
+자체 설계했다.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+## 데모 흐름
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+1. **랜딩 화면** — 3개의 이미지 위 핫스팟 버튼(튜토리얼 / 체험하기 / 프로젝트 소개)
+2. **튜토리얼** — 규칙 0(12음 건반 라벨)부터 규칙 1(음높이=세로 위치, 옥타브별 색상)·규칙 2(음길이=폭)·규칙 3(화음)까지 단계별 학습 + 테스트 5문항, 태블릿 가로 화면 기준 스크롤 없이 한 화면에 맞춤(CSS zoom 기반 auto-fit)
+3. **체험하기** — 샘플 3곡 중 선택 또는 카메라로 직접 촬영 → 커스텀 악보로 변환 → 오른손만/양손 모드 선택 → 마디 단위로 자동 진행되는 연주 연습(화면 가상 피아노 또는 Web MIDI로 연결한 실물 전자 피아노) → 점수 및 리더보드
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+
+## 아키텍처
+
+```
+webpage/(카메라 촬영·업로드) → POST /api/recognize
+  → train/inference.py: run_image()
+      1. dataset.py: detect_staffs() — OpenCV 고전 알고리즘으로 오선 검출(학습 모델 아님)
+      2. dataset.py: extract_staff_canvas()/extract_system_canvas() — 오선 크롭·정규화
+      3. model.py: OmrSeq2Seq — CNN 인코더 + Transformer 디코더, autoregressive 토큰 생성
+  → token_to_notes.py: tokens_to_score() — 토큰 시퀀스 → 커스텀 표기법 JSON
+  → webpage/js/notation.js — SVG로 커스텀 악보 렌더링
+```
+
+`server.py`(FastAPI) 하나가 정적 웹앱(`webpage/`)을 서빙하면서 동시에 위 인식 API도 제공한다 —
+별도 백엔드/프론트엔드 레포 분리 없음.
+
+## 실행 (체크포인트 다운로드 필요)
+
+모델 체크포인트(약 184MB)는 용량 문제로 git 저장소에는 포함하지 않고 **GitHub Release**로
+따로 배포한다. 아래 2개 파일을 [Releases 페이지](https://github.com/braeden-hue/TransNote/releases/tag/checkpoint-r15)에서
+받아 지정된 경로에 넣으면 된다.
+
+| 파일 | 받는 위치 | sha256 |
+|---|---|---|
+| `seq2seq_best.pt` | `train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt` | `09c79377636b4e86dcbd4bc9e6744eaef93ad3aa7c0aa8933832eddb0fc0b9a9` |
+| `tokenizer258.json` | `train/tokenizer258.json` | `fad052fedb7be8f35d241d7c8943c178b49ca336614ccecc41a57246aa518bcb` |
+
+```bash
+pip install -r requirements.txt
+python server.py
+# 기본 0.0.0.0:8080 — 같은 네트워크의 폰/태블릿에서 http://<이 PC의 LAN IP>:8080 으로 접속
+```
+
+세그넷(SegNet) 체크포인트는 필요 없다 — 오선 검출은 학습된 모델이 아니라 OpenCV 고전
+알고리즘(`detect_staffs()`)으로 수행한다. 모델 아키텍처(레이어 구성)는 위 체크포인트의
+텐서 shape에서 자동으로 역산되므로 별도 설정 파일도 필요 없다.
+
+Web MIDI API(전자 피아노 연동)와 카메라(`getUserMedia`)는 보안 컨텍스트(https:// 또는
+localhost)에서만 동작한다 — LAN IP로 `http://`만 접속하면 브라우저가 차단한다.
+
+## 디렉토리 구조
+
+| 폴더 | 내용 |
+|---|---|
+| `webpage/` | 정적 웹앱(HTML/CSS/JS), PWA(manifest.json) |
+| `train/` | OMR 모델 학습 파이프라인(PyTorch) + 체크포인트 |
+| `test/` | 학습된 모델 평가/진단 스크립트 |
+| `realImage/` | 실사 촬영 이미지 데이터셋(로컬 전용, git 미포함) |
+| `designKit/` | 원본 악보(`.mscz`) 등 디자인/데이터 소스 자산 |
+
+---
+
+## OMR 모델 개발 — 3단계 커리큘럼
+
+한 번에 실제 사진으로 학습을 시작하지 않고, "악보 문법을 이해하는 능력"과 "촬영 환경(기울기·
+조명·블러)을 견디는 능력"을 분리해서 단계적으로 학습했다.
+
+| 단계 | 내용 | 핵심 지표 |
+|---|---|---|
+| 1단계 — 합성 데이터 | `music21`+MuseScore로 악보를 자동 생성해 문법·구조 학습(단일오선→대보표→밀집 리듬·넓은 음역) | teacher-forcing Acc 98.0%, 자기회귀(실전) 기준 미학습 86곡 **72.2%** |
+| 2단계 — 노이즈 증강 | 촬영 시뮬레이션(기울임·블러·조명·원근)을 실제 추론 경로와 동일한 순서로 학습에 반영 | 실촬영 사진 정확도 **21.8% → (오선 검출 실패율 60.6%→23.0%로 개선)** |
+| 3단계 — 실사 데이터 | 실사 촬영 사진(exactPicture 120곡+) 투입, CoordConv·크롭 버그 수정 등 아키텍처 개선 | held-out 실사 12곡 **정확도 87.2%** (최종 채택) |
+
+**핵심 교훈**:
+- seq2seq 모델은 반드시 이전 체크포인트에서 이어받아(resume) 학습해야 함 — 처음부터 학습
+  (random init)은 20에폭에 17.5%에 그쳤지만 resume 방식은 단 5에폭에 92.2%.
+- teacher-forcing 정확도(정답을 계속 알려주며 측정)와 실전 자기회귀 정확도(모델이 스스로
+  예측한 토큰을 다음 입력으로 쓰는 실제 서비스 방식) 사이에는 항상 큰 격차(exposure bias)가
+  있어, 개발 중 반드시 자기회귀 기준으로만 성능을 판단했다.
+- 데이터 생성 단계에서 PDMX 실제 곡 9,845곡의 멜로디 음정 전이 통계로 **1차 마르코프 체인
+  확률표**를 만들어 합성 악보의 피치 선택에 가중치를 줬다 — 완전 무작위보다 실제 작곡 패턴에
+  가까운 학습 데이터를 만들어 합성-실사 분포 격차를 줄이는 접근.
+- 실사 데이터는 "다양하게 늘릴수록" 항상 효과가 있었지만, 이미 좋은 체크포인트에 "좁은
+  합성 데이터"로 재파인튜닝하는 시도는 오히려 성능을 후퇴시켜 폐기했다.
+
+**현재 인식 범위**: 대보표(양손)/단일오선, 시스템당 1~4마디, 박자 4종(4/4·3/4·2/4·6/8), 조표
+13종, 온음표~16분음표(점음표 포함), 화음(2~3음)·다이나믹·페르마타·셋잇단음표·붙임줄·클렙전환,
+음높이 C2~B6. 옥타브(8va/8vb)·헤어핀은 부분 지원(recall 20~37%). 도돌이표·아티큘레이션/
+오나먼트/슬러·5마디 이상 시스템은 스코프 밖.
+
+---
+
+## 기술 스택
+
+| 항목 | 내용 |
+|---|---|
+| 서버 | FastAPI(`server.py`), 정적 파일 서빙 + `/api/recognize`·`/api/status`·`/api/score`·`/api/qr` |
+| 프론트엔드 | 바닐라 JS(`webpage/js/`), SVG 커스텀 표기법 렌더링, Web Audio(연주 합성), Web MIDI(전자 피아노 연동) |
+| OMR 모델 | PyTorch(CNN 인코더 + Transformer 디코더), `train/` 자체 학습 |
+| 학습 데이터 생성 | `music21` + MuseScore4 CLI 렌더링, 마르코프 체인 가중 피치 선택 |
+| 라벨 형식 | DeepScore 토큰 시퀀스(자체 vocabulary, 258 tokens) |
+| DB | Firebase(닉네임/점수 저장, 무료 티어) |

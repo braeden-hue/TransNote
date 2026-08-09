@@ -1,0 +1,10 @@
+# server.py 실행에 필요한 패키지. round3train/의 학습 코드는 별도 requirements를
+# 쓸 수 있으니(round3train/venv 등) 이 파일은 웹 서버 실행에 필요한 것만 담는다.
+fastapi>=0.110
+uvicorn>=0.30
+python-multipart>=0.0.9
+torch>=2.2
+numpy>=1.26
+opencv-python-headless>=4.9
+music21>=9.1
+qrcode>=8.0

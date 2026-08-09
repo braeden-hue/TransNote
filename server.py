@@ -1,10 +1,10 @@
 """
 server.py — 프로젝트 루트에서 `python server.py`로 실행하는 실서비스용 웹 서버.
 
-online_webpage/ 정적 파일(HTML/CSS/JS)을 서빙하면서 /api/status, /api/recognize를
-제공한다. round3train/의 자체 학습 Round3(대보표) 체크포인트로 추론하므로
-omr_bridge/server.py(AGPL-3.0 homr 기반, 개발자 로컬 전용, 배포 금지 — 그 파일
-docstring 참고)와 달리 전시/배포에 그대로 쓸 수 있다.
+webpage/ 정적 파일(HTML/CSS/JS)을 서빙하면서 /api/status, /api/recognize를
+제공한다. train/의 자체 학습 Round3(대보표) 체크포인트로 추론한다(자체 학습
+모델이라 전시/배포에 그대로 쓸 수 있음 — omr_bridge는 2026-08-09 정리 때 삭제됨,
+AGPL 기반 로컬 참고용 도구였고 더 이상 안 씀).
 
 실행:
     python server.py
@@ -28,8 +28,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
 _ROOT = Path(__file__).resolve().parent
-_ROUND3 = _ROOT / "round3train"
-sys.path.insert(0, str(_ROUND3))
+_TRAIN = _ROOT / "train"
+sys.path.insert(0, str(_TRAIN))
 
 from model import OmrSeq2Seq, infer_arch_from_state_dict  # noqa: E402
 from dataset import load_tokenizer  # noqa: E402
@@ -37,9 +37,9 @@ from inference import run_image  # noqa: E402
 
 from token_to_notes import tokens_to_score  # noqa: E402
 
-CHECKPOINT = _ROUND3 / "checkpoints" / "r15_cropfix_coordconv" / "seq2seq_best.pt"
-TOKENIZER = _ROUND3 / "tokenizer258.json"
-WEBROOT = _ROOT / "online_webpage"
+CHECKPOINT = _TRAIN / "checkpoints" / "r15_cropfix_coordconv" / "seq2seq_best.pt"
+TOKENIZER = _TRAIN / "tokenizer258.json"
+WEBROOT = _ROOT / "webpage"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
