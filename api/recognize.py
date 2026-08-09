@@ -10,6 +10,13 @@ webpage/js/app.js는 이 경로를 원래 server.py(FastAPI)와 동일한 상대
 필요한 Vercel 환경변수(Project Settings → Environment Variables):
   RUNPOD_API_KEY      — RunPod 계정 API 키
   RUNPOD_ENDPOINT_ID  — RunPod Serverless 엔드포인트 ID
+
+중요 — /runsync 대신 /run + /status 폴링을 쓰는 이유:
+RunPod의 /runsync는 서버 쪽에서 최대 90초만 붙잡고 있다가 그 안에 안 끝나면 결과 대신
+IN_PROGRESS 상태를 그냥 돌려준다(클라이언트 쪽 타임아웃을 아무리 늘려도 이 90초 자체는
+못 늘림). 콜드스타트(7GB대 이미지 pull + 모델 로드)가 90초를 넘기는 경우가 흔해서,
+비동기 /run으로 작업만 시작시키고 /status를 짧은 간격으로 반복 조회하는 방식으로 바꿨다.
+이 함수 자체의 실행 시간은 vercel.json의 maxDuration(60초)에 맞춰 POLL_BUDGET_SEC를 잡는다.
 """
 import base64
 import os
@@ -24,6 +31,9 @@ app = Flask(__name__)
 RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY")
 RUNPOD_ENDPOINT_ID = os.environ.get("RUNPOD_ENDPOINT_ID")
 
+POLL_BUDGET_SEC = 54  # vercel.json maxDuration(60초)보다 여유 있게 짧게
+POLL_INTERVAL_SEC = 2
+
 
 @app.route("/api/recognize", methods=["POST"])
 def recognize():
@@ -35,18 +45,15 @@ def recognize():
         return jsonify({"error": "file 필드가 없습니다"}), 400
 
     image_b64 = base64.b64encode(file.read()).decode("ascii")
+    headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}", "Content-Type": "application/json"}
+    base_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}"
 
     try:
         resp = requests.post(
-            f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync",
-            headers={
-                "Authorization": f"Bearer {RUNPOD_API_KEY}",
-                "Content-Type": "application/json",
-            },
+            f"{base_url}/run",
+            headers=headers,
             json={"input": {"image_base64": image_b64, "filename": file.filename or "score.jpg"}},
-            # RunPod 콜드스타트(컨테이너 기동+모델 로드)를 감안한 넉넉한 타임아웃.
-            # 웜 상태 추론 자체는 GPU에서 수 초 이내.
-            timeout=90,
+            timeout=15,
         )
     except requests.RequestException as e:
         return jsonify({"error": f"RunPod 요청 실패: {e}"}), 502
@@ -54,11 +61,33 @@ def recognize():
     if resp.status_code != 200:
         return jsonify({"error": f"RunPod 오류 (HTTP {resp.status_code}): {resp.text[:300]}"}), 502
 
-    data = resp.json()
-    if data.get("status") != "COMPLETED":
+    job_id = resp.json().get("id")
+    if not job_id:
+        return jsonify({"error": "RunPod 응답에 작업 id가 없습니다"}), 502
+
+    deadline = time.monotonic() + POLL_BUDGET_SEC
+    data = None
+    while time.monotonic() < deadline:
+        try:
+            status_resp = requests.get(f"{base_url}/status/{job_id}", headers=headers, timeout=10)
+        except requests.RequestException:
+            time.sleep(POLL_INTERVAL_SEC)
+            continue
+        data = status_resp.json()
+        status = data.get("status")
+        if status == "COMPLETED":
+            break
+        if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
+            return jsonify({"error": f"RunPod 작업 실패: {status} - {data.get('error', '')}"}), 502
+        time.sleep(POLL_INTERVAL_SEC)  # IN_QUEUE / IN_PROGRESS — 계속 대기
+    else:
+        # 콜드스타트가 유난히 오래 걸리는 첫 요청 등 — 명확한 재시도 안내로 응답
         return jsonify({
-            "error": f"RunPod 작업 실패: {data.get('status')} - {data.get('error', '')}"
-        }), 502
+            "error": "인식 서버가 아직 준비 중이에요(첫 요청은 최대 1분 이상 걸릴 수 있어요) — 잠시 후 다시 시도해주세요"
+        }), 504
+
+    if not data or data.get("status") != "COMPLETED":
+        return jsonify({"error": f"RunPod 작업 실패: {data.get('status') if data else 'unknown'}"}), 502
 
     output = data.get("output") or {}
     if "error" in output:

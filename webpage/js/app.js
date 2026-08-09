@@ -364,6 +364,50 @@ window.addEventListener('resize', () => {
   if (state.expPerform)   autoFitExpScore('exp-perform-notation');
 });
 
+// 여러 보표(오른손/왼손)를 하나의 절대 시간축으로 합쳐서 재생 — 예전엔 각 손을
+// audio.playSequence()로 독립된 setTimeout 체인을 따로 돌렸는데, 이러면 (1) 두 손의
+// 마디별 박자 합이 데이터상 미세하게라도 다르거나(나비야에서 실제로 발견된 버그),
+// (2) 매 스텝 setTimeout(dur) 체인 자체가 콜백 지연을 누적시키는 것만으로도 시간이
+// 지날수록 두 손이 서서히 어긋날 수 있었다. 전체 이벤트를 한 번에 정렬해서 절대
+// 경과시간(performance.now() 기준) 대비 남은 지연만 매번 다시 계산하는 방식으로
+// 바꿔서 이 어긋남 자체가 구조적으로 생길 수 없게 한다.
+function playMergedSequence(partsNotes, tempo, onEnd) {
+  const qSec = 60 / tempo;
+  const events = [];
+  partsNotes.forEach(notes => {
+    let t = 0;
+    notes.forEach(n => {
+      if (n.pitch) events.push({ time: t, pitch: n.pitch, chordNotes: n.chordNotes, durSec: n.duration * qSec * 0.9 });
+      t += n.duration * qSec;
+    });
+  });
+  events.sort((a, b) => a.time - b.time);
+  if (!events.length) { onEnd?.(); return () => {}; }
+
+  let idx = 0, cancelled = false, timeoutId = null;
+  const startWall = performance.now();
+  function step() {
+    if (cancelled) return;
+    const elapsedSec = (performance.now() - startWall) / 1000;
+    while (idx < events.length && events[idx].time <= elapsedSec + 0.01) {
+      const e = events[idx];
+      audio.playNote(e.pitch, e.durSec);
+      e.chordNotes?.forEach(p => audio.playNote(p, e.durSec));
+      idx++;
+    }
+    if (idx >= events.length) { onEnd?.(); return; }
+    const delayMs = Math.max(0, (events[idx].time - elapsedSec) * 1000);
+    timeoutId = setTimeout(step, delayMs);
+  }
+  step();
+
+  return () => {
+    cancelled = true;
+    if (timeoutId) clearTimeout(timeoutId);
+    audio.stopAll();
+  };
+}
+
 function playExpScore() {
   const data = state.expScoreData;
   if (!data) return;
@@ -375,20 +419,10 @@ function playExpScore() {
   const done = () => btn?.classList.remove('playing');
 
   // 화면엔 첫 마디만 보여주지만, 재생은 곡 전체(모든 마디)를 들려준다.
-  if (data.staves?.length >= 2) {
-    // 대보표 악보 한정 — 왼손·오른손 전체를 같은 템포로 동시에 재생
-    const treble = data.staves[0].notes;
-    const bass   = data.staves[1].notes;
-    let pending = 0;
-    const onEnd = () => { pending--; if (pending <= 0) done(); };
-    if (treble.length) { pending++; state.expPlayCancel.push(audio.playSequence(treble, bpm, () => {}, onEnd)); }
-    if (bass.length)   { pending++; state.expPlayCancel.push(audio.playSequence(bass,   bpm, () => {}, onEnd)); }
-    if (!pending) done();
-  } else {
-    const notes = data.notes;
-    if (!notes?.length) { done(); return; }
-    state.expPlayCancel.push(audio.playSequence(notes, bpm, () => {}, done));
-  }
+  const parts = data.staves?.length >= 2
+    ? [data.staves[0].notes, data.staves[1].notes]
+    : [data.notes || []];
+  state.expPlayCancel.push(playMergedSequence(parts, bpm, done));
 }
 
 // 인식 성공 시 바로 악보 화면으로 넘기지 않고, 촬영한 사진과 변환된 디지털 악보를
