@@ -22,7 +22,10 @@ from pathlib import Path
 import runpod
 import torch
 
-_ROOT = Path(__file__).resolve().parent.parent  # 로컬 개발 시 repo root, 컨테이너에선 /app
+_ROOT = Path(__file__).resolve().parent  # Dockerfile이 handler.py를 WORKDIR(/app) 바로 밑에
+# COPY하고 train/ 하위 파일들도 /app/train/에 넣으므로, 컨테이너 안에서는 handler.py의
+# 부모 디렉토리가 곧 /app이다(한 단계만 올라가야 함 — 두 단계 올리면 컨테이너 루트로
+# 잘못 빠져서 체크포인트를 못 찾고 매번 시작부터 죽는 버그였음, 2026-08-10 발견).
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "train"))
 
