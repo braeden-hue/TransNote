@@ -384,12 +384,13 @@ async function handleExpCameraCapture(file) {
   try {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch('/api/recognize?model=andromr', { method: 'POST', body: form });
+    const res = await fetch('/api/recognize?model=custom', { method: 'POST', body: form });
     if (!res.ok) throw new Error('server');
     const json = await res.json();
     json._noScore = true;
     showExpScore(json);
-  } catch {
+  } catch (e) {
+    console.error('[handleExpCameraCapture] 인식 실패, 샘플로 대체:', e);
     toast('⚠️ OMR 서버 미연결 — 샘플로 보여드릴게요');
     const demo = SAMPLES[Math.floor(Math.random() * SAMPLES.length)];
     showExpScore(sampleToNotation(demo, {
