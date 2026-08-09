@@ -40,6 +40,9 @@ def recognize():
     if not RUNPOD_API_KEY or not RUNPOD_ENDPOINT_ID:
         return jsonify({"error": "서버 설정 오류: RUNPOD_API_KEY/RUNPOD_ENDPOINT_ID 환경변수 미설정"}), 500
 
+    t0 = time.monotonic()  # "매번 느리다"는 게 대기(delayTime)인지 실행(executionTime)인지
+    # 구분하려고 재는 것 — 원인 확정되면 이 진단용 타이밍 코드는 제거할 것.
+
     file = request.files.get("file")
     if file is None:
         return jsonify({"error": "file 필드가 없습니다"}), 400
@@ -103,4 +106,13 @@ def recognize():
     now_ms = int(time.time() * 1000)
     output["id"] = f"n_{now_ms}_{uuid.uuid4().hex[:5]}"
     output["createdAt"] = now_ms
+    # 진단용 — RunPod가 job 자체에 매긴 delayTime(대기)/executionTime(실행)과, 이 함수가
+    # /run 요청부터 결과 수신까지 실제로 걸린 총 시간(vercelTotalMs, 폴링 간격 오차 포함)을
+    # 같이 실어 보낸다. 프론트에서 토스트로 바로 보여줘서(태블릿이라 devtools 못 씀)
+    # 느린 원인이 대기/실행/네트워크 중 어디인지 한 번에 확인한다. 원인 확정 후 제거할 것.
+    output["_timing"] = {
+        "delayTimeMs": data.get("delayTime"),
+        "executionTimeMs": data.get("executionTime"),
+        "vercelTotalMs": int((time.monotonic() - t0) * 1000),
+    }
     return jsonify(output)

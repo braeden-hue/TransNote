@@ -469,6 +469,13 @@ async function handleExpCameraCapture(file, fullFile) {
     }
     const json = await res.json();
     json._noScore = true;
+    // 진단용 — "매번 오래 걸린다"는 게 RunPod 대기/실행 중 어디서 오는지 태블릿에서도
+    // 바로 보이게 토스트로 띄운다(devtools 접근 불가). 원인 확정되면 제거할 것.
+    if (json._timing) {
+      const t = json._timing;
+      const s = ms => (ms == null ? '?' : (ms / 1000).toFixed(1));
+      toast(`⏱ 대기 ${s(t.delayTimeMs)}s / 실행 ${s(t.executionTimeMs)}s / 총 ${s(t.vercelTotalMs)}s`);
+    }
     // 미리보기엔 인식용으로 잘라 보낸 이미지가 아니라 촬영한 프레임 전체(fullFile)를
     // 보여준다 — 없으면(구형 브라우저 등) 잘라낸 이미지로라도 대체.
     showExpCapturePreview(json, URL.createObjectURL(fullFile || file));
