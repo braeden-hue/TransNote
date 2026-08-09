@@ -593,6 +593,9 @@ export async function renderDigitalStaff(container, staves) {
     factory.draw();
   } catch (e) {
     console.error('[renderDigitalStaff] 조판 실패:', e);
-    container.innerHTML = '<p style="color:#888;font-size:13px;padding:12px;">이 악보는 미리보기로 표시하기 어려워요(사진은 그대로 확인하실 수 있어요)</p>';
+    // 태블릿 등 개발자도구를 못 여는 환경에서도 원인을 바로 읽을 수 있게 에러 메시지
+    // 자체를 화면에 그대로 노출(디버그 임시 조치 — 안정화되면 다시 안내 문구로 되돌릴 것).
+    const msg = (e && (e.message || String(e))) || '알 수 없는 오류';
+    container.innerHTML = `<p style="color:#c33;font-size:12px;padding:12px;word-break:break-all;">디버그: ${msg}</p>`;
   }
 }
