@@ -897,14 +897,25 @@ kbd {
 /* 체험하기 촬영 가이드 오버레이 — 기존 변환 화면의 인라인 카메라와 달리 화면 전체를 덮음 */
 .exp-camera-overlay {
   position: fixed; inset: 0; z-index: 440;
-  background: rgba(8,10,16,0.94);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
-  padding: 20px;
+  background: #000;
 }
 .exp-camera-overlay.hidden { display: none; }
-/* 체험하기 카메라는 화면을 최대한 크게 써서 오선을 길게 담을 수 있게 함
-   (기존 변환 화면의 420px 기본값보다 훨씬 큼 — 화면 전체를 덮는 오버레이라 여유 있음). */
-.exp-camera-overlay .camera-video-wrap { width: 100%; max-width: min(92vw, 1300px); max-height: 82vh; }
+/* 체험하기 카메라는 화면 전체를 뷰파인더로 씀 — 촬영 범위를 최대한 크게. 비디오/캔버스가
+   화면을 꽉 채우고, 나머지 컨트롤(모드칩/버튼/에러)은 그 위에 절대좌표로 떠 있는 식. */
+.exp-camera-overlay .camera-video-wrap {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  max-width: none; max-height: none; aspect-ratio: auto; border-radius: 0;
+}
+.exp-camera-overlay .camera-mode-chips {
+  position: absolute; top: calc(16px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 2;
+}
+.exp-camera-overlay .camera-controls {
+  position: absolute; bottom: calc(20px + var(--safe-b)); left: 50%; transform: translateX(-50%); z-index: 2;
+}
+.exp-camera-overlay .camera-error {
+  position: absolute; bottom: calc(88px + var(--safe-b)); left: 50%; transform: translateX(-50%); z-index: 2;
+  max-width: 82vw; text-align: center;
+}
 .exp-camera-overlay .camera-mode-chip {
   background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.3); color: #fff;
 }

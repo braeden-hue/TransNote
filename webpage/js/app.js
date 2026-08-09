@@ -708,7 +708,7 @@ function initExpFlow() {
     openBtn: 'exp-camera-btn', cancelBtn: 'exp-camera-cancel', shutterBtn: 'exp-camera-shutter',
     captureBox: 'exp-camera-capture', video: 'exp-camera-video', canvas: 'exp-camera-canvas',
     guideCanvas: 'exp-camera-guide-canvas', guideHint: 'exp-camera-guide-hint', error: 'exp-camera-error',
-    guideWFrac: 0.97, // 화면을 훨씬 키운 만큼 오선 가이드도 프레임 폭 거의 전체로 길게
+    guideWFrac: 0.99, // 뷰파인더가 화면 전체라 오선 가이드도 프레임 폭 거의 끝까지
   }, handleExpCameraCapture);
 
   document.getElementById('exp-preview-confirm')?.addEventListener('click', () => {
@@ -1445,6 +1445,14 @@ function setupCameraCapture(ids, onCaptured) {
   });
 
   video.addEventListener('loadedmetadata', redrawGuide);
+  // 화면 레이아웃 리사이즈(ResizeObserver)와 카메라 스트림 자체의 해상도 변경은 서로
+  // 다른 타이밍에 일어난다 — 특히 폰을 돌리면 카메라 센서가 videoWidth/videoHeight를
+  // 새로 보고하는 게 CSS 레이아웃 리사이즈보다 늦거나 빠를 수 있어서, 화면만 보고
+  // 다시 그리면 옛 해상도 기준으로 그려진 오선이 남는 버그가 있었다. video 엘리먼트의
+  // 네이티브 resize 이벤트(실제 스트림 해상도 변경 시점)도 별도로 들어서 항상 최신
+  // videoWidth/videoHeight로 다시 계산하게 한다.
+  video.addEventListener('resize', redrawGuide);
+  window.addEventListener('orientationchange', () => setTimeout(redrawGuide, 300));
   new ResizeObserver(redrawGuide).observe(guideWrap);
 
   function cleanup() {
