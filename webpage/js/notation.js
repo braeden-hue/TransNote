@@ -1,4 +1,4 @@
-import { BEAT_COLORS, pitchToZone, formatNoteName, zoneLabels, effectiveClef, hasMixedClef } from './samples.js';
+import { BEAT_COLORS, pitchToZone, formatNoteName, effectiveClef, hasMixedClef } from './samples.js';
 
 const UNIT_W      = 80;
 const CELL_H      = 46;
@@ -47,8 +47,9 @@ export function renderNotation(container, notes, {
     style: 'display:block;',
   });
 
-  // ── Zone backgrounds + labels ─────────────────────────────────────────────
-  const ZONE_LABELS = zoneLabels(clef);
+  // ── Zone backgrounds ──────────────────────────────────────────────────────
+  // (예전엔 존 왼쪽에 "높음(6옥+)" 등 회색 글자 라벨을 같이 그렸으나 전 화면에서 삭제 —
+  // 색과 위치만으로 읽는다는 원칙에 맞춰 글자 설명 없이 색 구분만 남긴다.)
   for (let z = 0; z < 3; z++) {
     const zy = CONTENT_Y + z * ZONE_H;
     svg.appendChild(el('rect', {
@@ -63,13 +64,6 @@ export function renderNotation(container, notes, {
         stroke: '#C5D8EC', 'stroke-width': '1.5', 'stroke-dasharray': '6,4',
       }));
     }
-    const lbl = el('text', {
-      x: MARGIN_L - 6, y: zy + ZONE_H / 2 + 4,
-      'text-anchor': 'end', fill: '#8BA5BE',
-      'font-size': '10', 'font-family': 'system-ui',
-    });
-    lbl.textContent = ZONE_LABELS[z];
-    svg.appendChild(lbl);
   }
 
   // ── Collect measure-start x positions (beat === 1) ─────────────────────────

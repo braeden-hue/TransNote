@@ -364,19 +364,6 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
 }
 
 /* ── 튜토리얼 페이지 보조 컴포넌트 ─────────────────────────────── */
-.tut-compare-wrap { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; width: 100%; display: flex; }
-.tut-bubble {
-  position: absolute; z-index: 5; max-width: 140px;
-  background: #fff; border: 1.5px solid var(--border-hi); border-radius: 12px;
-  padding: 6px 10px; font-size: 12px; font-weight: 700; line-height: 1.35; color: var(--text-dim);
-  box-shadow: 0 4px 14px rgba(0,40,80,0.16);
-}
-.tut-bubble::after {
-  content: ''; position: absolute; width: 10px; height: 10px;
-  background: #fff; border-right: 1.5px solid var(--border-hi); border-bottom: 1.5px solid var(--border-hi);
-}
-.tut-bubble-down::after { top: -6px; left: 18px; transform: rotate(-135deg); border-right: none; border-bottom: none; border-left: 1.5px solid var(--border-hi); border-top: 1.5px solid var(--border-hi); }
-.tut-bubble-up::after   { bottom: -6px; left: 18px; transform: rotate(45deg); }
 .tut-compare-label { font-size: 15px; font-weight: 700; color: var(--text-mute); }
 .tut-staff-box { width: 100%; max-width: 560px; }
 .tut-compare-img {
@@ -687,19 +674,21 @@ kbd {
 
 /* ── 튜토리얼 "처음으로" 버튼 — 오른쪽 중앙 부근, 돋보기(규칙2+에서 같은 자리 아래에
    나타남)와 안 겹치게 그 위쪽에 고정 배치 ──────────────────────────────── */
+/* 다음/이전 버튼과 같은 모양(사각 필 버튼) — 하늘색 배경 + 검은 글씨, 아이콘 없이
+   작은 크기로(다른 그림을 가리지 않게). */
 .tut-home-btn {
   position: fixed; z-index: 260;
   top: calc(50% - 88px); right: calc(14px + var(--safe-r));
-  background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
-  border: 1px solid var(--border-hi); border-radius: 999px;
-  padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--text-dim);
-  box-shadow: 0 3px 14px rgba(79,195,247,0.3);
-  transition: transform .15s, box-shadow .15s;
+  background: var(--sky); color: #111;
+  border: none; border-radius: 8px;
+  padding: 9px 16px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 3px 10px rgba(79,195,247,0.35);
+  transition: filter .15s, box-shadow .15s, transform .1s;
 }
-.tut-home-btn:hover  { box-shadow: 0 4px 18px rgba(0,118,206,0.35); }
-.tut-home-btn:active { transform: scale(0.94); }
+.tut-home-btn:hover  { filter: brightness(0.96); }
+.tut-home-btn:active { transform: scale(0.96); }
 @media (max-width: 480px) {
-  .tut-home-btn { right: calc(8px + var(--safe-r)); padding: 7px 11px; font-size: 12px; }
+  .tut-home-btn { right: calc(8px + var(--safe-r)); padding: 7px 12px; font-size: 12px; }
 }
 
 /* ── 12음 참고 돋보기 ──────────────────────────────────────────── */

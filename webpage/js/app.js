@@ -738,7 +738,24 @@ function initExpFlow() {
     showExpScore(state.expScoreData); // 순위표 갱신 포함해서 악보 화면으로 복귀
   });
 
-  const goHome = () => { hideExpScreens(); showLanding(); };
+  // 지금 보이는 체험하기 화면(5개 중 하나)을 찾아서 서서히 사라지게 한 뒤 랜딩으로 —
+  // 튜토리얼의 fadeExitToLanding()과 같은 페이드 효과. exitFlowToLanding()이 아니라
+  // hideExpScreens()를 써야 재생 중인 곡 정지/촬영 미리보기 정리 등 체험하기 전용
+  // 뒷정리가 같이 되므로 fadeExitToLanding을 그대로 재사용하지 않고 따로 만든다.
+  const goHome = () => {
+    const visible = ['screen-exp-select', 'screen-exp-score', 'screen-exp-handmode', 'screen-exp-wait', 'screen-exp-perform']
+      .find(id => !document.getElementById(id)?.classList.contains('hidden'));
+    const el = visible && document.getElementById(visible);
+    if (!el) { hideExpScreens(); showLanding(); return; }
+    el.style.transition = `opacity ${FADE_EXIT_MS}ms ease`;
+    el.style.opacity = '0';
+    setTimeout(() => {
+      hideExpScreens();
+      showLanding();
+      el.style.transition = '';
+      el.style.opacity = '';
+    }, FADE_EXIT_MS);
+  };
   document.getElementById('exp-select-home')?.addEventListener('click', goHome);
   document.getElementById('exp-score-home')?.addEventListener('click', goHome);
   document.getElementById('exp-handmode-home')?.addEventListener('click', goHome);
@@ -1019,42 +1036,37 @@ function buildQuizPage(order, spec) {
   };
 }
 
-// "시작하기 전에" 페이지 — 커스텀 악보 쪽 예시(화음 하나 포함, 오른쪽 끝 박자에
-// 배치해서 말풍선을 거기 고정으로 앵커링). 원본 이미지와 완전히 같은 곡은 아니지만
-// (원본은 정적 이미지라 정확한 음표 데이터가 없음) 같은 수준의 짧은 대보표 예시.
+// "시작하기 전에" 페이지 — 커스텀 악보 쪽 예시. 원본 이미지와 완전히 같은 곡은 아니지만
+// (원본은 정적 이미지라 정확한 음표 데이터가 없음) 손마다 낮음/중간/높음 존을 골고루
+// 지나가도록 골라서, 존별 색 구분이 실제로 눈에 보이는 예시가 되게 한다(이전 버전은
+// 손마다 전부 같은 옥타브라 한 가지 색으로만 칠해져 있었음).
 const TUT_INTRO_CUSTOM_STAVES = [
   { clef: 'treble', notes: [
-    { pitch: 'D5', duration: 1, beat: 1 },
-    { pitch: 'F5', duration: 1, beat: 2 },
-    { pitch: 'A5', duration: 1, beat: 3 },
-    { pitch: 'B5', duration: 1, beat: 4, chordNotes: ['D6'] },
+    { pitch: 'E4', duration: 1, beat: 1 },
+    { pitch: 'G5', duration: 1, beat: 2 },
+    { pitch: 'C6', duration: 1, beat: 3 },
+    { pitch: 'E5', duration: 1, beat: 4, chordNotes: ['G5'] },
   ] },
   { clef: 'bass', notes: [
-    { pitch: 'B3', duration: 1, beat: 1 },
-    { pitch: 'D4', duration: 1, beat: 2 },
-    { pitch: 'F4', duration: 1, beat: 3 },
-    { pitch: 'B3', duration: 1, beat: 4, chordNotes: ['D4', 'F4'] },
+    { pitch: 'E3', duration: 1, beat: 1 },
+    { pitch: 'C2', duration: 1, beat: 2 },
+    { pitch: 'G3', duration: 1, beat: 3 },
+    { pitch: 'C2', duration: 1, beat: 4, chordNotes: ['E2'] },
   ] },
 ];
 
 const TUT_PAGES = [
   {
     chip: '시작하기 전에',
-    caption: '', // 설명 글 대신 아래 두 악보 위 말풍선으로 바로 보여준다
+    caption: '우리의 목표 — 조표·옥타브 번호 같은 오선지의 복잡한 규칙 없이, 색과 위치로 바로 읽는 악보',
     splitDirection: 'row', // 위/아래 대신 좌/우로 두 악보를 나란히 비교
     render(top, bottom) {
       top.innerHTML = `
         <p class="tut-compare-label">전통 오선 악보</p>
-        <div class="tut-compare-wrap">
-          <img class="tut-compare-img" src="assets/tut-intro-original.png" alt="전통 오선 악보 원본">
-          <div class="tut-bubble tut-bubble-down" style="top:34%; left:20%;">어... 이 조표는 뭐였지? 🤔</div>
-        </div>`;
+        <img class="tut-compare-img" src="assets/tut-intro-original.png" alt="전통 오선 악보 원본">`;
       bottom.innerHTML = `
         <p class="tut-compare-label">커스텀 악보 (같은 수준의 예시)</p>
-        <div class="tut-compare-wrap" id="tut-intro-custom-wrap">
-          <div class="tut-compare-img" id="tut-intro-custom-grand" style="display:flex;align-items:center;justify-content:center;"></div>
-          <div class="tut-bubble tut-bubble-up" style="bottom:30%; right:6%;">동시에 눌러요, 색으로 바로 보여요! 🎹</div>
-        </div>`;
+        <div id="tut-intro-custom-grand" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>`;
       renderGrandStaff(document.getElementById('tut-intro-custom-grand'), TUT_INTRO_CUSTOM_STAVES);
     },
   },
