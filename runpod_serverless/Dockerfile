@@ -1,7 +1,11 @@
 # RunPod Serverless GPU 워커 이미지. 빌드 컨텍스트는 반드시 저장소 루트로 지정할 것
 # (예: docker build -f runpod_serverless/Dockerfile -t transnote-omr .)
-# RunPod 콘솔에서 "GitHub repo에서 빌드" 옵션을 쓰면 Dockerfile path만
-# runpod_serverless/Dockerfile로 지정하면 됨(컨텍스트는 자동으로 repo root).
+#
+# 배포 경로: RunPod의 "GitHub repo에서 자동 빌드" 기능이 반복적으로 오작동해서
+# (linking flow 검증 실패, Dockerfile/handler 미인식) 이 방식은 쓰지 않는다.
+# 대신 .github/workflows/build-runpod-image.yml이 이 Dockerfile을 빌드해
+# Docker Hub(kyutae424/transnote-omr:latest)에 올리고, RunPod Serverless
+# 엔드포인트는 "Custom Image" 소스로 그 이미지 주소를 직접 지정해서 만든다.
 FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 
 WORKDIR /app
