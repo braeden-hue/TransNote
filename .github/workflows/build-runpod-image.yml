@@ -1,0 +1,38 @@
+name: Build & push RunPod Serverless image
+
+# RunPod의 "GitHub repo에서 자동 빌드" 기능이 불안정해서(Dockerfile/handler 인식 오류 반복)
+# 대신 여기서 직접 빌드해 Docker Hub에 올리고, RunPod엔 완성된 이미지 주소만 준다.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "runpod_serverless/**"
+      - "train/*.py"
+      - "train/tokenizer258.json"
+      - "token_to_notes.py"
+  workflow_dispatch: {}  # Actions 탭에서 수동으로도 재실행 가능
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: runpod_serverless/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/transnote-omr:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
