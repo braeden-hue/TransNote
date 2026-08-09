@@ -293,10 +293,11 @@ export function buildPiano(pianoEl, pianoWrapper, {
       });
     },
 
-    // 건반 위에 컬러 점 표시 (가온다 등 기준음 마킹)
+    // 건반 위에 컬러 점 표시 (가온다 등 기준음 마킹). label(이모지 등)을 주면 점 위에
+    // 작게 같이 띄운다(예: 왼손/오른손 기준점 구분용).
     setDots(specs) {
       pianoEl.querySelectorAll('.piano-dot').forEach(d => d.remove());
-      specs.forEach(({ note, color = '#FF4444' }) => {
+      specs.forEach(({ note, color = '#FF4444', label = '' }) => {
         const k = keyEls[note];
         if (!k) return;
         k.style.position = 'relative';
@@ -308,6 +309,17 @@ export function buildPiano(pianoEl, pianoWrapper, {
           background:${color}; pointer-events:none; z-index:6;
           box-shadow:0 0 4px 1px ${color};
         `;
+        if (label) {
+          const lbl = document.createElement('div');
+          lbl.className = 'piano-dot-label';
+          lbl.textContent = label;
+          lbl.style.cssText = `
+            position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+            font-size:14px; line-height:1; pointer-events:none; z-index:6;
+            filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff);
+          `;
+          k.appendChild(lbl);
+        }
         k.appendChild(dot);
       });
     },

@@ -674,21 +674,20 @@ kbd {
 
 /* ── 튜토리얼 "처음으로" 버튼 — 오른쪽 중앙 부근, 돋보기(규칙2+에서 같은 자리 아래에
    나타남)와 안 겹치게 그 위쪽에 고정 배치 ──────────────────────────────── */
-/* 다음/이전 버튼과 같은 모양(사각 필 버튼) — 하늘색 배경 + 검은 글씨, 아이콘 없이
-   작은 크기로(다른 그림을 가리지 않게). */
+/* 흰 동그라미 아이콘 버튼 — 같은 화면의 돋보기 버튼(.magnifier-btn)과 같은 모양 언어 */
 .tut-home-btn {
   position: fixed; z-index: 260;
   top: calc(50% - 88px); right: calc(14px + var(--safe-r));
-  background: var(--sky); color: #111;
-  border: none; border-radius: 8px;
-  padding: 9px 16px; font-size: 13px; font-weight: 600;
-  box-shadow: 0 3px 10px rgba(79,195,247,0.35);
-  transition: filter .15s, box-shadow .15s, transform .1s;
+  width: 46px; height: 46px; border-radius: 50%;
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
+  border: 1px solid var(--border-hi); box-shadow: 0 3px 14px rgba(79,195,247,0.3);
+  font-size: 20px; display: flex; align-items: center; justify-content: center;
+  transition: transform .15s, box-shadow .15s;
 }
-.tut-home-btn:hover  { filter: brightness(0.96); }
-.tut-home-btn:active { transform: scale(0.96); }
+.tut-home-btn:hover  { box-shadow: 0 4px 18px rgba(0,118,206,0.35); }
+.tut-home-btn:active { transform: scale(0.92); }
 @media (max-width: 480px) {
-  .tut-home-btn { right: calc(8px + var(--safe-r)); padding: 7px 12px; font-size: 12px; }
+  .tut-home-btn { right: calc(8px + var(--safe-r)); width: 40px; height: 40px; font-size: 18px; }
 }
 
 /* ── 12음 참고 돋보기 ──────────────────────────────────────────── */
