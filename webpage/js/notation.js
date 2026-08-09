@@ -514,88 +514,112 @@ export function renderMiniStaff(container, notes) {
 }
 
 // ── 정식 오선보(디지털 악보) 렌더러 — 촬영 미리보기에서 "원본 사진과 비교"용 ──────
-// 커스텀 색상 표기가 아니라 실제 표준 악보로 보여줘야 사용자가 사진과 직접 비교하기
-// 쉽다. VexFlow(CDN, MIT 라이선스)를 지연 로드해서 쓴다 — 별도 빌드/에셋 번들링 불필요.
-let _VF = null;
-const _vfLoadPromise = import('https://cdn.jsdelivr.net/npm/vexflow@5.0.0/build/esm/entry/vexflow.js')
-  .then(async mod => {
-    const VexFlow = mod.VexFlow;
-    await VexFlow.loadFonts('Bravura', 'Academico');
-    VexFlow.setFonts('Bravura', 'Academico');
-    _VF = VexFlow;
-  })
-  .catch(() => { /* CDN 접근 실패 — renderDigitalStaff()에서 에러 메시지로 대체 */ });
+// VexFlow(외부 CDN 라이브러리) 연동이 계속 불안정해서(폰트/조판 내부 에러를 브라우저
+// 바깥에서 재현·디버그하기 어려움) 포기하고, renderMiniStaff와 같은 원리의 자체 SVG로
+// 대보표·화음·쉼표까지 지원하도록 확장했다 — 외부 API 불확실성이 전혀 없음.
+const _LETTER_IDX = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
+// clef별 오선 "맨 아래 줄"에 해당하는 기준 음 — 이 음을 step=0으로 놓고 위/아래로
+// 온음계 단위(반음 아님)로 계단을 센다.
+const _CLEF_BOTTOM_LINE = { treble: { letter: 'E', oct: 4 }, bass: { letter: 'G', oct: 2 } };
 
-// duration(쿼터노트 단위, 예: 1=4분음표, 0.5=8분음표) -> VexFlow EasyScore duration 문자열.
-// 정확한 조판이 목적이 아니라 "육안 비교용" 근사치라, 표준이 아닌 분수(셋잇단음표 등)는
-// 가장 가까운 표준 길이로 반올림한다.
-function _durToVexDur(d) {
-  const table = [
-    [4, 'w'], [3, 'hd'], [2, 'h'], [1.5, 'qd'], [1, 'q'],
-    [0.75, '8d'], [0.5, '8'], [0.375, '16d'], [0.25, '16'], [0.125, '32'],
-  ];
-  let best = table[table.length - 1];
-  let bestDiff = Infinity;
-  for (const entry of table) {
-    const diff = Math.abs(entry[0] - d);
-    if (diff < bestDiff) { bestDiff = diff; best = entry; }
-  }
-  return best[1];
+function _pitchStep(pitch, clef) {
+  const oct = parseInt(pitch.slice(-1));
+  const namePart = pitch.slice(0, -1);
+  const sharp = namePart.endsWith('#');
+  const letter = sharp ? namePart[0] : namePart;
+  const bottom = _CLEF_BOTTOM_LINE[clef] || _CLEF_BOTTOM_LINE.treble;
+  const abs = oct * 7 + _LETTER_IDX[letter];
+  const bottomAbs = bottom.oct * 7 + _LETTER_IDX[bottom.letter];
+  return { step: abs - bottomAbs, sharp };
 }
 
-// notes(우리 데이터 형식) -> VexFlow EasyScore 문자열 한 줄(쉼표로 구분된 음표 나열).
-// 쉼표는 EasyScore에서 "r/<길이>"(음이름 없음) 형태 — "B4/4/r" 같은 3단 구조가 아님(버그였음).
-function _notesToEasyScore(notes) {
-  if (!notes?.length) return 'r/w'; // 빈 마디 — 온쉼표로 채움(EasyScore는 빈 보이스 허용 안 함)
-  return notes.map(n => {
-    const vd = _durToVexDur(n.duration);
-    if (n.isRest) return `r/${vd}`;
-    const pitches = [n.pitch, ...(n.chordNotes || [])];
-    const head = pitches.length > 1 ? `(${pitches.join(', ')})` : pitches[0];
-    return `${head}/${vd}`;
-  }).join(', ');
+// 한 보표(clef 하나) 분량을 그려서 svg에 append. yOffset만큼 세로로 밀어서 대보표일 때
+// 두 번째 보표를 아래에 이어 그릴 수 있게 한다. 반환값: 다음 보표를 위한 y 오프셋.
+function _drawStaffInto(svg, notes, clef, x0, w, yOffset, gap) {
+  const top = yOffset + 18;
+  for (let i = 0; i < 5; i++) {
+    const y = top + i * gap;
+    svg.appendChild(el('line', { x1: x0, y1: y, x2: x0 + w, y2: y, stroke: '#6E6259', 'stroke-width': '1' }));
+  }
+  // clef 기호(간단한 텍스트 표기 — 정밀 글리프 대신 눈에 띄는 라벨로 대체)
+  const clefLabel = el('text', {
+    x: x0 + 2, y: top + gap * 2 + 5, 'font-size': '20', fill: '#333', 'font-family': 'serif', 'font-weight': '700',
+  });
+  clefLabel.textContent = clef === 'bass' ? '𝄢' : '𝄞';
+  svg.appendChild(clefLabel);
+
+  const bottomY = top + 4 * gap;
+  const stepToY = step => bottomY - step * (gap / 2);
+  const totalDur = notes.reduce((s, n) => s + n.duration, 0) || 1;
+  const usableW = w - 34;
+  let x = x0 + 34;
+
+  notes.forEach(note => {
+    const cellW = (note.duration / totalDur) * usableW;
+    const cx = x + cellW / 2;
+
+    if (note.isRest) {
+      // 쉼표 — 정밀 글리프 대신 가운데줄에 작은 사각 바로 표시(육안 비교용으로 충분).
+      const midY = top + 2 * gap;
+      svg.appendChild(el('rect', { x: cx - 6, y: midY - 3, width: 12, height: 6, fill: '#444', rx: 1 }));
+      x += cellW;
+      return;
+    }
+
+    const pitches = [note.pitch, ...(note.chordNotes || [])];
+    const steps = pitches.map(p => _pitchStep(p, clef));
+    let minStep = Math.min(...steps.map(s => s.step));
+    let maxStep = Math.max(...steps.map(s => s.step));
+
+    steps.forEach(({ step, sharp }) => {
+      const cy = stepToY(step);
+      if (step < 0) {
+        for (let s = -2; s >= step; s -= 2) {
+          const ly = stepToY(s);
+          svg.appendChild(el('line', { x1: cx - 8, y1: ly, x2: cx + 8, y2: ly, stroke: '#6E6259', 'stroke-width': '1' }));
+        }
+      } else if (step > 8) {
+        for (let s = 10; s <= step; s += 2) {
+          const ly = stepToY(s);
+          svg.appendChild(el('line', { x1: cx - 8, y1: ly, x2: cx + 8, y2: ly, stroke: '#6E6259', 'stroke-width': '1' }));
+        }
+      }
+      if (sharp) {
+        const t = el('text', { x: cx - 13, y: cy + 4, 'font-size': '12', fill: '#222', 'font-family': 'system-ui' });
+        t.textContent = '♯';
+        svg.appendChild(t);
+      }
+      const hollow = note.duration >= 2;
+      svg.appendChild(el('ellipse', {
+        cx, cy, rx: 5.5, ry: 4, transform: `rotate(-15 ${cx} ${cy})`,
+        fill: hollow ? 'none' : '#222', stroke: '#222', 'stroke-width': hollow ? '1.4' : '0',
+      }));
+    });
+
+    // 화음이면 맨 위~맨 아래 음을 잇는 줄기 하나만(실제 조판과 동일한 관례), 단음이면
+    // 그 음 하나에서 뻗는 줄기.
+    const stemTopY = stepToY(maxStep) - 22;
+    const stemBottomY = stepToY(minStep);
+    svg.appendChild(el('line', { x1: cx + 5, y1: stemBottomY, x2: cx + 5, y2: stemTopY, stroke: '#222', 'stroke-width': '1.2' }));
+
+    x += cellW;
+  });
+
+  return yOffset + 5 * gap + 26; // 다음 보표 시작 y
 }
 
 // container에 정식 오선보를 그린다. staves: [{clef, notes}] (1개=단일보표, 2개=대보표).
-// VexFlow 로드 실패/조판 실패 시 안내 문구로 대체(전체 흐름을 막지 않음).
-export async function renderDigitalStaff(container, staves) {
-  container.innerHTML = '<p style="color:#888;font-size:13px;padding:12px;">오선보 로딩 중…</p>';
-  await _vfLoadPromise;
-  if (!_VF) {
-    container.innerHTML = '<p style="color:#888;font-size:13px;padding:12px;">오선보를 불러올 수 없습니다</p>';
-    return;
-  }
-  try {
-    container.innerHTML = '';
-    if (!container.id) container.id = `vf-container-${Math.random().toString(36).slice(2)}`;
-    const width = Math.max(container.clientWidth || 400, 320);
-    // 실제 컨테이너 높이를 우선 쓴다 — 고정값(260/160)이 실제 레이아웃보다 크면 SVG가
-    // container의 overflow:hidden에 잘려서 "빈 화면처럼" 보이는 문제가 있었음.
-    const fallbackHeight = staves.length >= 2 ? 260 : 160;
-    const height = Math.max(container.clientHeight || fallbackHeight, 120);
-    const factory = new _VF.Factory({ renderer: { elementId: container.id, width, height } });
-    const score = factory.EasyScore();
-    const system = factory.System({ width: width - 20 });
-    const stave = system.addStave({
-      voices: staves.map(s => {
-        const voice = score.voice(score.notes(_notesToEasyScore(s.notes), {
-          stem: s.clef === 'bass' ? 'down' : 'up',
-          clef: s.clef ?? 'treble',
-        }));
-        // 실제 인식 데이터는 duration 반올림 때문에 박자 합이 시간표기와 딱 안 맞을 수
-        // 있음 — VexFlow의 엄격한 tick-count 검증(안 맞으면 예외 던짐)을 꺼서 미리보기가
-        // 깨지지 않게 한다(정밀 조판이 목적이 아니라 육안 비교용이므로 허용).
-        voice.setStrict(false);
-        return voice;
-      }),
-    });
-    staves.forEach(s => stave.addClef(s.clef ?? 'treble'));
-    factory.draw();
-  } catch (e) {
-    console.error('[renderDigitalStaff] 조판 실패:', e);
-    // 태블릿 등 개발자도구를 못 여는 환경에서도 원인을 바로 읽을 수 있게 에러 메시지
-    // 자체를 화면에 그대로 노출(디버그 임시 조치 — 안정화되면 다시 안내 문구로 되돌릴 것).
-    const msg = (e && (e.message || String(e))) || '알 수 없는 오류';
-    container.innerHTML = `<p style="color:#c33;font-size:12px;padding:12px;word-break:break-all;">디버그: ${msg}</p>`;
-  }
+export function renderDigitalStaff(container, staves) {
+  const W = Math.max(container.clientWidth || 400, 320);
+  const GAP = 14;
+  const H = staves.length >= 2 ? 2 * (5 * GAP + 44) : (5 * GAP + 44);
+  const svg = el('svg', { width: '100%', height: H, viewBox: `0 0 ${W} ${H}` });
+
+  let y = 0;
+  staves.forEach(s => {
+    y = _drawStaffInto(svg, s.notes?.length ? s.notes : [{ isRest: true, duration: 4 }], s.clef ?? 'treble', 4, W - 14, y, GAP);
+  });
+
+  container.innerHTML = '';
+  container.appendChild(svg);
 }
