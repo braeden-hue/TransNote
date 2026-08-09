@@ -293,6 +293,20 @@ export function buildPiano(pianoEl, pianoWrapper, {
       });
     },
 
+    // 존 경계에 세로 구분선 표시(예: 왼손/오른손이 만나는 겹치는 지점을 회색 선으로
+    // 표시) — note의 왼쪽 끝(그 앞 건반과의 경계)에 선을 긋는다.
+    setZoneDivider(note, color = '#999') {
+      pianoEl.querySelectorAll('.piano-zone-divider').forEach(d => d.remove());
+      const x = whiteKeyX(note);
+      const line = document.createElement('div');
+      line.className = 'piano-zone-divider';
+      line.style.cssText = `
+        position:absolute; top:0; left:${x}px; width:2px; height:${WK_H}px;
+        background:${color}; pointer-events:none; z-index:5;
+      `;
+      pianoEl.appendChild(line);
+    },
+
     // 건반 위에 컬러 점 표시 (가온다 등 기준음 마킹). label(이모지 등)을 주면 점 위에
     // 작게 같이 띄운다(예: 왼손/오른손 기준점 구분용).
     setDots(specs) {
