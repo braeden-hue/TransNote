@@ -876,13 +876,15 @@ const HAND_ZONES = [
   { hand: '오른손', zone: '높음', from: 'C6', to: 'C8', hex: '#0076CE', note: 'C6' },
 ];
 
-// 규칙1 전용 — 악보 존 배경을 하단 피아노 존 밴드와 같은 색으로(z0=높음→z2=낮음 순).
-// HAND_ZONES에서 그대로 뽑아 쓰므로 팔레트가 어긋날 일이 없음.
+// 커스텀 악보(모든 화면 공통) 존 배경색. 트레블은 HAND_ZONES와 그대로 맞물림(z0=높음
+// →z2=낮음). 베이스는 pitchToZone()의 새 경계(z0=4옥 이상/z1=3옥/z2=2옥 이하)에 맞춰
+// [회색, 연한 주황, 진한 주황]을 직접 지정 — HAND_ZONES는 건반 위 8개 옥타브 밴드용이라
+// (최저/낮음/중간/높음 4단계) 악보의 3단계(z0~z2)와 이름이 1:1로 안 맞는다.
 function zoneColorsForHand(hand) {
   return ['높음', '중간', '낮음'].map(zone => HAND_ZONES.find(z => z.hand === hand && z.zone === zone).hex);
 }
 const TREBLE_ZONE_COLORS = zoneColorsForHand('오른손');
-const BASS_ZONE_COLORS   = zoneColorsForHand('왼손');
+const BASS_ZONE_COLORS   = ['#999999', '#FFC98A', '#E8590C']; // z0=4옥+(회색) z1=3옥(연한주황) z2=2옥 이하(진한주황)
 
 // 옥타브 내비게이션 + 피아노를 container 안에 새로 만들고 state.tutorialPianoCtrl에 연결.
 // (페이지 전환마다 renderTutPage()가 이전 피아노를 destroy()하므로 리스너가 쌓이지 않는다.)
