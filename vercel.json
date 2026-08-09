@@ -1,0 +1,15 @@
+{
+  "builds": [
+    { "src": "webpage/**", "use": "@vercel/static" },
+    { "src": "api/recognize.py", "use": "@vercel/python" },
+    { "src": "api/status.py", "use": "@vercel/python" },
+    { "src": "api/qr.py", "use": "@vercel/python" }
+  ],
+  "routes": [
+    { "src": "/api/recognize", "dest": "api/recognize.py" },
+    { "src": "/api/status", "dest": "api/status.py" },
+    { "src": "/api/qr", "dest": "api/qr.py" },
+    { "src": "/", "dest": "webpage/index.html" },
+    { "src": "/(.*)", "dest": "webpage/$1" }
+  ]
+}

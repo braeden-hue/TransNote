@@ -1,0 +1,7 @@
+# RunPod Serverless 워커 전용 의존성 (server.py의 requirements.txt에서 웹서버 관련
+# 패키지(fastapi/uvicorn/python-multipart/qrcode)는 뺐다 — 이 워커는 GPU 추론만 함).
+runpod>=1.6
+torch>=2.2
+numpy>=1.26
+opencv-python-headless>=4.9
+music21>=9.1

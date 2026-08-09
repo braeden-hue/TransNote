@@ -1,0 +1,5 @@
+# Vercel 서버리스 함수용 — torch/opencv 등 무거운 추론 의존성은 여기 없음
+# (추론은 runpod_serverless/에서 전담, 이 함수들은 얇은 프록시일 뿐).
+flask>=3.0
+requests>=2.31
+qrcode>=8.0
