@@ -254,6 +254,7 @@ function initAboutModal() {
 function stopExpPlayback() {
   state.expPlayCancel.forEach(cancel => cancel?.());
   state.expPlayCancel = [];
+  audio.stopAll(); // 취소 함수가 없어도(예: 아직 재생 시작 전) 혹시 울리고 있는 음까지 확실히 정지
   document.getElementById('exp-play-btn')?.classList.remove('playing');
 }
 
@@ -2096,6 +2097,8 @@ document.addEventListener('click', e => {
 
 // ── 부팅 ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  audio.preload(); // 그랜드피아노 실샘플 다운로드를 최대한 일찍 시작(사용자 제스처 불필요)
+
   // 전시 부스 킨스크 모드 — 태블릿1: ?kiosk=1(튜토리얼 고정), 태블릿2: ?kiosk=convert
   // (악보 변환 화면 고정). 지정한 화면 하나만 남기고 다른 화면/로그인은 다 숨긴다.
   const kioskParam = new URLSearchParams(location.search).get('kiosk');
