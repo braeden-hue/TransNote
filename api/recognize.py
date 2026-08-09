@@ -32,7 +32,7 @@ RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY")
 RUNPOD_ENDPOINT_ID = os.environ.get("RUNPOD_ENDPOINT_ID")
 
 POLL_BUDGET_SEC = 54  # vercel.json maxDuration(60초)보다 여유 있게 짧게
-POLL_INTERVAL_SEC = 2
+POLL_INTERVAL_SEC = 0.7  # 짧을수록 완료 감지가 빠름(파드 직결 대비 체감 지연의 일부 원인) — RunPod API 호출 빈도와의 균형점
 
 
 @app.route("/api/recognize", methods=["POST"])

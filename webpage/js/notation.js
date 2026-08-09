@@ -512,3 +512,75 @@ export function renderMiniStaff(container, notes) {
   container.innerHTML = '';
   container.appendChild(svg);
 }
+
+// ── 정식 오선보(디지털 악보) 렌더러 — 촬영 미리보기에서 "원본 사진과 비교"용 ──────
+// 커스텀 색상 표기가 아니라 실제 표준 악보로 보여줘야 사용자가 사진과 직접 비교하기
+// 쉽다. VexFlow(CDN, MIT 라이선스)를 지연 로드해서 쓴다 — 별도 빌드/에셋 번들링 불필요.
+let _VF = null;
+const _vfLoadPromise = import('https://cdn.jsdelivr.net/npm/vexflow@5.0.0/build/esm/entry/vexflow.js')
+  .then(async mod => {
+    const VexFlow = mod.VexFlow;
+    await VexFlow.loadFonts('Bravura', 'Academico');
+    VexFlow.setFonts('Bravura', 'Academico');
+    _VF = VexFlow;
+  })
+  .catch(() => { /* CDN 접근 실패 — renderDigitalStaff()에서 에러 메시지로 대체 */ });
+
+// duration(쿼터노트 단위, 예: 1=4분음표, 0.5=8분음표) -> VexFlow EasyScore duration 문자열.
+// 정확한 조판이 목적이 아니라 "육안 비교용" 근사치라, 표준이 아닌 분수(셋잇단음표 등)는
+// 가장 가까운 표준 길이로 반올림한다.
+function _durToVexDur(d) {
+  const table = [
+    [4, 'w'], [3, 'hd'], [2, 'h'], [1.5, 'qd'], [1, 'q'],
+    [0.75, '8d'], [0.5, '8'], [0.375, '16d'], [0.25, '16'], [0.125, '32'],
+  ];
+  let best = table[table.length - 1];
+  let bestDiff = Infinity;
+  for (const entry of table) {
+    const diff = Math.abs(entry[0] - d);
+    if (diff < bestDiff) { bestDiff = diff; best = entry; }
+  }
+  return best[1];
+}
+
+// notes(우리 데이터 형식) -> VexFlow EasyScore 문자열 한 줄(쉼표로 구분된 음표 나열).
+function _notesToEasyScore(notes) {
+  if (!notes?.length) return 'B4/1/r'; // 빈 마디 — 온쉼표로 채움(EasyScore는 빈 보이스 허용 안 함)
+  return notes.map(n => {
+    const vd = _durToVexDur(n.duration);
+    if (n.isRest) return `B4/${vd}/r`; // 쉼표는 위치 무의미, B4에 고정
+    const pitches = [n.pitch, ...(n.chordNotes || [])];
+    const head = pitches.length > 1 ? `(${pitches.join(', ')})` : pitches[0];
+    return `${head}/${vd}`;
+  }).join(', ');
+}
+
+// container에 정식 오선보를 그린다. staves: [{clef, notes}] (1개=단일보표, 2개=대보표).
+// VexFlow 로드 실패/조판 실패 시 안내 문구로 대체(전체 흐름을 막지 않음).
+export async function renderDigitalStaff(container, staves) {
+  container.innerHTML = '<p style="color:#888;font-size:13px;padding:12px;">오선보 로딩 중…</p>';
+  await _vfLoadPromise;
+  if (!_VF) {
+    container.innerHTML = '<p style="color:#888;font-size:13px;padding:12px;">오선보를 불러올 수 없습니다</p>';
+    return;
+  }
+  try {
+    container.innerHTML = '';
+    if (!container.id) container.id = `vf-container-${Math.random().toString(36).slice(2)}`;
+    const width = Math.max(container.clientWidth || 400, 320);
+    const height = staves.length >= 2 ? 260 : 160;
+    const factory = new _VF.Factory({ renderer: { elementId: container.id, width, height } });
+    const score = factory.EasyScore();
+    const system = factory.System({ width: width - 20 });
+    const stave = system.addStave({
+      voices: staves.map(s => score.voice(score.notes(_notesToEasyScore(s.notes), {
+        stem: s.clef === 'bass' ? 'down' : 'up',
+        clef: s.clef ?? 'treble',
+      }))),
+    });
+    staves.forEach(s => stave.addClef(s.clef ?? 'treble'));
+    factory.draw();
+  } catch {
+    container.innerHTML = '<p style="color:#888;font-size:13px;padding:12px;">이 악보는 미리보기로 표시하기 어려워요(사진은 그대로 확인하실 수 있어요)</p>';
+  }
+}

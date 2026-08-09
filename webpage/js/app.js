@@ -1,6 +1,6 @@
 import { SAMPLES, BEAT_COLORS }          from './samples.js';
 import { audio }                           from './audio.js';
-import { renderNotation, renderGrandStaff } from './notation.js';
+import { renderNotation, renderGrandStaff, renderDigitalStaff } from './notation.js';
 import { buildPiano, renderLabeledOctave } from './piano.js';
 import { loadAll, saveNotation, deleteNotation, generateId } from './storage.js';
 import { signInWithGoogle, signOutUser, onAuthChange,
@@ -433,7 +433,12 @@ let pendingExpCapture = null; // { json, photoUrl }
 function showExpCapturePreview(json, photoUrl) {
   pendingExpCapture = { json, photoUrl };
   document.getElementById('exp-preview-photo').src = photoUrl;
-  renderFirstMeasureInto(document.getElementById('exp-preview-notation'), json);
+  // 촬영한 원본 사진과 직접 비교해야 하니, 우리 색상 커스텀 표기가 아니라 정식(디지털)
+  // 오선보로 보여준다 — 커스텀 변환은 "이대로 사용" 확정 후 악보 화면에서 보여줌.
+  const staves = json.staves?.length >= 2
+    ? [{ clef: 'treble', notes: firstMeasure(json.staves[0].notes) }, { clef: 'bass', notes: firstMeasure(json.staves[1].notes) }]
+    : [{ clef: 'treble', notes: firstMeasure(json.notes) }];
+  renderDigitalStaff(document.getElementById('exp-preview-notation'), staves);
   document.getElementById('exp-preview-overlay')?.classList.remove('hidden');
 }
 
