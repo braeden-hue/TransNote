@@ -555,7 +555,7 @@ export function renderDigitalStaff(container, staves, timeSignature) {
     container.innerHTML = '<p style="color:#a00;padding:20px">악보 렌더링 엔진을 불러오지 못했습니다</p>';
     return;
   }
-  const { Renderer, Stave, StaveNote, Voice, Formatter, Beam, Accidental, StaveConnector, Dot } = VF;
+  const { Renderer, Stave, StaveNote, Voice, Formatter, Beam, Accidental, StaveConnector, Dot, Tuplet } = VF;
 
   const normalized = staves.map(s => ({
     clef: s.clef ?? 'treble',
@@ -566,12 +566,16 @@ export function renderDigitalStaff(container, staves, timeSignature) {
   const measureCount = Math.max(1, ...measuresByStave.map(m => m.length));
 
   // 한 마디(보표 하나 분량)를 StaveNote 배열로 변환.
+  // 셋잇단음표(note.tuplet===true, token_to_notes.py가 실제 길이를 2/3로 이미 보정해둔
+  // 상태)는 "인쇄상"의 8분음표로 만들고(VexFlow Tuplet이 실제 틱 길이를 알아서 3:2로
+  // 줄여줌), 항상 3개씩 연속으로 온다는 백엔드 관례를 그대로 이용해 3개 단위로 묶어
+  // tuplets 배열에 담아 반환 — 호출부가 Tuplet(...)으로 감싸 괄호+"3" 표기를 그린다.
   function buildMeasureNotes(measureNotes) {
-    if (!measureNotes?.length) return { notes: [new StaveNote({ keys: ['b/4'], duration: 'wr' })], beats: 4 };
+    if (!measureNotes?.length) return { notes: [new StaveNote({ keys: ['b/4'], duration: 'wr' })], beats: 4, tuplets: [] };
     let beats = 0;
     const notes = measureNotes.map(n => {
       beats += n.duration;
-      const dur = _vexDuration(n.duration);
+      const dur = n.tuplet ? '8' : _vexDuration(n.duration);
       if (n.isRest) return new StaveNote({ keys: ['b/4'], duration: dur + 'r' });
       const pitches = [n.pitch, ...(n.chordNotes || [])];
       const sn = new StaveNote({ keys: pitches.map(_vexKey), duration: dur, clef: n.clef, autoStem: true });
@@ -579,7 +583,16 @@ export function renderDigitalStaff(container, staves, timeSignature) {
       if (dur.includes('d')) Dot.buildAndAttach([sn], { all: true });
       return sn;
     });
-    return { notes, beats: beats || 4 };
+    const tuplets = [];
+    for (let i = 0; i < notes.length; ) {
+      if (measureNotes[i]?.tuplet) {
+        tuplets.push(notes.slice(i, i + 3)); // mscz_to_tokens.py 관례상 3연음은 항상 3개
+        i += 3;
+      } else {
+        i += 1;
+      }
+    }
+    return { notes, beats: beats || 4, tuplets };
   }
 
   // 마디별 폭 — 그 마디에서 음이 가장 많은 보표 기준(대보표는 두 보표의 바라인이
@@ -610,12 +623,13 @@ export function renderDigitalStaff(container, staves, timeSignature) {
       stave.setContext(ctx).draw();
       rowStaves.push(stave);
 
-      const { notes, beats } = buildMeasureNotes(measuresByStave[si][m]);
+      const { notes, beats, tuplets } = buildMeasureNotes(measuresByStave[si][m]);
       const voice = new Voice({ numBeats: beats, beatValue: 4 }).setStrict(false);
       voice.addTickables(notes);
       new Formatter().joinVoices([voice]).format([voice], w - (m === 0 ? 70 : 30));
       voice.draw(ctx, stave);
       Beam.generateBeams(notes).forEach(b => b.setContext(ctx).draw());
+      tuplets.forEach(group => new Tuplet(group).setContext(ctx).draw());
     });
     // 대보표면 맨 앞 마디 앞에만 브레이스(중괄호)+연결 바라인을 그려 대보표임을 표시.
     if (isGrand && m === 0) {

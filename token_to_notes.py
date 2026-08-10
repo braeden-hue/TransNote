@@ -38,6 +38,7 @@ class ScoreNote(TypedDict, total=False):
     isRest: bool
     dynamicMark: Optional[str]
     repeatMark: Optional[str]
+    tuplet: bool  # 3연음(셋잇단음표) 그룹의 일원이면 True — 항상 3개가 연속으로 옴
 
 
 def _fraction_to_quarters(frac: str) -> float:
@@ -72,17 +73,27 @@ def tokens_to_score(tokens: List[str]) -> Dict:
     pending_dynamic: Optional[str] = None
     has_pending = False
     tie_active = False  # 방금 'tie' 토큰을 봤음 — 바로 다음 음표가 같은 피치면 합침
+    # 'tuplet-3-start'~'tuplet-3-end' 구간 — mscz_to_tokens.py의 관례상 이 구간의 음표는
+    # 항상 3개, 각각 인쇄 표기는 'dur-1/8'이지만 실제로는 8분음표 2개(=4분음표 1개) 분량을
+    # 셋이 나눠 갖는다(3:2 셋잇단음표). 그래서 실제 duration은 인쇄값의 2/3로 보정해야
+    # beat 진행/마디 폭 계산이 맞고, note에 tuplet 플래그를 남겨야 프론트(notation.js)가
+    # VexFlow Tuplet(3연음 괄호 표기)으로 묶어 그릴 수 있다.
+    tuplet_active = False
 
     def push(pitch: str, duration: float, chord: Optional[List[str]] = None,
              is_rest: bool = False, dynamic_mark: Optional[str] = None) -> None:
         nonlocal start_repeat_pending, treble_beat, bass_beat
         target = bass if on_bass else treble
         beat = bass_beat if on_bass else treble_beat
+        if tuplet_active:
+            duration = duration * 2 / 3
         note: ScoreNote = {
             'pitch': _normalize_pitch(pitch),
             'duration': duration,
             'beat': beat,
         }
+        if tuplet_active:
+            note['tuplet'] = True
         if chord:
             note['chordNotes'] = [_normalize_pitch(c) for c in chord]
         if is_rest:
@@ -173,7 +184,13 @@ def tokens_to_score(tokens: List[str]) -> Dict:
             on_bass = False
         elif tok == 'tie':
             tie_active = True
-        # artic-*/fermata/ornament-*/slur-*/trill-*/tuplet-*/ottava-*/hairpin-*: 무시.
+        elif tok == 'tuplet-3-start':
+            finalize_pending()
+            tuplet_active = True
+        elif tok == 'tuplet-3-end':
+            finalize_pending()  # 마지막 3연음 음표를 tuplet_active=True 상태로 먼저 flush
+            tuplet_active = False
+        # artic-*/fermata/ornament-*/slur-*/trill-*/ottava-*/hairpin-*: 무시.
 
     finalize_pending()
 
