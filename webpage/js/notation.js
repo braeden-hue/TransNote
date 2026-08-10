@@ -565,20 +565,25 @@ export function renderDigitalStaff(container, staves, timeSignature) {
   const measuresByStave = normalized.map(s => _splitMeasures(s.notes));
   const measureCount = Math.max(1, ...measuresByStave.map(m => m.length));
 
-  // 한 마디(보표 하나 분량)를 StaveNote 배열로 변환.
+  // 한 마디(보표 하나 분량)를 StaveNote 배열로 변환. clef는 이 보표 전체의 clef —
+  // note 자체엔 clef 필드가 없다(treble/bass 배열 소속 자체가 clef를 암시하는 백엔드
+  // 관례, token_to_notes.py 참고). 이걸 안 넘기면 StaveNote가 기본값(treble)으로 음높이를
+  // 계산해버려서 베이스 음표가 높은음자리표 기준 위치에 그려지는 버그가 있었다 — 실제
+  // 오선(stave)엔 bass clef가 정확히 그려지는데 그 위의 개별 음표 위치만 엉뚱한 채였음.
   // 셋잇단음표(note.tuplet===true, token_to_notes.py가 실제 길이를 2/3로 이미 보정해둔
   // 상태)는 "인쇄상"의 8분음표로 만들고(VexFlow Tuplet이 실제 틱 길이를 알아서 3:2로
   // 줄여줌), 항상 3개씩 연속으로 온다는 백엔드 관례를 그대로 이용해 3개 단위로 묶어
   // tuplets 배열에 담아 반환 — 호출부가 Tuplet(...)으로 감싸 괄호+"3" 표기를 그린다.
-  function buildMeasureNotes(measureNotes) {
-    if (!measureNotes?.length) return { notes: [new StaveNote({ keys: ['b/4'], duration: 'wr' })], beats: 4, tuplets: [] };
+  function buildMeasureNotes(measureNotes, clef) {
+    const restKey = clef === 'bass' ? 'd/3' : 'b/4'; // 각 clef의 오선 가운데 줄
+    if (!measureNotes?.length) return { notes: [new StaveNote({ keys: [restKey], duration: 'wr', clef })], beats: 4, tuplets: [] };
     let beats = 0;
     const notes = measureNotes.map(n => {
       beats += n.duration;
       const dur = n.tuplet ? '8' : _vexDuration(n.duration);
-      if (n.isRest) return new StaveNote({ keys: ['b/4'], duration: dur + 'r' });
+      if (n.isRest) return new StaveNote({ keys: [restKey], duration: dur + 'r', clef });
       const pitches = [n.pitch, ...(n.chordNotes || [])];
-      const sn = new StaveNote({ keys: pitches.map(_vexKey), duration: dur, clef: n.clef, autoStem: true });
+      const sn = new StaveNote({ keys: pitches.map(_vexKey), duration: dur, clef, autoStem: true });
       pitches.forEach((p, i) => { if (p.includes('#')) sn.addModifier(new Accidental('#'), i); });
       if (dur.includes('d')) Dot.buildAndAttach([sn], { all: true });
       return sn;
@@ -623,7 +628,7 @@ export function renderDigitalStaff(container, staves, timeSignature) {
       stave.setContext(ctx).draw();
       rowStaves.push(stave);
 
-      const { notes, beats, tuplets } = buildMeasureNotes(measuresByStave[si][m]);
+      const { notes, beats, tuplets } = buildMeasureNotes(measuresByStave[si][m], s.clef);
       const voice = new Voice({ numBeats: beats, beatValue: 4 }).setStrict(false);
       voice.addTickables(notes);
       new Formatter().joinVoices([voice]).format([voice], w - (m === 0 ? 70 : 30));
