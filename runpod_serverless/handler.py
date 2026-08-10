@@ -80,9 +80,10 @@ def handler(event):
         "timeSignature": score["timeSignature"],
     }
     if score["bass"]:
+        clefs = score.get("clefs", ["treble", "bass"])
         result["staves"] = [
-            {"clef": "treble", "notes": score["treble"]},
-            {"clef": "bass", "notes": score["bass"]},
+            {"clef": clefs[0], "notes": score["treble"]},
+            {"clef": clefs[1], "notes": score["bass"]},
         ]
         result["notes"] = score["treble"]
     else:

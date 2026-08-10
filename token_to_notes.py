@@ -56,10 +56,20 @@ def _fraction_to_quarters(frac: str) -> float:
 
 
 def tokens_to_score(tokens: List[str]) -> Dict:
-    """토큰 리스트 -> {'treble': [...], 'bass': [...], 'timeSignature': [n, d]}."""
+    """토큰 리스트 -> {'treble': [...], 'bass': [...], 'timeSignature': [n, d], 'clefs': [...]}.
+
+    'treble'/'bass'는 실제 음자리표와 무관하게 "위 보표"/"아래 보표"를 가리키는 위치
+    라벨(기존 스키마 그대로 유지 — 프론트가 이 두 키로 접근하는 곳이 많아서 이름 자체는
+    안 바꿈). 실제 음자리표는 별도 'clefs': [위 보표 clef, 아래 보표 clef] 필드로 반환한다
+    ('treble' | 'bass'). 예전엔 이 값을 안 보고 무조건 위=treble/아래=bass로 가정했는데,
+    편곡에 따라 아래쪽 보표도 치클렙(G)으로 표기되는 실제 사례가 있어(2026-08-03,
+    mscz_to_tokens.py 쪽엔 이미 반영돼 있었음) 토큰이 실제로 알려주는 clef-G/clef-F를
+    읽어서 채운다.
+    """
     treble: List[ScoreNote] = []
     bass: List[ScoreNote] = []
     time_sig = [4, 4]
+    clefs = ['treble', 'bass']  # [위 보표, 아래 보표] — clef- 토큰을 못 만나면 기존 기본값 유지
 
     on_bass = False
     treble_beat = 1
@@ -135,8 +145,10 @@ def tokens_to_score(tokens: List[str]) -> Dict:
             parts = tok[5:].split('/')
             if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
                 time_sig = [int(parts[0]), int(parts[1])]
-        elif tok.startswith('clef-') or tok.startswith('key-'):
-            pass  # 무시 — treble/bass 배열 소속 자체가 clef를 암시 (Dart 쪽과 동일 관례)
+        elif tok.startswith('clef-'):
+            clefs[1 if on_bass else 0] = 'bass' if tok[5:] == 'F' else 'treble'
+        elif tok.startswith('key-'):
+            pass  # 무시 — 조표는 커스텀 표기에 안 씀
         elif tok == 'staff-bass':
             finalize_pending()
             on_bass = True
@@ -194,4 +206,4 @@ def tokens_to_score(tokens: List[str]) -> Dict:
 
     finalize_pending()
 
-    return {'treble': treble, 'bass': bass, 'timeSignature': time_sig}
+    return {'treble': treble, 'bass': bass, 'timeSignature': time_sig, 'clefs': clefs}
