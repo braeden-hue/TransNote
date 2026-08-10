@@ -247,8 +247,6 @@
           <span class="tut-subcaption" id="tut-subcaption"></span>
         </div>
 
-        <button class="tut-home-btn" id="tut-home-btn" title="메인 화면으로">🏠</button>
-
         <div class="tut-split" id="tut-page-frame">
           <div class="tut-split-top" id="tut-split-top"></div>
           <div class="tut-split-bottom" id="tut-split-bottom"></div>
@@ -502,6 +500,16 @@
       <span class="tab-icon">📁</span><span class="tab-label">내 악보함</span>
     </button>
   </nav>
+
+  <!-- 튜토리얼 "처음으로" 버튼 — 예전엔 #screen-tutorial(.screen-content) 안에 있었는데,
+       .screen.active가 transform:translateY(0)을 걸어서(값이 0이라 시각적으론 무변화지만
+       CSS 스펙상 transform:none이 아니면 그 자체로 position:fixed 자식의 containing
+       block이 바뀜) 이 버튼의 fixed 좌표가 뷰포트가 아니라 #screen-tutorial 박스 기준으로
+       계산되고 있었다(2026-08-10 실측: 노트북 화면에서 돋보기와 x좌표가 크게 어긋남).
+       돋보기(.octave-magnifier)와 똑같이 transform 영향이 없는 body 최상위로 옮겨서
+       해결 -- 대신 튜토리얼 화면일 때만 보이게 JS(MutationObserver, initTutorial())로
+       #screen-tutorial의 active 클래스를 감시해서 동기화한다. -->
+  <button class="tut-home-btn" id="tut-home-btn" title="메인 화면으로">🏠</button>
 
   <!-- 12음 참고 돋보기 — 규칙2 이후 튜토리얼 + 체험하기(변환/연주)에서 우측 중앙에 떠서
        호버(터치는 탭)하면 규칙0의 라벨드 옥타브를 다시 보여준다. 화면 전환과 무관한

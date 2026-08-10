@@ -1398,7 +1398,19 @@ function fadeExitToLanding(screenId) {
 }
 
 function initTutorial() {
-  document.getElementById('tut-home-btn')?.addEventListener('click', () => fadeExitToLanding('screen-tutorial'));
+  // tut-home-btn은 이제 body 최상위에 있어(위 index.html 주석 참고) #screen-tutorial의
+  // active 여부와 더 이상 부모-자식 관계로 자동 연동되지 않는다 -- MutationObserver로
+  // #screen-tutorial의 class 속성을 감시해서 active일 때만 보이게 동기화(어느 경로로
+  // 화면이 바뀌든 -- navigate()든 fadeExitToLanding()든 -- 다 잡아냄, 호출부마다 따로
+  // 안 챙겨도 됨).
+  const tutHomeBtn = document.getElementById('tut-home-btn');
+  const tutSection = document.getElementById('screen-tutorial');
+  if (tutHomeBtn && tutSection) {
+    const syncTutHomeBtn = () => tutHomeBtn.classList.toggle('hidden', !tutSection.classList.contains('active'));
+    new MutationObserver(syncTutHomeBtn).observe(tutSection, { attributes: true, attributeFilter: ['class'] });
+    syncTutHomeBtn();
+  }
+  tutHomeBtn?.addEventListener('click', () => fadeExitToLanding('screen-tutorial'));
   document.getElementById('tut-prev').addEventListener('click', () => {
     if (tutPageIdx > 0) { goToTutPage(tutPageIdx - 1); return; }
     if (state.flowFromLanding) fadeExitToLanding('screen-tutorial'); // 첫 페이지의 "이전" = 랜딩으로 나가기
