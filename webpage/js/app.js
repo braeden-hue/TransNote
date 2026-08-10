@@ -817,6 +817,7 @@ function initExpFlow() {
     captureBox: 'exp-camera-capture', video: 'exp-camera-video', canvas: 'exp-camera-canvas',
     guideCanvas: 'exp-camera-guide-canvas', guideHint: 'exp-camera-guide-hint', error: 'exp-camera-error',
     guideWFrac: 0.99, // 뷰파인더가 화면 전체라 오선 가이드도 프레임 폭 거의 끝까지
+    galleryBtn: 'exp-camera-gallery', galleryInput: 'exp-gallery-input',
   }, handleExpCameraCapture);
 
   document.getElementById('exp-preview-confirm')?.addEventListener('click', () => {
@@ -1546,6 +1547,10 @@ function setupCameraCapture(ids, onCaptured) {
   const guideCanvas = document.getElementById(ids.guideCanvas);
   const guideHint   = document.getElementById(ids.guideHint);
   const errorEl     = document.getElementById(ids.error);
+  // 갤러리 선택은 옵션 — ids에 galleryBtn/galleryInput을 넘긴 호출부에서만 활성화된다
+  // (지금은 체험하기 전용, 스크린샷/기존에 찍어둔 악보 사진을 그대로 인식시킬 때 씀).
+  const galleryBtn   = ids.galleryBtn   && document.getElementById(ids.galleryBtn);
+  const galleryInput = ids.galleryInput && document.getElementById(ids.galleryInput);
   if (!openBtn || !captureBox) return;
   const guideWrap = captureBox.querySelector('.camera-video-wrap');
   const modeChips = captureBox.querySelectorAll('.camera-mode-chip');
@@ -1613,6 +1618,22 @@ function setupCameraCapture(ids, onCaptured) {
 
   openBtn.addEventListener('click', openCamera);
   cancelBtn.addEventListener('click', () => state.activeCameraStop?.());
+
+  // 갤러리에서 사진 선택 — 스크린샷했거나 예전에 찍어둔 악보 이미지를 그대로 인식시킨다.
+  // 라이브 카메라 가이드로 잘라내는 크롭 단계가 필요 없어(이미 완성된 이미지라) 원본
+  // 파일을 그대로 onCaptured에 넘긴다(크롭/풀프레임 둘 다 같은 파일).
+  if (galleryBtn && galleryInput) {
+    galleryBtn.addEventListener('click', () => galleryInput.click());
+    galleryInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      galleryInput.value = ''; // 같은 파일을 다시 골라도 change가 또 발생하게
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { toast('이미지 파일을 선택해주세요'); return; }
+      if (file.size > 10 * 1024 * 1024) { toast('파일 크기가 10MB를 초과합니다'); return; }
+      state.activeCameraStop?.(); // 라이브 카메라가 켜져 있었으면 정리
+      onCaptured(file, file);
+    });
+  }
 
   // Vercel 서버리스 함수는 요청 본문 4.5MB 하드 제한이 있어서(설정으로 못 늘림) — 카메라
   // 화면/가이드를 크게 키운 뒤로 원본 해상도 그대로 올리면 넘기기 쉽다. 캡처 시점에

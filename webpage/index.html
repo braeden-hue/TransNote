@@ -127,9 +127,11 @@
     <div class="camera-controls">
       <button class="btn-secondary" id="exp-camera-cancel">취소</button>
       <button class="btn-primary btn-shutter" id="exp-camera-shutter">📸 촬영</button>
+      <button class="btn-secondary" id="exp-camera-gallery">🖼️ 갤러리에서 찾기</button>
     </div>
     <p class="camera-error hidden" id="exp-camera-error"></p>
   </div>
+  <input type="file" id="exp-gallery-input" accept="image/*" hidden>
   <canvas id="exp-camera-canvas" hidden></canvas>
 
   <!-- 촬영 후 서버(RunPod GPU 체크포인트)로 인식하는 동안 보여주는 임시 대기 화면 -->
