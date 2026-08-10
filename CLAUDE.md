@@ -89,7 +89,6 @@ webpage/              # 정적 웹앱(HTML/CSS/JS), PWA(manifest.json)
 train/                # OMR 학습 파이프라인(PyTorch) — 아래 "ML Training" 참고
 test/                 # 학습된 모델 평가/진단 스크립트(eval_*.py 등)
 realImage/            # 실사 촬영 이미지(로컬 전용, .gitignore로 git 미포함)
-designKit/            # 원본 악보(.mscz) 등 소스 자산
 docs/                 # 서브에이전트별 상세 문서(docs/*.md) + docs/archive/(과거 로그)
 secrets/              # API 키 등(.gitignore로 git 미포함, 절대 커밋 금지)
 ```

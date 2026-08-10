@@ -10,6 +10,11 @@
 
 **🔗 데모: [trans-note.vercel.app](https://trans-note.vercel.app)**
 
+<a href="https://trans-note.vercel.app"><img src="https://trans-note.vercel.app/api/qr?data=https%3A%2F%2Ftrans-note.vercel.app" alt="데모 QR 코드" width="140" /></a>
+
+QR을 스캔하면 위와 같은 데모 URL로 바로 연결된다(`/api/qr`가 실시간으로 생성 — 정적 이미지
+아님, URL이 바뀌어도 갱신 불필요).
+
 ---
 
 ## 인식 정확도
@@ -80,7 +85,6 @@ localhost)에서만 동작한다 — LAN IP로 `http://`만 접속하면 브라�
 | `train/` | OMR 모델 학습 파이프라인(PyTorch) + 체크포인트 |
 | `test/` | 학습된 모델 평가/진단 스크립트 |
 | `realImage/` | 실사 촬영 이미지 데이터셋(로컬 전용, git 미포함) |
-| `designKit/` | 원본 악보(`.mscz`) 등 디자인/데이터 소스 자산 |
 
 ---
 

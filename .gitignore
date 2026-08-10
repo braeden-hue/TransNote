@@ -40,6 +40,9 @@ train/local_dense_pool/
 # 실사 이미지 자료 (git에 올리지 않음 — 로컬 전용)
 realImage/
 
+# 전시/기획용 디자인 자산 (원본 .mscz, 목업 이미지 — AI 학습 코드와 무관, 로컬 전용)
+designKit/
+
 # 평가 리포트(생성물)
 reports/*.csv
 
