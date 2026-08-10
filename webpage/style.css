@@ -691,8 +691,11 @@ kbd {
 }
 
 /* ── 12음 참고 돋보기 ──────────────────────────────────────────── */
+/* z-index: 튜토리얼(.screen.active, 사실상 0)보다는 물론이고 체험하기 화면
+   (.exp-screen, 420)보다도 위에 떠 있어야 실제로 보인다 — 예전엔 250이라
+   .exp-screen 배경(불투명)에 가려 hidden 클래스만 지워질 뿐 화면엔 안 보였음. */
 .octave-magnifier {
-  position: fixed; z-index: 250;
+  position: fixed; z-index: 425;
   top: 50%; right: calc(14px + var(--safe-r)); transform: translateY(-50%);
 }
 .magnifier-btn {
