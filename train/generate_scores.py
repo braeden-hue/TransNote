@@ -417,6 +417,18 @@ CLEF_CHANGE_PROB = 0.0  # 0=끔. >0이면 이 확률로 한 오선 안에서 마
                         # 구조·dataset.py의 대보표 분할 로직과 상호작용을 아직 검증하지 않았고,
                         # 확정된 정의도 "한 보표 내부"이므로 단일 오선 경로로 범위를 한정함.
 
+SAME_CLEF_PROB = 0.0  # 0=끔. >0이면 이 확률로 대보표 시스템 전체가 같은 clef(둘 다
+                        # clef-G 또는 둘 다 clef-F)로 나옴 -- CLEF_CHANGE_PROB의 "마디 중간
+                        # 일시 전환"과 달리 시스템 처음부터 끝까지 같은 clef가 유지됨.
+                        # 2026-08-10 추가: r15가 "위=치/아래=베이스" 데이터로만 학습돼서
+                        # 실제로 같은-clef 대보표를 만나면 clef 기호를 무시하고 위치만으로
+                        # 오인식하는 걸 실측으로 확인함(train/docs/PLAN_r18_grand_staff_scope.md).
+                        # 트리거되면 두 파트 다 같은 clef_obj/clef_tok을 쓰되, 시각적으로
+                        # 구분되게 피치 풀은 CROSS_REGISTER_PROB용 TREBLE_LOW_PITCHES/
+                        # BASS_HIGH_PITCHES를 재사용해 위/아래를 음역으로 분리함. 마디 중간
+                        # 클렙 전환(CLEF_CHANGE_PROB)과는 상호작용 미검증이라 동시 적용 안 함
+                        # (같은-clef가 뽑히면 CLEF_CHANGE_PROB 쪽이 자동으로 꺼짐).
+
 TIE_PROB = 0.0  # 0=끔. >0이면 마디마다 이 확률로 "이 마디 안에서 붙임줄을 하나 시작한다"를
                 # 결정하고, 그 마디를 생성하는 도중 처음 마주치는 이어붙이기 가능한 음표/
                 # 2음 화음에서 실제로 시작함(다음에 생성되는 음표/화음을 같은 피치로 강제해
@@ -1476,6 +1488,27 @@ def build_score_r3(score_id: int, force_c_major: bool = False, natural_only: boo
     treble_preferred = TREBLE_PREFERRED_NATURAL if natural_only else TREBLE_PREFERRED_PITCHES
     bass_preferred    = BASS_PREFERRED_NATURAL if natural_only else BASS_PREFERRED_PITCHES
 
+    # 같은-clef 대보표(SAME_CLEF_PROB) -- 트리거되면 위/아래 보표가 둘 다 같은 clef로
+    # 나옴. 피치 풀은 CROSS_REGISTER_PROB용 풀을 재사용해 같은 clef 안에서도 위/아래가
+    # 음역으로 구분되게 함(둘 다 정확히 같은 음역이면 시각적으로 위/아래 구분이 안 됨).
+    same_clef_mode = None  # None | 'both_treble' | 'both_bass'
+    if SAME_CLEF_PROB > 0 and random.random() < SAME_CLEF_PROB:
+        same_clef_mode = random.choice(['both_treble', 'both_bass'])
+    if same_clef_mode == 'both_treble':
+        top_clef_obj, top_clef_tok = clef.TrebleClef(), 'clef-G'
+        bot_clef_obj, bot_clef_tok = clef.TrebleClef(), 'clef-G'
+        top_pool = treble_pool
+        bot_pool = TREBLE_LOW_PITCHES_NATURAL if natural_only else TREBLE_LOW_PITCHES
+    elif same_clef_mode == 'both_bass':
+        top_clef_obj, top_clef_tok = clef.BassClef(), 'clef-F'
+        bot_clef_obj, bot_clef_tok = clef.BassClef(), 'clef-F'
+        top_pool = BASS_HIGH_PITCHES_NATURAL if natural_only else BASS_HIGH_PITCHES
+        bot_pool = bass_pool
+    else:
+        top_clef_obj, top_clef_tok = clef.TrebleClef(), 'clef-G'
+        bot_clef_obj, bot_clef_tok = clef.BassClef(), 'clef-F'
+        top_pool, bot_pool = treble_pool, bass_pool
+
     # 마디 중간 클렙 전환(CLEF_CHANGE_PROB) -- 대보표에도 적용(2026-07-30 추가, 기존엔
     # build_score_single_staff에만 있었음). 치/베이스 "둘 중 하나"에만(양쪽 동시 전환은
     # 안 함) -- 어느 쪽이 될지는 50/50, _build_part()는 원래 clef_events를 받는
@@ -1483,7 +1516,7 @@ def build_score_r3(score_id: int, force_c_major: bool = False, natural_only: boo
     # 걸린 파트는 tie_enabled가 자동으로 꺼짐(_build_part의 기존 규칙, 단일오선과 동일).
     treble_clef_events, bass_clef_events = [], []
     measure_ql = ts_num * (4.0 / ts_den)
-    if CLEF_CHANGE_PROB > 0 and n_measures >= 2 and random.random() < CLEF_CHANGE_PROB:
+    if CLEF_CHANGE_PROB > 0 and same_clef_mode is None and n_measures >= 2 and random.random() < CLEF_CHANGE_PROB:
         change_m = random.randint(0, n_measures - 2)
         revert_m = random.randint(change_m + 1, n_measures - 1)
         change_off = random.uniform(0.25, max(0.25, measure_ql - 0.25))
@@ -1505,8 +1538,8 @@ def build_score_r3(score_id: int, force_c_major: bool = False, natural_only: boo
             ]
 
     treble_part, t_measure_toks, t_barline_toks, t_measure_objs = _build_part(
-        treble_pool,
-        clef.TrebleClef(), 'clef-G',
+        top_pool,
+        top_clef_obj, top_clef_tok,
         ks_sharps, ks_name,
         ts_num, ts_den, n_measures,
         use_ottava=True,
@@ -1518,8 +1551,10 @@ def build_score_r3(score_id: int, force_c_major: bool = False, natural_only: boo
     # newage01~03 참고) -- ACCOMPANIMENT_PROB 확률로 베이스 성부를 무작위 생성 대신
     # 전용 아르페지오 반주 생성기로 대체. 클렙 중간 전환(bass_clef_events)은 반주
     # 패턴과 상호작용을 검증하지 않아 이 모드에서는 적용하지 않음(자동으로 일반
-    # 생성 경로로 폴백).
-    use_accompaniment = ACCOMPANIMENT_PROB > 0 and not bass_clef_events and random.random() < ACCOMPANIMENT_PROB
+    # 생성 경로로 폴백). same_clef_mode도 동일한 이유로 제외(_build_accompaniment_part는
+    # clef.BassClef()/bass_pool을 하드코딩해서 top_clef_obj/top_pool을 반영 못 함).
+    use_accompaniment = (ACCOMPANIMENT_PROB > 0 and not bass_clef_events and same_clef_mode is None
+                          and random.random() < ACCOMPANIMENT_PROB)
     if use_accompaniment:
         bass_part, b_measure_toks, _, b_measure_objs = _build_accompaniment_part(
             bass_pool, clef.BassClef(), 'clef-F', ks_sharps, ts_num, ts_den, n_measures,
@@ -1527,8 +1562,8 @@ def build_score_r3(score_id: int, force_c_major: bool = False, natural_only: boo
         )
     else:
         bass_part, b_measure_toks, _, b_measure_objs = _build_part(
-            bass_pool,
-            clef.BassClef(), 'clef-F',
+            bot_pool,
+            bot_clef_obj, bot_clef_tok,
             ks_sharps, ks_name,
             ts_num, ts_den, n_measures,
             use_ottava=False,
@@ -1549,8 +1584,10 @@ def build_score_r3(score_id: int, force_c_major: bool = False, natural_only: boo
         t_measure_objs[i].insert(0, layout.SystemLayout(isNew=True))
         b_measure_objs[i].insert(0, layout.SystemLayout(isNew=True))
 
-    # 토큰 조합
-    tokens = ['<SOS>', 'clef-G', f'key-{ks_name}', f'time-{ts_num}/{ts_den}']
+    # 토큰 조합 -- 시작 clef/최초 bass clef 토큰은 same_clef_mode에 따라 top_clef_tok/
+    # bot_clef_tok을 씀(기존엔 'clef-G'/'clef-F' 하드코딩이었는데, 같은-clef 모드에서
+    # 실제로는 둘 다 clef-F(또는 둘 다 clef-G)여야 하므로 고정값을 쓰면 안 됨).
+    tokens = ['<SOS>', top_clef_tok, f'key-{ks_name}', f'time-{ts_num}/{ts_den}']
 
     bass_clef_emitted = False
     for m_idx in range(n_measures):
@@ -1564,7 +1601,7 @@ def build_score_r3(score_id: int, force_c_major: bool = False, natural_only: boo
         # staff-bass 구분자 + bass clef (최초 1회)
         tokens.append('staff-bass')
         if not bass_clef_emitted:
-            tokens.append('clef-F')
+            tokens.append(bot_clef_tok)
             bass_clef_emitted = True
 
         # Bass 마디 내용
@@ -1856,6 +1893,11 @@ def main():
                          '피치 풀을 비정상 조합(swap/both_high/both_low)으로 바꿔 덧줄이 많은 '
                          '"교차 음역" 케이스를 생성. 클렙 표기 자체는 항상 정상(치 위/베이스 '
                          '아래)이고 그 안의 실제 피치 풀만 바뀜')
+    p.add_argument('--same-clef-prob', type=float, default=None,
+                    help='SAME_CLEF_PROB(기본 0=끔) 덮어씀 -- 이 확률로 대보표 시스템 전체가 '
+                         '같은 clef(둘 다 clef-G 또는 둘 다 clef-F)로 나옴(--cross-register-prob와 '
+                         '달리 clef 기호 자체가 바뀜). --clef-change-prob(마디 중간 일시 전환)과 '
+                         '동시 적용 시 이 옵션이 뽑히면 --clef-change-prob 쪽은 그 샘플에서 자동으로 꺼짐')
     p.add_argument('--clef-change-prob', type=float, default=None,
                     help='CLEF_CHANGE_PROB(기본 0=끔) 덮어씀 -- 이 확률로 한 오선 안에서 마디 '
                          '중간에 반대쪽 클렙으로 전환했다가 이후 마디에서 되돌아오는 표기를 '
@@ -1885,7 +1927,7 @@ def main():
     global EIGHTH_RUN_PROB, SIXTEENTH_RUN_PROB, EIGHTH_RUN_PROB_2_4, SIXTEENTH_RUN_PROB_2_4, COURTESY_ACCIDENTAL_PROB
     global ACCOMPANIMENT_PROB
     global MARKOV_BIAS, MARKOV_TABLE, MARKOV_MAX_INTERVAL
-    global CROSS_REGISTER_PROB, CLEF_CHANGE_PROB, TIE_PROB, PREFERRED_REGISTER_PROB, CHORD_PROGRESSION_BIAS
+    global CROSS_REGISTER_PROB, CLEF_CHANGE_PROB, TIE_PROB, PREFERRED_REGISTER_PROB, CHORD_PROGRESSION_BIAS, SAME_CLEF_PROB
     global HIDE_TIMESIG_PROB
     MIN_MEASURES, MAX_MEASURES = args.min_measures, args.max_measures
     MEASURES_PER_SYSTEM = args.measures_per_system
@@ -1933,6 +1975,7 @@ def main():
     if args.accompaniment_prob is not None: ACCOMPANIMENT_PROB = args.accompaniment_prob
     if args.cross_register_prob is not None: CROSS_REGISTER_PROB = args.cross_register_prob
     if args.clef_change_prob is not None: CLEF_CHANGE_PROB = args.clef_change_prob
+    if args.same_clef_prob is not None: SAME_CLEF_PROB = args.same_clef_prob
     if args.tie_prob is not None: TIE_PROB = args.tie_prob
     if args.preferred_register_prob is not None: PREFERRED_REGISTER_PROB = args.preferred_register_prob
     if args.dynamic_prob   is not None: DYNAMIC_PROB   = args.dynamic_prob
