@@ -267,6 +267,10 @@
         <div class="section-header">
           <h2>악보 변환</h2>
           <p>기존 오선지 악보를 커스텀 악보로 변환합니다</p>
+          <!-- 부스 킨스크(?kiosk=convert)는 하단 탭바가 숨겨져 있어서 내 악보함으로 갈
+               길이 따로 필요함(2026-08-10 추가) -- 일반 브라우징 모드에선 탭바로 이미
+               갈 수 있으니 kiosk-only로 숨겨둠. -->
+          <button class="link-btn kiosk-only" data-nav="library">📁 내 악보함</button>
         </div>
 
         <div class="convert-layout">
@@ -386,6 +390,7 @@
         <div class="section-header">
           <h2>연주하기</h2>
           <p>① ▶ 로 먼저 들어보고 → ② Wait Mode로 직접 연주해보세요. 정확한 건반을 눌러야 다음 음으로 넘어갑니다.</p>
+          <button class="link-btn kiosk-only" data-nav="library">← 목록으로</button>
         </div>
 
         <div class="play-layout">
@@ -481,6 +486,7 @@
         <div class="section-header">
           <h2>내 악보함</h2>
           <p>저장된 커스텀 악보 모음입니다</p>
+          <button class="link-btn kiosk-only" data-nav="convert">← 변환으로</button>
         </div>
         <div class="library-grid" id="library-grid">
           <div class="empty-state">저장된 악보가 없습니다.<br>

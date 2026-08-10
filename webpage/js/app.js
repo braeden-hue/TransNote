@@ -88,6 +88,14 @@ function makeNotationNav(containerId, prevId, nextId) {
 
 // ── 풀페이지 스크롤 ─────────────────────────────────────────────────────────────
 const SCREEN_ORDER = ['tutorial', 'convert', 'play', 'library'];
+
+// 킨스크(?kiosk=)별로 벗어날 수 없는 화면 집합. 태블릿2(convert)는 저장/이어붙이기 +
+// 다른 참여자가 저장해둔 악보 목록(내 악보함)/연주까지 오갈 수 있어야 해서 convert
+// 하나가 아니라 셋을 다 허용(2026-08-10) -- 태블릿1(tutorial)은 기존대로 그대로 고정.
+const KIOSK_ALLOWED_SCREENS = {
+  tutorial: ['tutorial'],
+  convert:  ['convert', 'library', 'play'],
+};
 let wheelLocked = false;
 
 // 화면 전환 컨테이너(.app-main/.screens-wrapper)는 항상 scrollTop=0이어야 하는데,
@@ -99,7 +107,7 @@ function resetShellScroll() {
 }
 
 function navigate(name, { instant = false } = {}) {
-  if (state.kioskMode && name !== state.kioskMode) return; // 킨스크: 지정된 화면 밖으로 못 나가게 고정
+  if (state.kioskMode && !KIOSK_ALLOWED_SCREENS[state.kioskMode]?.includes(name)) return; // 킨스크: 허용된 화면 밖으로 못 나가게 고정
   if (state.flowLock && !state.flowLock.includes(name)) return; // 랜딩발 가이드 흐름: 허용된 화면 밖으로 못 나가게 고정
   if (wheelLocked && !instant) return;
   resetShellScroll();

@@ -84,6 +84,12 @@ body[data-kiosk="convert"] .model-row,
 body[data-kiosk="convert"] .demo-notice,
 body[data-kiosk="convert"] .omr-coming-soon { display: none; }
 
+/* 킨스크 모드에서 하단 탭바가 없어 화면 이동 길이 끊긴 곳(변환↔내 악보함↔연주하기)에만
+   쓰는 대체 이동 버튼 -- 일반 브라우징 모드에선 탭바가 이미 있어서 중복이라 숨겨둠
+   (2026-08-10 추가, .link-btn 스타일 재사용). */
+.kiosk-only { display: none; }
+body.kiosk-mode .kiosk-only { display: inline; }
+
 .btn-login {
   padding: 8px 16px; border-radius: 20px;
   background: var(--primary); color: #fff;
@@ -462,6 +468,12 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
    상황에 맞는 값으로 인라인 덮어써서 화면(특히 가로로 눕힌 짧은 화면)에 맞춘다. */
 .tut-split .notation-container { zoom: 1.25; }
 .tut-split .mini-piano { zoom: 1.15; }
+
+/* 악보 변환 결과 확대(2026-08-10) -- 줄바꿈 대신 기존 좌우 스크롤(makeNotationNav,
+   scrollLeft 기반) 그대로 두고 크기만 키움. SVG라 zoom으로 깨끗하게 확대되고,
+   scrollWidth가 커진 만큼 스크롤 버튼/휠 탐색 범위도 자동으로 늘어남(코드 변경 불필요).
+   다른 화면(튜토리얼/체험하기/연주하기)은 이 규칙 밖이라 영향 없음. */
+#convert-notation { zoom: 1.6; }
 
 .mini-piano { overflow-x: auto; margin-top: 20px; padding-bottom: 4px; }
 .kb-hint { font-size: 12px; color: var(--text-mute); margin-top: 10px; }
