@@ -1,10 +1,9 @@
 # project.md — TransNote: 맞춤형 악보 인식 & 변환 웹 앱
 
 > 세부 문서: 학습 히스토리 [`train/docs/TRAINING_REPORT.md`](train/docs/TRAINING_REPORT.md) ·
-> 학습 인계 상태 [`train/docs/HANDOFF_STATUS.md`](train/docs/HANDOFF_STATUS.md) · RunPod
-> 체크리스트 [`train/docs/POD_TRAINING_CHECKLIST.md`](train/docs/POD_TRAINING_CHECKLIST.md) ·
+> RunPod 체크리스트 [`train/docs/POD_TRAINING_CHECKLIST.md`](train/docs/POD_TRAINING_CHECKLIST.md) ·
 > claude.ai/code 연동 [`train/docs/CLOUD_SETUP.md`](train/docs/CLOUD_SETUP.md) · 저장소 구조/명령어
-> [`CLAUDE.md`](CLAUDE.md) · Flutter 시절 과거 기록(참고용) [`docs/archive/`](docs/archive/).
+> [`CLAUDE.md`](CLAUDE.md) · 과거 기록(참고용, 학습 인계 상태 포함) [`docs/archive/`](docs/archive/).
 > 이 문서는 요약/현황판 역할만 한다.
 
 ## 목표
@@ -25,7 +24,7 @@
 
 - **웹앱 전면 구현 완료**: 랜딩 화면(3개 핫스팟) → 튜토리얼(규칙 0~3 + 테스트 5문항, 가로 화면
   auto-fit) / 체험하기(샘플 3곡 + 카메라 촬영, 오른손만·양손 모드, 마디 단위 자동 진행 연주,
-  MIDI 연동, 리더보드) 흐름 전부 동작. 상세는 `webpage/` 코드 및 `docs/ui-design-specialist.md`.
+  MIDI 연동, 리더보드) 흐름 전부 동작. 상세는 `webpage/` 코드 참고.
 - **OMR 모델**: `train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt` 채택 확정
   (재확인 완료, 아래 "OMR 모델 현황" 참고).
 - **저장소 재구성 완료(로컬)**: `musicscore_flutter` → `TransNote`, `online_webpage` → `webpage`,
@@ -54,7 +53,7 @@ r15 이후 시도한 r16(박자표 미노출 보강)/r17(리듬 분포 보강)�
 문제 해결 과정(exposure bias 완화, 노이즈 강건성, 마르코프 체인 기반 피치 가중, r16/r17 기각
 근거)은 [`train/docs/TRAINING_REPORT.md`](train/docs/TRAINING_REPORT.md) 참고.
 
-**남은 정확도 이슈**(우선순위 순, `train/docs/HANDOFF_STATUS.md`에서 이관):
+**남은 정확도 이슈**(우선순위 순, `docs/archive/HANDOFF_STATUS.md`에서 이관):
 1. newage23 GT 데이터 버그(어휘에 없는 토큰) — 검증 정확도 왜곡, 저비용 수정 가능
 2. 3도 오독(단/장3도 음이름 혼동) — 전 검증셋 공통 최다 오류, 근본 원인 미해결
 3. 옥타브(8va/8vb)/헤어핀 span 토큰 — 구조적 한계로 recall 20~37%만 지원
@@ -97,20 +96,18 @@ Glory Music/QuickScan UI 킷(`designKit/`에 보관)은 Flutter 시절 참고 �
 
 ---
 
-## 세부 문서 (에이전트별)
+## 세부 문서
 
-| 문서 | 담당 에이전트 | 내용 |
-|---|---|---|
-| [`docs/project-orchestrator.md`](docs/project-orchestrator.md) | `project-orchestrator` | Phase 계획, 전체 현황, 병목 추적 |
-| [`docs/score-training-agent.md`](docs/score-training-agent.md) | `score-training-agent` | 데이터 생성, 모델 아키텍처, 학습 파이프라인 |
-| [`docs/score-recognition-engine.md`](docs/score-recognition-engine.md) | `score-recognition-engine` | 추론 엔진 구조 |
-| [`docs/sheet-music-qa.md`](docs/sheet-music-qa.md) | `sheet-music-qa` | 정확도 평가, PASS 기준, 평가 스크립트 |
-| [`docs/music-notation-rule-designer.md`](docs/music-notation-rule-designer.md) | `music-notation-rule-designer` | DeepScore 토큰 vocabulary, 커스텀 표기법 시각 규칙 |
-| [`docs/ui-design-specialist.md`](docs/ui-design-specialist.md) | `ui-design-specialist` | 튜토리얼·악보·연습 화면 UI |
-| [`docs/flutter-integration-architect.md`](docs/flutter-integration-architect.md) | `flutter-integration-architect` | **Flutter 트랙 폐기로 현재 미사용** — 과거 기록만 남음 |
+| 문서 | 내용 |
+|---|---|
+| [`docs/music-notation-rule-designer.md`](docs/music-notation-rule-designer.md) | DeepScore 토큰 vocabulary, 커스텀 표기법 시각 규칙 — 코드(`webpage/js/notation.js`, `train/generate_scores.py` 등)가 실제로 참조 |
+| [`train/docs/TRAINING_REPORT.md`](train/docs/TRAINING_REPORT.md) | 학습 히스토리·라운드별 정확도·최종 결과 통합 리포트 |
+| [`docs/PLAN_booth_companion_page.md`](docs/PLAN_booth_companion_page.md) | 부스 컴패니언 페이지(QR) 계획 — 구현 전 |
 
-> 위 문서들은 Flutter/구 아키텍처 시절 작성분이 섞여 있어 개별 내용이 최신 상태와 다를 수 있음
-> — 이번 정리 범위 밖(요청 시 별도로 최신화).
+> `project-orchestrator`/`score-training-agent`/`score-recognition-engine`/`sheet-music-qa`/
+> `ui-design-specialist`/`flutter-integration-architect`/`round3-phase2-retrain` 문서는 전부
+> Flutter/`ml/`/`round3train/` 시절(삭제된 경로) 기준이라 [`docs/archive/`](docs/archive/)로
+> 이동됨 — 현재 구조 파악엔 참고하지 말 것.
 
 ---
 

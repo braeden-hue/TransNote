@@ -137,8 +137,8 @@ train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt   # 유일한 채택 체
 train/tokenizer258.json                                    # DeepScore 토큰 vocabulary
 ```
 아키텍처(in_ch/backbone 깊이/pool_h)는 `model.py`의 `infer_arch_from_state_dict()`가 체크포인트
-텐서 shape에서 자동 역산 — 별도 config 파일 불필요. r15 채택 근거·r16/r17 기각 이유는
-`train/docs/TRAINING_REPORT.md`와 `train/docs/HANDOFF_STATUS.md` 참고. RunPod 등 원격 배포 시
+텐서 shape에서 자동 역산 — 별도 config 파일 불필요. r15 채택 근거·r16/r17/r18 기각 이유는
+`train/docs/TRAINING_REPORT.md` 참고. RunPod 등 원격 배포 시
 필요한 파일은 [`train/deploy_bundle/`](train/deploy_bundle/README.md) 참고(seq2seq+tokenizer
 2개 파일만 필요, segnet 불필요).
 

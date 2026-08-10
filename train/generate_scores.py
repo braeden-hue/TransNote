@@ -422,7 +422,7 @@ SAME_CLEF_PROB = 0.0  # 0=끔. >0이면 이 확률로 대보표 시스템 전체
                         # 일시 전환"과 달리 시스템 처음부터 끝까지 같은 clef가 유지됨.
                         # 2026-08-10 추가: r15가 "위=치/아래=베이스" 데이터로만 학습돼서
                         # 실제로 같은-clef 대보표를 만나면 clef 기호를 무시하고 위치만으로
-                        # 오인식하는 걸 실측으로 확인함(train/docs/PLAN_r18_grand_staff_scope.md).
+                        # 오인식하는 걸 실측으로 확인함(docs/archive/PLAN_r18_grand_staff_scope.md).
                         # 트리거되면 두 파트 다 같은 clef_obj/clef_tok을 쓰되, 시각적으로
                         # 구분되게 피치 풀은 CROSS_REGISTER_PROB용 TREBLE_LOW_PITCHES/
                         # BASS_HIGH_PITCHES를 재사용해 위/아래를 음역으로 분리함. 마디 중간

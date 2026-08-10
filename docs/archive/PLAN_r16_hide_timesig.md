@@ -2,7 +2,7 @@
 
 **상태**: 2026-08-05에 실제로 학습·검증까지 진행됨 — **결과는 기각(r15 대비 하락, 채택 안 함)**.
 경과/수치는 [`HANDOFF_STATUS.md`](HANDOFF_STATUS.md)와
-[`TRAINING_REPORT.md`](TRAINING_REPORT.md)의 "r15 이후 시도" 절 참고. 아래는 계획 수립 시점
+[`TRAINING_REPORT.md`](../../train/docs/TRAINING_REPORT.md)의 "r15 이후 시도" 절 참고. 아래는 계획 수립 시점
 (2026-08-04)의 원인 진단·구현 기록으로, 문제 진단 자체는 여전히 유효하나 이 계획대로 학습해도
 실사 검증 정확도는 개선되지 않았다.
 

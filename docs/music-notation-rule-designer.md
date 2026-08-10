@@ -1,7 +1,8 @@
 # music-notation-rule-designer.md
 
 > 담당 에이전트: `music-notation-rule-designer`  
-> 관련 파일: `ml/data/tokenizer.json`, `ml/data/round_tokens/`, `ml/omr/utils/render_notation.py`
+> 관련 파일: `train/tokenizer258.json`, `train/render_custom_notation.py`,
+> `train/generate_scores.py`, `webpage/js/notation.js`(웹 렌더링)
 
 ## 역할
 
@@ -172,7 +173,7 @@ ottava-8va-end
 - **기본값(미지정)은 보표 전체의 clef를 그대로 상속** — 즉 이 필드를 쓰지 않는 기존 note 리스트는
   동작·렌더링이 지금과 완전히 동일하다.
 - Flutter: `ScoreNote.clef` (nullable, `lib/data/samples.dart`)
-- 웹: note object의 optional `clef` 필드 (`online_webpage/js/samples.js`)
+- 웹: note object의 optional `clef` 필드 (`webpage/js/samples.js`)
 - 두 구현 모두 "note의 유효 클렙(effective clef) = note.clef ?? 보표 clef" 계산 함수와
   "리스트 안에 서로 다른 유효 클렙이 2개 이상 섞여 있는지" 판정 함수를 둔다
   (`effectiveClef()` / `hasMixedClef()`).
@@ -210,7 +211,7 @@ ottava-8va-end
 #### 구현 상태
 
 ✅ 구현 완료 (2026-07-29) — `lib/data/samples.dart` / `lib/widgets/notation_widget.dart` /
-`online_webpage/js/samples.js` / `online_webpage/js/notation.js`. 샘플 데이터에는 아직 클렙 전환
+`webpage/js/samples.js` / `webpage/js/notation.js`. 샘플 데이터에는 아직 클렙 전환
 예시가 없음(기존 samples 배열은 의도적으로 건드리지 않음) — 필요 시 note에 `clef` 필드를 채운 새
 샘플을 추가해서 시각 확인.
 

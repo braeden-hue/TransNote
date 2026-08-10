@@ -3,7 +3,7 @@
 > 2026-08-09 저장소 재구성으로 로컬 `round3train/` → `train/`으로 폴더명이 바뀌었다. 아래
 > 로컬 경로는 전부 새 이름으로 갱신함(내용/결론은 변경 없음, pod 원격 경로는 실제 원격 상태
 > 그대로 `round3train/`로 남겨둠 — 재접속 시 리싱크 필요). 정확도 수치 근거는
-> [`TRAINING_REPORT.md`](TRAINING_REPORT.md)에도 반영되어 있음.
+> [`TRAINING_REPORT.md`](../../train/docs/TRAINING_REPORT.md)에도 반영되어 있음.
 
 ## 결론부터: 프로덕션 체크포인트는 `r15_cropfix_coordconv`
 

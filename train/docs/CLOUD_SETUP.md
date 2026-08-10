@@ -40,7 +40,7 @@ ssh -i ~/.ssh/runpod_auto -o StrictHostKeyChecking=no -p $RUNPOD_PORT root@$RUNP
 
 ## 5) 이어서 할 일
 
-`round3train/HANDOFF_STATUS.md`를 클라우드 세션에게 보여주면 지금까지 진행 상황을 바로 파악하고 이어서 모니터링 가능합니다.
+`train/docs/TRAINING_REPORT.md`(최신 상태 요약)를 클라우드 세션에게 보여주면 지금까지 진행 상황을 바로 파악하고 이어서 모니터링 가능합니다. (구 `HANDOFF_STATUS.md`는 `docs/archive/`로 이동, 내용은 TRAINING_REPORT.md에 흡수됨)
 
 ## 참고: 보안 주의사항
 - claude.ai/code 환경변수는 **그 환경을 편집할 수 있는 사람에게는 보임** (전용 시크릿 저장소는 아직 없음)

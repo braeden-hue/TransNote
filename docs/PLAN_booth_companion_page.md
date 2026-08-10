@@ -1,6 +1,6 @@
 # 부스 컴패니언 페이지(스마트폰 QR) 계획
 
-**상태**: 계획 수립 중(2026-08-10), 구현 전. train/docs/PLAN_r18_grand_staff_scope.md와 별개 —
+**상태**: 계획 수립 중(2026-08-10), 구현 전. docs/archive/PLAN_r18_grand_staff_scope.md와 별개 —
 이쪽은 웹앱/전시 운영 기능, 학습 파이프라인과 무관.
 
 ## 목표
