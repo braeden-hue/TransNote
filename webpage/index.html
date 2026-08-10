@@ -37,12 +37,19 @@
     <div class="landing-frame">
       <img class="landing-bg" src="assets/landing-bg.jpg" alt="피아노가 있는 방">
       <div class="landing-hotspots">
+        <!-- 왼쪽 책상 — AI 모델에 대해(plus.png 워크인 전환 후 모달) -->
+        <button class="landing-hotspot" id="landing-hotspot-ai" data-landing="ai"
+                title="AI 모델에 대해" aria-label="AI 모델에 대해" style="left:22.6%; top:65.8%;">
+          <span class="landing-hotspot-label">AI 모델에 대해</span>
+        </button>
+        <!-- 가운데 그랜드피아노 — 튜토리얼(튜토리얼.png 워크인 전환) -->
         <button class="landing-hotspot" id="landing-hotspot-tutorial" data-landing="tutorial"
-                title="튜토리얼" aria-label="튜토리얼" style="left:22.6%; top:65.8%;">
+                title="튜토리얼" aria-label="튜토리얼" style="left:49.9%; top:54.0%;">
           <span class="landing-hotspot-label">튜토리얼</span>
         </button>
-        <button class="landing-hotspot" id="landing-hotspot-about" data-landing="about"
-                title="프로젝트에 대해" aria-label="프로젝트에 대해" style="left:49.9%; top:54.0%;">
+        <!-- 벽면 하얀 액자 — 프로젝트에 대해(즉시 모달, 전환 효과 없음) -->
+        <button class="landing-hotspot" id="landing-hotspot-project" data-landing="about"
+                title="프로젝트에 대해" aria-label="프로젝트에 대해" style="left:50.5%; top:30.5%;">
           <span class="landing-hotspot-label">프로젝트에 대해</span>
         </button>
         <button class="landing-hotspot" id="landing-hotspot-experience" data-landing="experience"
@@ -53,6 +60,12 @@
     </div>
     <p class="landing-hint">빛나는 점을 눌러 시작하세요</p>
   </section>
+
+  <!-- 화면 전환 연출 — 튜토리얼/AI모델 버튼을 누르면 그 대상(그랜드피아노/책상)을 향해
+       실제로 걸어 들어가는 것처럼 사진이 확대되며 전환된다. -->
+  <div class="walkin-overlay" id="walkin-overlay">
+    <img id="walkin-img" alt="">
+  </div>
 
   <!-- 프로젝트에 대해 모달 -->
   <div class="about-modal hidden" id="about-modal">
@@ -68,6 +81,23 @@
       </p>
       <p class="about-modal-note">※ 소개 문구는 임시 초안입니다 — 필요하면 언제든 다듬어 드릴게요.</p>
       <button class="btn-primary" id="about-modal-ok">확인</button>
+    </div>
+  </div>
+
+  <!-- AI 모델에 대해 모달 -->
+  <div class="about-modal hidden" id="ai-modal">
+    <div class="about-modal-backdrop" id="ai-modal-backdrop"></div>
+    <div class="about-modal-card">
+      <button class="about-modal-close" id="ai-modal-close" aria-label="닫기">✕</button>
+      <h2>AI 모델에 대해</h2>
+      <p>
+        악보 인식은 자체 학습한 OMR(광학 악보 인식) 모델이 담당해요. CNN 인코더와
+        Transformer 디코더로 이루어진 구조로, 촬영한 악보 이미지에서 오선을 찾아내고
+        음표·박자·화음을 순서대로 인식해 커스텀 표기법으로 바꿔줍니다. 실제 촬영한
+        악보로 검증했을 때 약 87%의 인식 정확도를 확보했어요.
+      </p>
+      <p class="about-modal-note">※ 소개 문구는 임시 초안입니다 — 필요하면 언제든 다듬어 드릴게요.</p>
+      <button class="btn-primary" id="ai-modal-ok">확인</button>
     </div>
   </div>
 

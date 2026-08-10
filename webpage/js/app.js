@@ -213,34 +213,66 @@ function fitLandingFrame() {
 }
 window.addEventListener('resize', fitLandingFrame);
 
+// ── 화면 전환 연출: 대상(그랜드피아노/책상)을 향해 실제로 걸어 들어가는 듯한 확대 전환 ──
+// 랜딩은 그대로 둔 채(z-index로 이미 위에 덮임) 참고 사진을 확대하면서 살짝 밝아지고
+// 또렷해지게 만든 뒤, 다 다가간 시점에 실제 목적지(튜토리얼 화면/모달)를 띄우고 사진을
+// 다시 걷어낸다 — CSS(.walkin-overlay)의 트랜지션 시간(WALKIN_MS)과 맞물려야 한다.
+const WALKIN_MS = 800;
+let walkinInProgress = false;
+function playWalkIn(imgSrc, onArrive) {
+  if (walkinInProgress) return;
+  walkinInProgress = true;
+  const overlay = document.getElementById('walkin-overlay');
+  const img = document.getElementById('walkin-img');
+  img.src = imgSrc;
+  overlay.classList.remove('walking');
+  overlay.classList.add('visible');
+  void overlay.offsetWidth; // 강제 리플로우 — walking 트랜지션이 매번 처음부터 재생되게
+  requestAnimationFrame(() => overlay.classList.add('walking'));
+  setTimeout(() => {
+    onArrive();
+    overlay.classList.remove('visible', 'walking');
+    walkinInProgress = false;
+  }, WALKIN_MS);
+}
+
 function initLanding() {
   fitLandingFrame();
   document.querySelectorAll('.landing-hotspot').forEach(btn => {
     btn.addEventListener('click', () => {
       const target = btn.dataset.landing;
       if (target === 'about') { showAboutModal(); return; }
-      hideLanding();
+      if (target === 'ai') { playWalkIn('assets/walkin-desk.jpg', showAiModal); return; }
       if (target === 'tutorial') {
-        enterFlow(['tutorial']);
-        renderTutPage(0);
-        navigate('tutorial', { instant: true });
-      } else if (target === 'experience') {
-        showExpSelect();
+        playWalkIn('assets/walkin-piano.jpg', () => {
+          hideLanding();
+          enterFlow(['tutorial']);
+          renderTutPage(0);
+          navigate('tutorial', { instant: true });
+        });
+        return;
       }
+      hideLanding();
+      if (target === 'experience') showExpSelect();
     });
   });
 }
 
-// ── 프로젝트에 대해 모달 ──────────────────────────────────────────────────────
+// ── 프로젝트에 대해 / AI 모델에 대해 모달 ─────────────────────────────────────────
 function showAboutModal() { document.getElementById('about-modal')?.classList.remove('hidden'); }
 function hideAboutModal() { document.getElementById('about-modal')?.classList.add('hidden'); }
+function showAiModal() { document.getElementById('ai-modal')?.classList.remove('hidden'); }
+function hideAiModal() { document.getElementById('ai-modal')?.classList.add('hidden'); }
 
 function initAboutModal() {
   document.getElementById('about-modal-close')?.addEventListener('click', hideAboutModal);
   document.getElementById('about-modal-backdrop')?.addEventListener('click', hideAboutModal);
   document.getElementById('about-modal-ok')?.addEventListener('click', hideAboutModal);
+  document.getElementById('ai-modal-close')?.addEventListener('click', hideAiModal);
+  document.getElementById('ai-modal-backdrop')?.addEventListener('click', hideAiModal);
+  document.getElementById('ai-modal-ok')?.addEventListener('click', hideAiModal);
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') hideAboutModal();
+    if (e.key === 'Escape') { hideAboutModal(); hideAiModal(); }
   });
 }
 
