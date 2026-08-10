@@ -4,7 +4,8 @@ import { renderNotation, renderGrandStaff, renderDigitalStaff } from './notation
 import { buildPiano, renderLabeledOctave } from './piano.js';
 import { loadAll, saveNotation, deleteNotation, generateId } from './storage.js';
 import { signInWithGoogle, signOutUser, onAuthChange,
-         saveScoreCloud, loadScoresCloud, deleteScoreCloud } from './firebase.js';
+         saveScoreCloud, loadScoresCloud, deleteScoreCloud,
+         isNicknameTakenInSong, saveLeaderboardEntryCloud, loadLeaderboardCloud } from './firebase.js';
 import * as midi from './midi.js';
 
 // ── 피아노 기준 화살표 — 가온다(C4, Middle C) ─────────────────────────────────
@@ -359,31 +360,17 @@ function firstMeasure(notes) {
   return notes;
 }
 
-// ── 곡별 순위표(상위 3명) — 서버가 없으니 이 브라우저(기기)에 localStorage로 저장 ──
-const EXP_LEADERBOARD_KEY = 'expLeaderboard_v1';
+// ── 곡별 순위표(상위 3명) — Firestore leaderboard 컬렉션(로그인 불필요, 부스 회전율
+// 때문에 로그인 게이트를 뺀 결정, docs/PLAN_booth_companion_page.md 참고). 닉네임
+// 유일성은 songKey(곡) 안에서만 검사 — 다른 곡에서는 같은 닉네임을 다시 써도 됨
+// (2026-08-10 확정). Firebase 미설정 환경(로컬 개발 등)에서는 firebase.js 쪽 함수들이
+// 조용히 빈 값/false를 반환해 화면이 비어있을 뿐 에러로 죽지 않는다.
 
-function loadLeaderboard(songKey) {
-  try {
-    const all = JSON.parse(localStorage.getItem(EXP_LEADERBOARD_KEY) || '{}');
-    return all[songKey] || [];
-  } catch { return []; }
-}
-
-function saveLeaderboardEntry(songKey, nickname, score) {
-  let all = {};
-  try { all = JSON.parse(localStorage.getItem(EXP_LEADERBOARD_KEY) || '{}'); } catch { /* 무시 */ }
-  const list = all[songKey] || [];
-  list.push({ nickname, score });
-  list.sort((a, b) => b.score - a.score);
-  all[songKey] = list.slice(0, 3);
-  try { localStorage.setItem(EXP_LEADERBOARD_KEY, JSON.stringify(all)); } catch { /* 저장 공간 부족 등 무시 */ }
-  return all[songKey];
-}
-
-function renderLeaderboard(songKey) {
+async function renderLeaderboard(songKey) {
   const el = document.getElementById('exp-leaderboard-list');
   if (!el) return;
-  const list = loadLeaderboard(songKey);
+  let list = [];
+  try { list = await loadLeaderboardCloud(songKey, 3); } catch { /* 네트워크 오류 등 -- 빈 목록으로 표시 */ }
   el.innerHTML = list.length
     ? list.map((e, i) => `
         <li>
@@ -789,7 +776,9 @@ function finishExpPerform() {
   document.getElementById('exp-perform-score-text').textContent =
     `${p.nickname}님, ${score}점이에요! (${p.maxScore}점 만점)`;
   document.getElementById('exp-perform-result').classList.remove('hidden');
-  saveLeaderboardEntry(state.expScoreData?.title, p.nickname, score);
+  // 실패해도(네트워크 등) 연주 결과 화면 자체는 이미 떴으니 조용히 무시 — 순위표 등록
+  // 실패가 사용자 체험을 막으면 안 됨.
+  saveLeaderboardEntryCloud(state.expScoreData?.title, p.nickname, score, p.maxScore).catch(() => {});
 }
 
 function initExpFlow() {
@@ -839,8 +828,30 @@ function initExpFlow() {
   document.getElementById('exp-play-btn')?.addEventListener('click', playExpScore);
   document.getElementById('exp-perform-btn')?.addEventListener('click', showExpHandMode);
 
-  document.getElementById('exp-start-perform-btn')?.addEventListener('click', () => {
+  document.getElementById('exp-start-perform-btn')?.addEventListener('click', async () => {
     const nickname = document.getElementById('exp-nickname-input').value.trim() || '익명';
+    const songKey = state.expScoreData?.title;
+    const errEl = document.getElementById('exp-nickname-error');
+    errEl?.classList.add('hidden');
+
+    // '익명'(닉네임 미입력 시 기본값)은 여러 명이 동시에 쓸 수 있어야 하므로 중복 체크
+    // 대상에서 뺀다 -- 곡 안에서 유일해야 하는 건 사용자가 실제로 입력한 닉네임만.
+    if (nickname !== '익명') {
+      const btn = document.getElementById('exp-start-perform-btn');
+      btn.disabled = true;
+      let taken = false;
+      try {
+        taken = await isNicknameTakenInSong(songKey, nickname);
+      } catch { /* 확인 실패(네트워크 등) 시엔 막지 않고 통과시킴 -- 체험이 우선 */ }
+      btn.disabled = false;
+      if (taken) {
+        if (errEl) {
+          errEl.textContent = '이미 사용 중인 닉네임이에요 — 다른 닉네임을 입력해주세요';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+    }
     startExpPerform(nickname);
   });
   document.getElementById('exp-perform-done-btn')?.addEventListener('click', () => {

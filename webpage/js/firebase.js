@@ -15,7 +15,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup,
          signOut as fbSignOut, onAuthStateChanged }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getFirestore, collection, doc, setDoc, getDocs,
-         deleteDoc, query, where }
+         deleteDoc, addDoc, query, where, orderBy, limit }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ── 여기를 Firebase Console에서 복사한 값으로 교체 ──────────────────────────
@@ -85,6 +85,38 @@ export async function loadScoresCloud() {
 export async function deleteScoreCloud(id) {
   if (!_db || !_auth?.currentUser) return;
   await deleteDoc(doc(_db, 'scores', id));
+}
+
+// ── 순위표(리더보드) ──────────────────────────────────────────────────────────
+// 부스 회전율 때문에 로그인 없이 닉네임만으로 참여(docs/PLAN_booth_companion_page.md
+// "키오스크 ↔ 리더보드 연동 메커니즘" 참고) — 위 scores 컬렉션(개인 저장, 로그인 필요)과
+// 무관한 별도 컬렉션. 닉네임 유일성은 songKey(곡) 안에서만 검사 — 다른 곡에서는 같은
+// 닉네임을 다시 써도 됨(2026-08-10 확정).
+
+/** songKey 안에서 nickname이 이미 쓰였는지 확인. 로그인 불필요(공개 컬렉션). */
+export async function isNicknameTakenInSong(songKey, nickname) {
+  if (!_db) return false;
+  const q = query(collection(_db, 'leaderboard'),
+                   where('songKey', '==', songKey), where('nickname', '==', nickname));
+  const snap = await getDocs(q);
+  return !snap.empty;
+}
+
+/** 연주 결과 1건을 리더보드에 저장. 로그인 불필요(공개 쓰기 — Firestore 보안규칙에서
+ * leaderboard 컬렉션만 예외적으로 허용해야 함, docs/PLAN_booth_companion_page.md 참고). */
+export async function saveLeaderboardEntryCloud(songKey, nickname, score, maxScore) {
+  if (!_db) return;
+  await addDoc(collection(_db, 'leaderboard'),
+               { songKey, nickname, score, maxScore, createdAt: Date.now() });
+}
+
+/** songKey 기준 상위 점수 목록 불러오기(1회성). 로그인 불필요. */
+export async function loadLeaderboardCloud(songKey, top = 3) {
+  if (!_db) return [];
+  const q = query(collection(_db, 'leaderboard'),
+                   where('songKey', '==', songKey), orderBy('score', 'desc'), limit(top));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data());
 }
 
 export { IS_CONFIGURED };
