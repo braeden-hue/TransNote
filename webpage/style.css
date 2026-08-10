@@ -317,20 +317,45 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
    절반으로 나눠 그 두 가지에만 집중시키고, 나머지 설명 텍스트는 한 줄 캡션으로 줄인다.
    랜딩 화면처럼 스크롤 없이 한 화면에 꽉 들어오도록 화면 자체를 고정(overflow:hidden)하고
    topbar/nav는 고정 높이, 가운데 tut-split만 남는 공간을 정확히 채운다. */
+/* 메인 랜딩(피아노 방) 배경을 어둡게 블러 처리해 그대로 깔아서, 튜토리얼로 들어와도
+   "그 공간 안에 계속 있다"는 몰입감이 끊기지 않게 한다 — 그 위에 반투명 짙은 네이비
+   유리질감(glassmorphism) 패널을 띄우고 실제 콘텐츠는 그 안에 담는다. */
 #screen-tutorial { overflow: hidden; }
+#screen-tutorial::before {
+  content: ''; position: absolute; inset: 0; z-index: 0;
+  background:
+    linear-gradient(160deg, rgba(8,12,26,0.74) 0%, rgba(8,12,26,0.88) 100%),
+    url('assets/landing-bg.jpg') center / cover no-repeat;
+  filter: blur(22px) brightness(0.55) saturate(1.15);
+  transform: scale(1.12); /* 블러가 가장자리를 투명하게 갉아먹는 것 방지 */
+}
 #screen-tutorial .screen-content {
-  height: 100%; padding: 14px 22px 14px;
+  position: absolute; inset: 16px; z-index: 1;
+  padding: 14px 22px 14px;
   display: flex; flex-direction: column; overflow: hidden;
+  background: rgba(16,22,42,0.55);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 22px;
+  box-shadow: 0 24px 60px rgba(0,8,24,0.45);
 }
 .tut-topbar { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; row-gap: 6px; gap: 14px; padding: 4px 0 10px; }
 .tut-chip {
   display: inline-block; background: var(--primary); color: #fff; flex-shrink: 0;
   font-size: 13px; font-weight: 700; padding: 5px 13px; border-radius: 20px;
+  box-shadow: 0 0 14px rgba(0,150,255,0.55);
 }
-.tut-caption { flex: 1 1 0; min-width: 0; font-size: 22px; font-weight: 800; color: var(--text); }
+.tut-caption { flex: 1 1 0; min-width: 0; font-size: 22px; font-weight: 800; color: #F2F7FF; }
+.tut-subcaption {
+  flex: 1 1 100%; order: 4; min-width: 0;
+  font-size: 14px; font-weight: 400; line-height: 1.5;
+  color: rgba(230,240,255,0.72);
+}
+.tut-subcaption:empty { display: none; }
 .tut-dots   { display: flex; gap: 7px; flex-shrink: 0; }
-.tut-dot    { width: 11px; height: 11px; border-radius: 6px; background: var(--border-hi); transition: width .2s, background .2s; }
-.tut-dot.active { width: 30px; background: var(--primary); }
+.tut-dot    { width: 11px; height: 11px; border-radius: 6px; background: rgba(255,255,255,0.25); transition: width .2s, background .2s, box-shadow .2s; }
+.tut-dot.active { width: 30px; background: var(--sky); box-shadow: 0 0 10px 3px rgba(79,195,247,0.75); }
 
 /* 좁은 폰 폭: 캡션이 좁은 칸에 갇혀 한 글자씩 세로로 쌓이는 걸 막기 위해
    칩+점은 한 줄, 캡션은 그 아래 전체 폭으로 줄바꿈 */
@@ -348,15 +373,56 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
      보임(그냥 center면 넘치는 콘텐츠의 위쪽이 스크롤 top:0에서도 잘려 안 보이는 문제 있음) */
   justify-content: safe center;
   gap: 8px; overflow: auto;
+  /* 어두운 유리 패널 위에서 흰 카드가 살짝 떠 있는 느낌 — 입체감 */
+  box-shadow: 0 8px 24px rgba(0,8,24,0.35);
 }
 .tut-split-top { background: #fff; }
 
 /* "시작하기 전에" 전용 — 위/아래 대신 좌/우로 배치 (박스 두 개를 나란히) */
-.tut-split-row { flex-direction: row; }
+.tut-split-row { flex-direction: row; position: relative; }
 .tut-split-row .tut-split-top, .tut-split-row .tut-split-bottom { flex: 1 1 0; }
+
+/* 왼쪽(전통 악보) → 오른쪽(커스텀 악보) 사이에 "AI가 스캔해서 번역한다"는 느낌의
+   빛나는 화살표를 띄운다 — 두 박스 사이 gap 한가운데, 은은하게 맥동. */
+.tut-split-row::after {
+  content: '➜'; position: absolute; top: 50%; left: 50%; z-index: 5;
+  transform: translate(-50%, -50%);
+  font-size: 26px; font-weight: 900; color: var(--sky);
+  text-shadow: 0 0 10px rgba(79,195,247,0.95), 0 0 22px rgba(0,150,255,0.6);
+  pointer-events: none;
+  animation: tut-scan-pulse 1.7s ease-in-out infinite;
+}
+@keyframes tut-scan-pulse {
+  0%, 100% { opacity: 0.55; transform: translate(-50%, -50%) scale(0.9); }
+  50%      { opacity: 1;    transform: translate(-50%, -50%) scale(1.1); }
+}
+
+/* 좌: 전통 오선 악보 — 오래된 종이 질감처럼 살짝 바래고 톤 다운.
+   우: 커스텀 악보 — 디지털 화면처럼 쨍하고 시안 글로우로 "첨단" 느낌. */
+.tut-split-row #tut-split-top {
+  background: #f2ecdf;
+}
+.tut-split-row #tut-split-top .tut-compare-img {
+  filter: sepia(0.3) contrast(0.92) brightness(0.96) saturate(0.85);
+}
+.tut-split-row #tut-split-bottom {
+  background: #0c1526;
+}
+.tut-split-row #tut-split-bottom .tut-compare-label { color: rgba(200,225,255,0.75); }
+.tut-split-row #tut-split-bottom .tut-compare-img {
+  filter: saturate(1.15) contrast(1.05);
+  box-shadow: 0 0 0 1px rgba(79,195,247,0.35), 0 0 30px rgba(0,150,255,0.35);
+}
 
 .tut-nav { flex: 0 0 auto; display: flex; justify-content: space-between; padding: 8px 0 4px; }
 .tut-nav button { font-size: 16px; padding: 11px 24px; }
+/* 다음(오른쪽) = 브랜드 블루 솔리드로 시선 유도, 이전/처음으로(왼쪽) = 테두리만 있는
+   고스트 버튼으로 무게감을 줄임 — 어두운 유리 패널 위에 맞춘 톤. */
+#screen-tutorial .tut-nav .btn-secondary {
+  background: transparent; border: 1px solid rgba(255,255,255,0.4); color: #fff;
+}
+#screen-tutorial .tut-nav .btn-secondary:hover { background: rgba(255,255,255,0.1); filter: none; }
+#screen-tutorial .tut-nav .btn-primary { box-shadow: 0 4px 20px rgba(0,150,255,0.55); }
 
 @media (max-height: 700px) {
   .tut-nav button { font-size: 14px; padding: 9px 20px; }

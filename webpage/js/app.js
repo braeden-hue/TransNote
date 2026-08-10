@@ -1079,7 +1079,8 @@ function buildQuizPage(order, spec) {
 const TUT_PAGES = [
   {
     chip: '시작하기 전에',
-    caption: '우리의 목표 — 조표·옥타브 번호 같은 오선지의 복잡한 규칙 없이, 색과 위치로 바로 읽는 악보',
+    caption: '복잡한 규칙은 버리고, 직관만 남기다',
+    subcaption: '조표와 옥타브 연산 없이, 색과 위치만으로 누구나 읽을 수 있는 커스텀 악보를 경험해 보세요.',
     splitDirection: 'row', // 위/아래 대신 좌/우로 두 악보를 나란히 비교
     render(top, bottom) {
       top.innerHTML = `
@@ -1233,6 +1234,7 @@ function renderTutPage(idx) {
   const page = TUT_PAGES[idx];
   document.getElementById('tut-page-chip').textContent = page.chip;
   document.getElementById('tut-caption').textContent = page.caption;
+  document.getElementById('tut-subcaption').textContent = page.subcaption || '';
   const top = document.getElementById('tut-split-top');
   const bottom = document.getElementById('tut-split-bottom');
   top.innerHTML = '';
