@@ -428,6 +428,9 @@ SAME_CLEF_PROB = 0.0  # 0=끔. >0이면 이 확률로 대보표 시스템 전체
                         # BASS_HIGH_PITCHES를 재사용해 위/아래를 음역으로 분리함. 마디 중간
                         # 클렙 전환(CLEF_CHANGE_PROB)과는 상호작용 미검증이라 동시 적용 안 함
                         # (같은-clef가 뽑히면 CLEF_CHANGE_PROB 쪽이 자동으로 꺼짐).
+SAME_CLEF_MODE_FORCE = None  # None=매 샘플마다 both_treble/both_bass 무작위(기본). 지정하면
+                        # SAME_CLEF_PROB이 트리거될 때마다 항상 이 모드로 고정 -- 카테고리별로
+                        # 정확한 장수를 나눠 생성하고 싶을 때(--same-clef-mode CLI로 설정).
 
 TIE_PROB = 0.0  # 0=끔. >0이면 마디마다 이 확률로 "이 마디 안에서 붙임줄을 하나 시작한다"를
                 # 결정하고, 그 마디를 생성하는 도중 처음 마주치는 이어붙이기 가능한 음표/
@@ -1493,7 +1496,7 @@ def build_score_r3(score_id: int, force_c_major: bool = False, natural_only: boo
     # 음역으로 구분되게 함(둘 다 정확히 같은 음역이면 시각적으로 위/아래 구분이 안 됨).
     same_clef_mode = None  # None | 'both_treble' | 'both_bass'
     if SAME_CLEF_PROB > 0 and random.random() < SAME_CLEF_PROB:
-        same_clef_mode = random.choice(['both_treble', 'both_bass'])
+        same_clef_mode = SAME_CLEF_MODE_FORCE or random.choice(['both_treble', 'both_bass'])
     if same_clef_mode == 'both_treble':
         top_clef_obj, top_clef_tok = clef.TrebleClef(), 'clef-G'
         bot_clef_obj, bot_clef_tok = clef.TrebleClef(), 'clef-G'
@@ -1898,6 +1901,11 @@ def main():
                          '같은 clef(둘 다 clef-G 또는 둘 다 clef-F)로 나옴(--cross-register-prob와 '
                          '달리 clef 기호 자체가 바뀜). --clef-change-prob(마디 중간 일시 전환)과 '
                          '동시 적용 시 이 옵션이 뽑히면 --clef-change-prob 쪽은 그 샘플에서 자동으로 꺼짐')
+    p.add_argument('--same-clef-mode', choices=['both_treble', 'both_bass'], default=None,
+                    help='SAME_CLEF_PROB이 트리거됐을 때 어느 clef로 고정할지 지정(기본 '
+                         'None=매 샘플마다 둘 중 무작위). 배치를 카테고리별로 정확히 나눠 '
+                         '생성하고 싶을 때 사용(예: --same-clef-prob 1.0 --same-clef-mode '
+                         'both_bass로 "둘 다 베이스"만 1000장)')
     p.add_argument('--clef-change-prob', type=float, default=None,
                     help='CLEF_CHANGE_PROB(기본 0=끔) 덮어씀 -- 이 확률로 한 오선 안에서 마디 '
                          '중간에 반대쪽 클렙으로 전환했다가 이후 마디에서 되돌아오는 표기를 '
@@ -1927,7 +1935,7 @@ def main():
     global EIGHTH_RUN_PROB, SIXTEENTH_RUN_PROB, EIGHTH_RUN_PROB_2_4, SIXTEENTH_RUN_PROB_2_4, COURTESY_ACCIDENTAL_PROB
     global ACCOMPANIMENT_PROB
     global MARKOV_BIAS, MARKOV_TABLE, MARKOV_MAX_INTERVAL
-    global CROSS_REGISTER_PROB, CLEF_CHANGE_PROB, TIE_PROB, PREFERRED_REGISTER_PROB, CHORD_PROGRESSION_BIAS, SAME_CLEF_PROB
+    global CROSS_REGISTER_PROB, CLEF_CHANGE_PROB, TIE_PROB, PREFERRED_REGISTER_PROB, CHORD_PROGRESSION_BIAS, SAME_CLEF_PROB, SAME_CLEF_MODE_FORCE
     global HIDE_TIMESIG_PROB
     MIN_MEASURES, MAX_MEASURES = args.min_measures, args.max_measures
     MEASURES_PER_SYSTEM = args.measures_per_system
@@ -1976,6 +1984,7 @@ def main():
     if args.cross_register_prob is not None: CROSS_REGISTER_PROB = args.cross_register_prob
     if args.clef_change_prob is not None: CLEF_CHANGE_PROB = args.clef_change_prob
     if args.same_clef_prob is not None: SAME_CLEF_PROB = args.same_clef_prob
+    if args.same_clef_mode is not None: SAME_CLEF_MODE_FORCE = args.same_clef_mode
     if args.tie_prob is not None: TIE_PROB = args.tie_prob
     if args.preferred_register_prob is not None: PREFERRED_REGISTER_PROB = args.preferred_register_prob
     if args.dynamic_prob   is not None: DYNAMIC_PROB   = args.dynamic_prob
