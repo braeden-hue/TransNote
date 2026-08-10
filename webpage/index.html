@@ -358,7 +358,15 @@
                 <button class="notation-nav-btn" id="convert-notation-next">&#8250;</button>
               </div>
               <div class="result-save">
+                <!-- 모델이 한 줄(오선 그룹)씩만 인식하므로, 실제 여러 줄짜리 악보는 줄마다
+                     따로 촬영해서 이어 붙여야 함(2026-08-10 요청) -- "새로 저장"이 기본,
+                     이미 저장해둔 게 있으면 "이어 붙이기"로 그 뒤에 계속 붙일 수 있음. -->
+                <div class="save-mode-toggle" id="save-mode-toggle">
+                  <label><input type="radio" name="save-mode" value="new" checked> 새로 저장</label>
+                  <label><input type="radio" name="save-mode" value="append"> 기존 악보에 이어 붙이기</label>
+                </div>
                 <input type="text" id="save-title-input" class="title-input" placeholder="악보 제목 입력...">
+                <select id="save-append-target" class="title-input hidden"></select>
                 <button class="btn-primary" id="btn-save-notation">💾 저장하기</button>
                 <button class="btn-secondary hidden" id="btn-show-qr">📱 QR로 가져가기</button>
               </div>

@@ -620,6 +620,8 @@ kbd {
   padding: 9px 12px; color: var(--text); font-size: 16px; /* iOS는 16px 미만 입력창에 포커스 시 자동 확대함 */
 }
 .title-input:focus { outline: none; border-color: var(--primary); }
+.save-mode-toggle { display: flex; gap: 16px; width: 100%; font-size: 13px; color: var(--text-dim); }
+.save-mode-toggle label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
 .hidden { display: none !important; }
 
 .qr-panel {

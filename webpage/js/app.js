@@ -2,7 +2,7 @@ import { SAMPLES, BEAT_COLORS }          from './samples.js';
 import { audio }                           from './audio.js';
 import { renderNotation, renderGrandStaff, renderDigitalStaff } from './notation.js';
 import { buildPiano, renderLabeledOctave } from './piano.js';
-import { loadAll, saveNotation, deleteNotation, generateId } from './storage.js';
+import { loadAll, saveNotation, deleteNotation, generateId, getById } from './storage.js';
 import { signInWithGoogle, signOutUser, onAuthChange,
          saveScoreCloud, loadScoresCloud, deleteScoreCloud,
          isNicknameTakenInSong, saveLeaderboardEntryCloud, loadLeaderboardCloud } from './firebase.js';
@@ -1450,6 +1450,17 @@ function initConvert() {
   document.getElementById('btn-save-notation').addEventListener('click', saveCurrentResult);
   document.getElementById('btn-show-qr').addEventListener('click', showQrForCurrentResult);
 
+  // 이어 붙이기 모드 토글 — "새로 저장"이면 제목 입력창, "이어 붙이기"면 기존 악보
+  // 드롭다운을 보여준다(모델이 한 줄씩만 인식해서 여러 줄 악보는 나눠 찍어 합쳐야 함).
+  document.querySelectorAll('input[name="save-mode"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const append = document.querySelector('input[name="save-mode"]:checked')?.value === 'append';
+      document.getElementById('save-title-input')?.classList.toggle('hidden', append);
+      document.getElementById('save-append-target')?.classList.toggle('hidden', !append);
+      if (append) refreshAppendTargetOptions();
+    });
+  });
+
   // 전시 부스 진행요원 전용 — 실시간 AI 인식이 조명 등으로 꼬였을 때 즉시 대체 결과로 전환.
   document.getElementById('btn-cheat-fallback')?.addEventListener('click', () => {
     const s = SAMPLES.find(x => x.id === 'sample_butterfly') || SAMPLES[0];
@@ -1775,6 +1786,11 @@ function showResult(data) {
   document.getElementById('result-title').textContent = data.title;
   document.getElementById('save-title-input').value   = data.title;
 
+  // 새 인식 결과가 나올 때마다 저장 모드를 "새로 저장"으로 되돌림 -- 이어 붙이기는
+  // 매번 대상을 직접 고르게 해서(자동 지속 X) 실수로 엉뚱한 악보에 붙는 걸 방지.
+  const newModeRadio = document.querySelector('input[name="save-mode"][value="new"]');
+  if (newModeRadio) { newModeRadio.checked = true; newModeRadio.dispatchEvent(new Event('change')); }
+
   document.getElementById('qr-panel')?.classList.add('hidden');
   const qrBtn = document.getElementById('btn-show-qr');
   qrBtn?.classList.toggle('hidden', !data._fromServer);
@@ -1806,18 +1822,64 @@ function showResult(data) {
   }
 }
 
+// 저장된 악보 목록으로 "이어 붙이기" 드롭다운을 채운다(모델이 한 줄씩만 인식해서
+// 여러 줄짜리 실제 악보는 줄마다 따로 찍어 이어 붙여야 하므로, 2026-08-10 추가).
+// title에 특수문자가 있어도 안전하게 옵션을 만들려고 innerHTML 문자열 대신
+// createElement + textContent를 씀.
+function refreshAppendTargetOptions() {
+  const sel = document.getElementById('save-append-target');
+  if (!sel) return;
+  const all = loadAll();
+  sel.innerHTML = '';
+  if (!all.length) {
+    const opt = document.createElement('option');
+    opt.disabled = true; opt.selected = true; opt.textContent = '저장된 악보가 없어요';
+    sel.appendChild(opt);
+    return;
+  }
+  all.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n.id; opt.textContent = n.title;
+    sel.appendChild(opt);
+  });
+}
+
 function saveCurrentResult() {
   if (!state.convertResult) return;
+  const appendMode = document.querySelector('input[name="save-mode"]:checked')?.value === 'append';
+
+  // Grand staff: flatten to treble notes for playback, keep staves for display
+  const captured = { ...state.convertResult };
+  if (!captured.notes && captured.staves) {
+    captured.notes = captured.staves[0]?.notes ?? [];
+  }
+
+  if (appendMode) {
+    const targetId = document.getElementById('save-append-target')?.value;
+    const target = targetId ? getById(targetId) : null;
+    if (!target) { toast('이어 붙일 악보를 선택해주세요'); return; }
+    // 다음 줄 인식 결과를 기존 악보 뒤에 그대로 이어 붙인다 -- clef/박자표가 달라도
+    // 검사하지 않음(2026-08-10 확정, 같은 곡의 연속된 줄이라는 사용자 의도를 믿고
+    // 단순하게 감).
+    target.notes = [...(target.notes ?? []), ...(captured.notes ?? [])];
+    if (target.staves && captured.staves) {
+      target.staves = target.staves.map((s, i) => ({
+        ...s, notes: [...(s.notes ?? []), ...(captured.staves[i]?.notes ?? [])],
+      }));
+    }
+    target.updatedAt = Date.now();
+    saveNotation(target);
+    if (state.user) saveScoreCloud(target).catch(console.error);
+    toast(`💾 "${target.title}"에 이어 붙였어요!`);
+    return;
+  }
+
   const t = document.getElementById('save-title-input').value.trim();
   if (t) state.convertResult.title = t;
-  // Grand staff: flatten to treble notes for playback, keep staves for display
-  const toSave = { ...state.convertResult };
-  if (!toSave.notes && toSave.staves) {
-    toSave.notes = toSave.staves[0]?.notes ?? [];
-  }
-  saveNotation(toSave);
-  if (state.user) saveScoreCloud(toSave).catch(console.error);
-  toast(`💾 "${toSave.title}" 저장 완료!`);
+  captured.title = state.convertResult.title;
+  saveNotation(captured);
+  if (state.user) saveScoreCloud(captured).catch(console.error);
+  toast(`💾 "${captured.title}" 저장 완료!`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
