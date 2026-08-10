@@ -80,11 +80,13 @@ C2~B6. **스코프 밖**: 도돌이표, 아티큘레이션/오나먼트/슬러, 
 |---|---|---|
 | `train/export_tflite.py` | 삭제된 Flutter/C++ 모바일 엔진 전용 export — 현재 웹서버는 PyTorch 직접 추론이라 불필요 | 유지(향후 네이티브 앱 재추진 시 필요할 수 있어 삭제는 보류, 삭제 원하면 알려주세요) |
 | `train/tokenizer1013.json` | vocab 분할(1013→258) 이전 구버전, 참조 0건 | 삭제해도 안전 |
-| `train/tokenizer258_pre_tie.json` | tie 토큰 추가 이전 스냅샷, `train/experiments/`의 아카이브된 1회성 스크립트에서만 참조 | 유지(용량 작음, 참고용) |
+| `train/tokenizer258_pre_tie.json` | tie 토큰 추가 이전 스냅샷, `train/experiments/archive/curriculum_6b_tie.sh`에서만 참조 | 유지(용량 작음, 참고용) |
 
-`train/experiments/`(과거 라운드별 curriculum 셸스크립트 ~100개)와 `test/`(평가 스크립트
-~32개)는 이미 "이력 보존용 아카이브"로 격리되어 있어 이번 감사 범위에서 제외했다 — 개별 스크립트
-전수 감사가 필요하면 별도로 요청.
+`train/experiments/`는 README.md "라운드별 핵심 결과" 표에 나오는 라운드만 27개로 추려두고
+(재현 가능한 커리큘럼 스크립트), 나머지 74개 1회성 진단·pod launcher·중간 iteration 스크립트는
+`train/experiments/archive/`로 옮겼다(2026-08-11). `test/`(평가 스크립트 ~32개)는 이미 "이력
+보존용 아카이브"로 격리되어 있어 이번 감사 범위에서 제외했다 — 개별 스크립트 전수 감사가
+필요하면 별도로 요청.
 
 ---
 

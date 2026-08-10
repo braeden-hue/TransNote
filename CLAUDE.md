@@ -150,7 +150,8 @@ train/tokenizer258.json                                    # DeepScore 토큰 vo
 | `train/*.py` (top-level, ~14개) | 현재 활성 파이프라인 — `dataset.py`/`model.py`/`train.py`/`inference.py`가 핵심, 나머지는 데이터 생성(`generate_scores.py`, `mscz_to_tokens.py`)·렌더링(`render_custom_notation.py`)·증강(`real_texture_augment.py`)·디버그 도구(`dump_canvas.py`, `render_one_exactpicture.py`, `render_sample10_comparison.py`) |
 | `train/checkpoints/` | r15(채택) + r16/r17(기각, 참고용) — 전부 `.gitignore` 처리 |
 | `train/checkpoints_legacy/` | 옛 Flutter/C++ 엔진 시절 체크포인트(segnet 포함) — 현재 파이프라인 미사용, 참고용 보관 |
-| `train/experiments/` | 과거 라운드별 curriculum/pod/prepare/diag 셸스크립트 ~100개 — 이력 보존용 아카이브, 신규 작업은 여기 참고만 하고 새로 작성 |
+| `train/experiments/` | README.md "라운드별 핵심 결과"에 나오는 라운드의 curriculum 스크립트 27개(재현 가능한 것만) |
+| `train/experiments/archive/` | 그 외 1회성 진단/pod launcher/중간 iteration 스크립트 74개 — 이력 보존용, 신규 작업 참고만 |
 | `train/docs/` | 학습 운영 문서(`TRAINING_REPORT.md`, `HANDOFF_STATUS.md`, `POD_TRAINING_CHECKLIST.md`, `CLOUD_SETUP.md`, `PLAN_r16_hide_timesig.md`) |
 | `train/deploy_bundle/` | RunPod 등 원격 배포용 체크포인트 스테이징(생성물, git 미추적) |
 
@@ -160,8 +161,8 @@ train/tokenizer258.json                                    # DeepScore 토큰 vo
   추진할 때만 필요.
 - `train/tokenizer1013.json` — vocab 분할(1013→258, `note-{pitch}-{dur}` → `note-{pitch}` +
   `dur-{dur}`) 이전의 구버전 vocab. 코드 어디서도 참조 안 됨.
-- `train/tokenizer258_pre_tie.json` — tie(붙임줄) 토큰 추가 이전 스냅샷. `train/experiments/`의
-  이미 아카이브된 1회성 마이그레이션 스크립트에서만 참조됨.
+- `train/tokenizer258_pre_tie.json` — tie(붙임줄) 토큰 추가 이전 스냅샷.
+  `train/experiments/archive/curriculum_6b_tie.sh`(1회성 마이그레이션)에서만 참조됨.
 
 ## Platform Notes
 
@@ -173,8 +174,9 @@ train/tokenizer258.json                                    # DeepScore 토큰 vo
 
 ## Known Gaps / Follow-ups
 
-- `test/`, `train/experiments/`의 개별 스크립트 전수 감사는 아직 안 함(상위 레벨 orphan만 확인) —
-  필요 시 요청.
+- `test/`의 개별 스크립트 전수 감사는 아직 안 함(상위 레벨 orphan만 확인) — 필요 시 요청.
+  `train/experiments/`는 2026-08-11에 README.md 라운드 결과 기준으로 27개만 남기고 나머지는
+  `train/experiments/archive/`로 옮김.
 - Firebase(닉네임 저장, 무료 티어) 클라이언트 SDK는 `webpage/js/firebase.js`에 이미 있음, 서버
   측 추가 폴더는 불필요하다고 판단됨(재검토 필요 시 `project.md` 참고).
 - `git commit`/`push`로 이 저장소 재구성(TransNote 개명 포함)을 확정하는 작업은 사용자 확인
