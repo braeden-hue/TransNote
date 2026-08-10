@@ -139,7 +139,18 @@ def preprocess(bgr: np.ndarray, is_real_photo: bool = False) -> np.ndarray:
     H, W = gray.shape
     if W != TARGET_W:
         scale = TARGET_W / W
-        gray  = cv2.resize(gray, (TARGET_W, int(round(H * scale))),
+        # 2026-08-10: 폭 기준 축소만 쓰면 8마디급 와이드 대보표(측정 실폭이 TARGET_W보다
+        # 훨씬 큼)에서 세로 해상도가 과도하게 눌려 오선 간격이 MIN_UNIT(8px, 위 주석의
+        # 2026-07-31 완화 이후 기준)보다도 더 내려가 검출 자체가 실패하는 사례를 확인
+        # (r18 held-out 합성 테스트, num21 등 -- 리사이즈 후 196x1920으로 붕괴, 오선 0개
+        # 검출). MIN_UNIT을 더 내리는 대신(노이즈 오검출 위험 커짐), 세로 해상도가 이
+        # 바닥 아래로 안 내려가게 축소율 자체를 완화 -- 폭이 TARGET_W를 넘어갈 수 있음
+        # (detect_staffs()의 커널 폭(W//8)은 이미 W에 비례해서 별도 조정 불필요).
+        MIN_RESULT_H = 280.0
+        if H * scale < MIN_RESULT_H:
+            scale = MIN_RESULT_H / H
+        new_w, new_h = int(round(W * scale)), int(round(H * scale))
+        gray  = cv2.resize(gray, (new_w, new_h),
                            interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
     clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))
     gray  = clahe.apply(gray)
