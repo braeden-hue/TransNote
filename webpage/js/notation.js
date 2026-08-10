@@ -514,140 +514,114 @@ export function renderMiniStaff(container, notes) {
 }
 
 // ── 정식 오선보(디지털 악보) 렌더러 — 촬영 미리보기에서 "원본 사진과 비교"용 ──────
-// VexFlow(외부 CDN 라이브러리) 연동이 계속 불안정해서(폰트/조판 내부 에러를 브라우저
-// 바깥에서 재현·디버그하기 어려움) 포기하고, renderMiniStaff와 같은 원리의 자체 SVG로
-// 대보표·화음·쉼표까지 지원하도록 확장했다 — 외부 API 불확실성이 전혀 없음.
-const _LETTER_IDX = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
-// clef별 오선 "맨 아래 줄"에 해당하는 기준 음 — 이 음을 step=0으로 놓고 위/아래로
-// 온음계 단위(반음 아님)로 계단을 센다.
-const _CLEF_BOTTOM_LINE = { treble: { letter: 'E', oct: 4 }, bass: { letter: 'G', oct: 2 } };
-
-function _pitchStep(pitch, clef) {
-  const oct = parseInt(pitch.slice(-1));
-  const namePart = pitch.slice(0, -1);
-  const sharp = namePart.endsWith('#');
-  const letter = sharp ? namePart[0] : namePart;
-  const bottom = _CLEF_BOTTOM_LINE[clef] || _CLEF_BOTTOM_LINE.treble;
-  const abs = oct * 7 + _LETTER_IDX[letter];
-  const bottomAbs = bottom.oct * 7 + _LETTER_IDX[bottom.letter];
-  return { step: abs - bottomAbs, sharp };
+// 예전엔 VexFlow를 외부 CDN으로 불러오다 부스 네트워크 신뢰성 문제로 자체 SVG 렌더러로
+// 갈아탔었는데(손으로 그린 오선/음표라 MuseScore 대비 조판 품질이 크게 떨어졌음), 이번엔
+// VexFlow 파일 자체를 로컬 vendor/에 내려받아 CDN 의존 없이 같은 엔진(전문 조판 폰트 내장,
+// 자동 스템 방향·빔·부점·임시표 처리)을 쓴다 — index.html에서 일반 <script>로 먼저 실행돼
+// window.VexFlow에 채워둔다.
+const _DUR_TABLE = [
+  [4, 'w'], [3, 'hd'], [2, 'h'], [1.5, 'qd'], [1, 'q'],
+  [0.75, '8d'], [0.5, '8'], [0.375, '16d'], [0.25, '16'], [0.125, '32'],
+];
+// 우리 표기(quarter=1박) duration -> VexFlow duration 문자열. 셋잇단음표처럼 표에 없는
+// 박은 일단 4분음표로 근사한다(정확한 tuplet 그룹핑은 추후 개선 여지로 남겨둠).
+function _vexDuration(d) {
+  const hit = _DUR_TABLE.find(([v]) => Math.abs(v - d) < 0.001);
+  return hit ? hit[1] : 'q';
 }
-
-const _CLEF_W = 34;   // clef 기호가 차지하는 폭
-const _BAR_GAP = 14;  // 마디선 하나가 차지하는 폭(선+양옆 여백)
-
-// notes 전체(여러 마디)를 pxPerBeat 기준으로 그렸을 때 필요한 총 폭(clef 폭 제외).
-function _staffContentWidth(notes, pxPerBeat) {
-  let w = 0;
-  notes.forEach((n, i) => {
-    if (n.beat === 1 && i > 0) w += _BAR_GAP; // 마디 경계(첫 음표 제외)마다 마디선 폭 추가
-    w += n.duration * pxPerBeat;
-  });
-  return w;
+function _vexKey(pitch) {
+  return `${pitch.slice(0, -1).toLowerCase()}/${pitch.slice(-1)}`;
 }
-
-// 한 보표(clef 하나) 분량을 그려서 svg에 append. yOffset만큼 세로로 밀어서 대보표일 때
-// 두 번째 보표를 아래에 이어 그릴 수 있게 한다. 곡 전체(여러 마디)를 한 줄로 이어 그리며
-// beat===1 경계마다 마디선을 그려 넣는다 — 컨테이너가 넘치면 가로 스크롤로 본다.
-// 반환값: { nextY: 다음 보표 시작 y, width: 이 보표가 실제로 차지한 총 폭 }.
-function _drawStaffInto(svg, notes, clef, x0, yOffset, gap, pxPerBeat) {
-  const top = yOffset + 18;
-  const contentW = _CLEF_W + _staffContentWidth(notes, pxPerBeat);
-  for (let i = 0; i < 5; i++) {
-    const y = top + i * gap;
-    svg.appendChild(el('line', { x1: x0, y1: y, x2: x0 + contentW, y2: y, stroke: '#6E6259', 'stroke-width': '1' }));
-  }
-  // clef 기호(간단한 텍스트 표기 — 정밀 글리프 대신 눈에 띄는 라벨로 대체)
-  const clefLabel = el('text', {
-    x: x0 + 2, y: top + gap * 2 + 5, 'font-size': '20', fill: '#333', 'font-family': 'serif', 'font-weight': '700',
+// beat===1 경계로 마디 분리 — app.js의 splitMeasures()와 같은 규칙.
+function _splitMeasures(notes) {
+  const measures = []; let cur = [];
+  notes.forEach(n => {
+    if (n.beat === 1 && cur.length) { measures.push(cur); cur = []; }
+    cur.push(n);
   });
-  clefLabel.textContent = clef === 'bass' ? '𝄢' : '𝄞';
-  svg.appendChild(clefLabel);
-
-  const bottomY = top + 4 * gap;
-  const stepToY = step => bottomY - step * (gap / 2);
-  let x = x0 + _CLEF_W;
-
-  notes.forEach((note, i) => {
-    if (note.beat === 1 && i > 0) {
-      const bx = x + _BAR_GAP / 2;
-      svg.appendChild(el('line', { x1: bx, y1: top, x2: bx, y2: top + 4 * gap, stroke: '#6E6259', 'stroke-width': '1.4' }));
-      x += _BAR_GAP;
-    }
-    const cellW = note.duration * pxPerBeat;
-    const cx = x + cellW / 2;
-
-    if (note.isRest) {
-      // 쉼표 — 정밀 글리프 대신 가운데줄에 작은 사각 바로 표시(육안 비교용으로 충분).
-      const midY = top + 2 * gap;
-      svg.appendChild(el('rect', { x: cx - 6, y: midY - 3, width: 12, height: 6, fill: '#444', rx: 1 }));
-      x += cellW;
-      return;
-    }
-
-    const pitches = [note.pitch, ...(note.chordNotes || [])];
-    const steps = pitches.map(p => _pitchStep(p, clef));
-    let minStep = Math.min(...steps.map(s => s.step));
-    let maxStep = Math.max(...steps.map(s => s.step));
-
-    steps.forEach(({ step, sharp }) => {
-      const cy = stepToY(step);
-      if (step < 0) {
-        for (let s = -2; s >= step; s -= 2) {
-          const ly = stepToY(s);
-          svg.appendChild(el('line', { x1: cx - 8, y1: ly, x2: cx + 8, y2: ly, stroke: '#6E6259', 'stroke-width': '1' }));
-        }
-      } else if (step > 8) {
-        for (let s = 10; s <= step; s += 2) {
-          const ly = stepToY(s);
-          svg.appendChild(el('line', { x1: cx - 8, y1: ly, x2: cx + 8, y2: ly, stroke: '#6E6259', 'stroke-width': '1' }));
-        }
-      }
-      if (sharp) {
-        const t = el('text', { x: cx - 13, y: cy + 4, 'font-size': '12', fill: '#222', 'font-family': 'system-ui' });
-        t.textContent = '♯';
-        svg.appendChild(t);
-      }
-      const hollow = note.duration >= 2;
-      svg.appendChild(el('ellipse', {
-        cx, cy, rx: 5.5, ry: 4, transform: `rotate(-15 ${cx} ${cy})`,
-        fill: hollow ? 'none' : '#222', stroke: '#222', 'stroke-width': hollow ? '1.4' : '0',
-      }));
-    });
-
-    // 화음이면 맨 위~맨 아래 음을 잇는 줄기 하나만(실제 조판과 동일한 관례), 단음이면
-    // 그 음 하나에서 뻗는 줄기.
-    const stemTopY = stepToY(maxStep) - 22;
-    const stemBottomY = stepToY(minStep);
-    svg.appendChild(el('line', { x1: cx + 5, y1: stemBottomY, x2: cx + 5, y2: stemTopY, stroke: '#222', 'stroke-width': '1.2' }));
-
-    x += cellW;
-  });
-
-  return { nextY: yOffset + 5 * gap + 26, width: x0 + contentW };
+  if (cur.length) measures.push(cur);
+  return measures;
 }
 
 // container에 정식 오선보를 그린다. staves: [{clef, notes}] (1개=단일보표, 2개=대보표).
-// 곡 전체(여러 마디)를 한 줄로 이어 그리므로, 컨테이너보다 넓어지면 svg 자체를 그만큼
+// timeSignature: [분자, 분모] — 있으면 첫 마디 앞에 박자표를 붙인다.
+// 곡 전체(여러 마디)를 한 줄로 이어 그리므로, 컨테이너보다 넓어지면 SVG 자체를 그만큼
 // 넓게 만든다 — 부모(.exp-preview-notation 등)가 overflow:auto라 가로 스크롤로 볼 수 있다.
-export function renderDigitalStaff(container, staves) {
-  const GAP = 14;
-  const PX_PER_BEAT = 46;
+export function renderDigitalStaff(container, staves, timeSignature) {
+  const VF = window.VexFlow;
+  container.innerHTML = '';
+  if (!VF) {
+    // vendor/vexflow.js 로드 실패 등 — 조용히 빈 화면보다는 이유를 알 수 있게.
+    container.innerHTML = '<p style="color:#a00;padding:20px">악보 렌더링 엔진을 불러오지 못했습니다</p>';
+    return;
+  }
+  const { Renderer, Stave, StaveNote, Voice, Formatter, Beam, Accidental, StaveConnector, Dot } = VF;
+
   const normalized = staves.map(s => ({
     clef: s.clef ?? 'treble',
-    notes: s.notes?.length ? s.notes : [{ isRest: true, duration: 4 }],
+    notes: s.notes?.length ? s.notes : [{ isRest: true, duration: 4, beat: 1 }],
   }));
-  const contentWidths = normalized.map(s => _CLEF_W + _staffContentWidth(s.notes, PX_PER_BEAT) + 10);
-  const W = Math.max(container.clientWidth || 400, ...contentWidths, 320);
-  const H = staves.length >= 2 ? 2 * (5 * GAP + 44) : (5 * GAP + 44);
-  const svg = el('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+  const isGrand = normalized.length >= 2;
+  const measuresByStave = normalized.map(s => _splitMeasures(s.notes));
+  const measureCount = Math.max(1, ...measuresByStave.map(m => m.length));
 
-  let y = 0;
-  normalized.forEach(s => {
-    const result = _drawStaffInto(svg, s.notes, s.clef, 4, y, GAP, PX_PER_BEAT);
-    y = result.nextY;
+  // 한 마디(보표 하나 분량)를 StaveNote 배열로 변환.
+  function buildMeasureNotes(measureNotes) {
+    if (!measureNotes?.length) return { notes: [new StaveNote({ keys: ['b/4'], duration: 'wr' })], beats: 4 };
+    let beats = 0;
+    const notes = measureNotes.map(n => {
+      beats += n.duration;
+      const dur = _vexDuration(n.duration);
+      if (n.isRest) return new StaveNote({ keys: ['b/4'], duration: dur + 'r' });
+      const pitches = [n.pitch, ...(n.chordNotes || [])];
+      const sn = new StaveNote({ keys: pitches.map(_vexKey), duration: dur, clef: n.clef, autoStem: true });
+      pitches.forEach((p, i) => { if (p.includes('#')) sn.addModifier(new Accidental('#'), i); });
+      if (dur.includes('d')) Dot.buildAndAttach([sn], { all: true });
+      return sn;
+    });
+    return { notes, beats: beats || 4 };
+  }
+
+  // 마디별 폭 — 그 마디에서 음이 가장 많은 보표 기준(대보표는 두 보표의 바라인이
+  // 같은 x에 오도록 맞춰야 함). 첫 마디는 클렙+박자표 자리만큼 더 넓게.
+  const MEASURE_PAD = 46, PX_PER_NOTE = 42, FIRST_MEASURE_EXTRA = 60;
+  const measureWidths = Array.from({ length: measureCount }, (_, m) => {
+    const maxNotes = Math.max(1, ...measuresByStave.map(ms => ms[m]?.length ?? 1));
+    return MEASURE_PAD + maxNotes * PX_PER_NOTE + (m === 0 ? FIRST_MEASURE_EXTRA : 0);
   });
+  const totalW = measureWidths.reduce((a, b) => a + b, 0) + 14;
+  const STAVE_H = 100;
+  const totalH = (isGrand ? STAVE_H * 2 : STAVE_H) + 20;
 
-  container.innerHTML = '';
-  container.appendChild(svg);
+  const renderer = new Renderer(container, Renderer.Backends.SVG);
+  renderer.resize(Math.max(totalW, container.clientWidth || 320), totalH);
+  const ctx = renderer.getContext();
+
+  let x = 6;
+  for (let m = 0; m < measureCount; m++) {
+    const w = measureWidths[m];
+    const rowStaves = [];
+    normalized.forEach((s, si) => {
+      const stave = new Stave(x, 10 + si * STAVE_H, w);
+      if (m === 0) {
+        stave.addClef(s.clef);
+        if (timeSignature) stave.addTimeSignature(`${timeSignature[0]}/${timeSignature[1]}`);
+      }
+      stave.setContext(ctx).draw();
+      rowStaves.push(stave);
+
+      const { notes, beats } = buildMeasureNotes(measuresByStave[si][m]);
+      const voice = new Voice({ numBeats: beats, beatValue: 4 }).setStrict(false);
+      voice.addTickables(notes);
+      new Formatter().joinVoices([voice]).format([voice], w - (m === 0 ? 70 : 30));
+      voice.draw(ctx, stave);
+      Beam.generateBeams(notes).forEach(b => b.setContext(ctx).draw());
+    });
+    // 대보표면 맨 앞 마디 앞에만 브레이스(중괄호)+연결 바라인을 그려 대보표임을 표시.
+    if (isGrand && m === 0) {
+      new StaveConnector(rowStaves[0], rowStaves[1]).setType(StaveConnector.type.BRACE).setContext(ctx).draw();
+      new StaveConnector(rowStaves[0], rowStaves[1]).setType(StaveConnector.type.SINGLE_LEFT).setContext(ctx).draw();
+    }
+    x += w;
+  }
 }

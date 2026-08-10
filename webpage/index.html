@@ -512,6 +512,12 @@
 
   <div class="toast" id="toast"></div>
 
+  <!-- VexFlow(MIT) — 체험하기 촬영 미리보기의 "정식 디지털 악보" 렌더링용. 예전엔 CDN으로
+       불러오다 부스 네트워크 신뢰성 문제로 자체 SVG 렌더러로 갈아탔었는데, 이번엔 파일
+       자체를 로컬에 내려받아 vendor/에 넣어서 CDN 의존 없이 같은 엔진(전문 조판 폰트 내장)을
+       쓴다. type="module"이 아닌 평범한 스크립트라 여기서 먼저 실행돼 window.VexFlow를
+       채워두고, 그 다음 모듈 스크립트(app.js → notation.js)가 그걸 참조한다. -->
+  <script src="js/vendor/vexflow.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -739,12 +739,13 @@ kbd {
 .empty-state { padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 14px; line-height: 2; }
 .hint { font-size: 12px; color: var(--text-mute); margin-top: 4px; }
 
-/* ── 튜토리얼 "처음으로" 버튼 — 돋보기 버튼과 같은 x축(오른쪽 정렬)에, 그 바로
-   위쪽에 고정 배치 ────────────────────────────────────────────────────────── */
+/* ── 튜토리얼 "처음으로" 버튼 — 돋보기 버튼과 정확히 같은 오른쪽 인셋(x좌표)에,
+   그 바로 위쪽에 고정 배치. right 값은 .octave-magnifier와 반드시 같아야 두 버튼이
+   화면 맨 오른쪽 가장자리에 나란히(위/아래로) 정렬된다 ─────────────────────────── */
 /* 흰 동그라미 아이콘 버튼 — 같은 화면의 돋보기 버튼(.magnifier-btn)과 같은 모양 언어 */
 .tut-home-btn {
   position: fixed; z-index: 260;
-  top: calc(50% - 73px); right: calc(8px + var(--safe-r));
+  top: calc(50% - 76px); right: calc(14px + var(--safe-r));
   width: 46px; height: 46px; border-radius: 50%;
   background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
   border: 1px solid var(--border-hi); box-shadow: 0 3px 14px rgba(79,195,247,0.3);
@@ -756,7 +757,7 @@ kbd {
 @media (max-width: 480px) {
   /* 돋보기(.octave-magnifier)는 모바일에서 right 오프셋만 8px로 줄어듦(크기는 46px 그대로) */
   .tut-home-btn {
-    top: calc(50% - 67px); right: calc(4px + var(--safe-r));
+    top: calc(50% - 70px); right: calc(8px + var(--safe-r));
     width: 40px; height: 40px; font-size: 18px;
   }
 }

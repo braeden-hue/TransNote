@@ -515,7 +515,7 @@ function showExpCapturePreview(json, photoUrl) {
   const staves = json.staves?.length >= 2
     ? [{ clef: 'treble', notes: json.staves[0].notes ?? [] }, { clef: 'bass', notes: json.staves[1].notes ?? [] }]
     : [{ clef: 'treble', notes: json.notes ?? [] }];
-  renderDigitalStaff(document.getElementById('exp-preview-notation'), staves);
+  renderDigitalStaff(document.getElementById('exp-preview-notation'), staves, json.timeSignature);
   document.getElementById('exp-preview-overlay')?.classList.remove('hidden');
 }
 
