@@ -9,7 +9,7 @@ on:
       - "runpod_serverless/**"
       - "train/*.py"
       - "train/tokenizer258.json"
-      - "token_to_notes.py"
+      - "server/token_to_notes.py"
   workflow_dispatch: {}  # Actions 탭에서 수동으로도 재실행 가능
 
 jobs:

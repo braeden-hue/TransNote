@@ -65,8 +65,8 @@ webpage/(카메라 촬영·업로드) → POST /api/recognize
 | `tokenizer258.json` | `train/tokenizer258.json` | `fad052fedb7be8f35d241d7c8943c178b49ca336614ccecc41a57246aa518bcb` |
 
 ```bash
-pip install -r requirements.txt
-python server.py
+pip install -r server/requirements.txt
+python server/server.py
 # 기본 0.0.0.0:8080 — 같은 네트워크의 폰/태블릿에서 http://<이 PC의 LAN IP>:8080 으로 접속
 ```
 
@@ -81,7 +81,10 @@ localhost)에서만 동작한다 — LAN IP로 `http://`만 접속하면 브라�
 
 | 폴더 | 내용 |
 |---|---|
+| `server/` | 로컬/LAN 실행용 FastAPI 서버(`server.py`) + `token_to_notes.py` + `requirements.txt` |
 | `webpage/` | 정적 웹앱(HTML/CSS/JS), PWA(manifest.json) |
+| `api/` | Vercel 서버리스 함수(얇은 프록시) — 실제 추론은 `runpod_serverless/`가 전담 |
+| `runpod_serverless/` | RunPod Serverless GPU 추론 워커(Docker) |
 | `train/` | OMR 모델 학습 파이프라인(PyTorch) + 체크포인트 |
 | `test/` | 학습된 모델 평가/진단 스크립트 |
 | `realImage/` | 실사 촬영 이미지 데이터셋(로컬 전용, git 미포함) |
@@ -100,6 +103,23 @@ localhost)에서만 동작한다 — LAN IP로 `http://`만 접속하면 브라�
 | 1단계 — 합성 데이터 | `music21`+MuseScore로 악보를 자동 생성해 문법·구조부터 학습(단일오선→대보표→밀집 리듬·넓은 음역) |
 | 2단계 — 노이즈 증강 | 촬영 시뮬레이션(기울임·블러·조명·원근)을 실제 추론 경로와 동일한 순서로 학습에 반영해 오선 검출 안정성 확보 |
 | 3단계 — 실사 데이터 | 실제 촬영한 악보 사진을 투입, CoordConv·크롭 버그 수정 등 아키텍처 개선으로 최종 정확도 달성 |
+
+### 라운드별 핵심 결과 (유의미한 변화가 있었던 라운드만)
+
+| 단계 | 라운드 | 정확도 변화 | 무엇이 바뀌었나 |
+|---|---|---|---|
+| 1 | Round1 → Round2 | 17.5% → **92.2%** | random init 대신 이전 체크포인트에서 이어받기(resume)로 전환 — 이후 모든 라운드의 기본 원칙이 됨 |
+| 1 | (캔버스 버그 수정) | 83~86% → **99.5%** | 마디에 음표가 많으면 이미지가 잘려나가던 `dataset.py` 전처리 버그 수정 |
+| 1→2 | (실사 사진 최초 투입) | 72.2% → **21.8%** | 촬영 조건(기울기·블러·조명) 학습 전 실사 사진 정확도 폭락 — 2단계 도입 계기 |
+| 2 | 노이즈 증강 도입 | 오선 검출 실패율 60.6% → **23.0%** | 노이즈→원근보정→재검출까지 실제 추론 순서 그대로 학습에 반영 |
+| 3 | r10, r11 | r8_2 대비 **하락(3연패)** | "좁은 합성 데이터로 재파인튜닝" 시도 — 전부 후퇴, 폐기 |
+| 3 | r12 | **76.9%** | 실사 120곡 전량 투입 |
+| 3 | r13 | **79.1%** | CoordConv(좌표 정보 보강) 도입 |
+| 3 | r14 | 78.0%(곡별 편차 큼) | 오선 크롭/스케일 버그 수정 |
+| 3 | **r15(채택)** | 84.2%(6곡) / **87.2%**(12곡) | r14+r13 결합 — 현재 운영 체크포인트 |
+| 3 | r16, r17, r18 | r15 대비 **전부 하락**(기각) | 박자표 미노출/리듬 보강/대보표 스코프 확장 각각 시도 — replay 비중이 큰 재학습은 오히려 저하된다는 패턴이 3회 재현됨 |
+
+전체 서사와 원인 분석은 [`train/docs/TRAINING_REPORT.md`](train/docs/TRAINING_REPORT.md) 참고.
 
 **핵심 교훈**:
 - seq2seq 모델은 반드시 이전 체크포인트에서 이어받아(resume) 학습해야 함 — 처음부터 학습

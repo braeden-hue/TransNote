@@ -13,7 +13,7 @@ WORKDIR /app
 # train/ 최상위 활성 스크립트 전부 복사(선택적으로 일부만 골라오면 dataset.py의
 # real_texture_augment.py 같은 sibling import가 누락될 위험이 있어 통째로 복사).
 COPY train/*.py train/tokenizer258.json ./train/
-COPY token_to_notes.py .
+COPY server/token_to_notes.py .
 COPY runpod_serverless/handler.py .
 COPY runpod_serverless/requirements.txt .
 

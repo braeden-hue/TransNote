@@ -1,13 +1,14 @@
 """
-server.py — 프로젝트 루트에서 `python server.py`로 실행하는 실서비스용 웹 서버.
+server/server.py — 프로젝트 루트에서 `python server/server.py`로 실행하는 실서비스용 웹 서버.
 
 webpage/ 정적 파일(HTML/CSS/JS)을 서빙하면서 /api/status, /api/recognize를
 제공한다. train/의 자체 학습 Round3(대보표) 체크포인트로 추론한다(자체 학습
 모델이라 전시/배포에 그대로 쓸 수 있음 — omr_bridge는 2026-08-09 정리 때 삭제됨,
 AGPL 기반 로컬 참고용 도구였고 더 이상 안 씀).
 
-실행:
-    python server.py
+실행(프로젝트 루트에서):
+    pip install -r server/requirements.txt
+    python server/server.py
     (기본 0.0.0.0:8080 — 같은 네트워크의 폰에서 http://<이 PC의 LAN IP>:8080 으로 접속)
 """
 
@@ -27,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parent.parent  # server/의 부모 = 저장소 루트
 _TRAIN = _ROOT / "train"
 sys.path.insert(0, str(_TRAIN))
 

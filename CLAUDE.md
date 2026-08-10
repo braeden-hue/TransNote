@@ -84,8 +84,10 @@ Flutter 시절 문서(`appMake.md`, `FLUTTER_UI_PROGRESS.md`, 옛 학습 로드�
 ## Directory Layout
 
 ```
-server.py            # FastAPI 서버 — webpage/ 서빙 + /api/recognize, /api/status, /api/score, /api/qr
+server/               # 로컬/LAN 실행용 FastAPI 서버(server.py) + token_to_notes.py + requirements.txt
 webpage/              # 정적 웹앱(HTML/CSS/JS), PWA(manifest.json)
+api/                  # Vercel 서버리스 함수(얇은 프록시, 실제 추론은 runpod_serverless/가 전담)
+runpod_serverless/    # RunPod Serverless GPU 추론 워커(Docker) — .github/workflows가 자동 빌드
 train/                # OMR 학습 파이프라인(PyTorch) — 아래 "ML Training" 참고
 test/                 # 학습된 모델 평가/진단 스크립트(eval_*.py 등)
 realImage/            # 실사 촬영 이미지(로컬 전용, .gitignore로 git 미포함)
@@ -97,7 +99,8 @@ secrets/              # API 키 등(.gitignore로 git 미포함, 절대 커밋 �
 
 ### 웹 서버
 ```bash
-python server.py                   # 0.0.0.0:8080, webpage/ 서빙 + OMR API
+pip install -r server/requirements.txt
+python server/server.py            # 0.0.0.0:8080, webpage/ 서빙 + OMR API
 ```
 
 ### ML Training (`train/`)
