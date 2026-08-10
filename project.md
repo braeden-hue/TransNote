@@ -1,187 +1,99 @@
-# project.md — 맞춤형 악보 인식 & 변환 앱
+# project.md — TransNote: 맞춤형 악보 인식 & 변환 웹 앱
 
----
-## 📋 임시 메모 (2026-06-13)
-
-### 가중치 완료 타임라인 (8/17 데모 역산)
-
-| 기간 | 목표 | 완료 조건 |
-|---|---|---|
-| 6/13~6/23 | Round 2 재학습 | val_acc 75%+ (tiles_per_staff 상향 + perspective 증강) |
-| 6/24~7/8 | Round 3 (2오선 + IMSLP fine-tuning) | val_acc 80%+ |
-| 7/9~7/24 | Round 4 (실사 사진) + TFLite INT8 변환 | 변환 완료 후 FastAPI 서버 배포 |
-| 7/25~8/4 | 앱 엔진 가중치 교체 + 웹 API 연결 + QA | 실기기 갤러리→OMR→커스텀악보 동작 확인 |
-| 8/5~8/15 | 영상·포스터 완성 | 제출 완료 |
-
-> **리스크**: Round 2가 7/1까지 75% 미달이면 Round 3 생략 후 바로 TFLite 변환 → 서버/앱 연결 확보 우선
-
----
-
-## 진행 현황 업데이트 (2026-06-22)
-
-### 완료: 수정 1~4 — 카스케이딩 TER 오류 차단
-
-**배경**: 앞 토큰 오인식 시 이후 토큰이 연속 실패하는 문제(Cascading TER). TrOMR, OMR-NED 논문 참조.
-
-**구현된 함수 3종** (모든 대상 파일에 공통 삽입):
-- `fix_chord_tokens(token_ids, id2tok)` — 고아 `chord-` 토큰 제거 (앞에 `note-` / `chord-` 없으면 삭제)
-- `fix_span_tokens(token_ids, id2tok)` — stack 기반 짝 없는 span 토큰 제거 (slur, hairpin, ottava, tuplet)
-- `measure_segmented_ter(pred, gt, barline_ids)` — OMR-NED 방식 마디 단위 TER (barline으로 분리 → 마디 간 오류 전파 차단)
-
-**수정된 파일 (7개)**:
-| 파일 | 변경 내용 |
-|---|---|
-| `Modify_Round/round1train/train.py` | 헬퍼 블록 추가, validation loop에 fix + measure_segmented_ter |
-| `Modify_Round/round2train/train.py` | 동일 |
-| `Modify_Round/round3train/train.py` | 동일 (greedy_decode device 파라미터 포함) |
-| `ml/omr/training/train.py` | 동일 (pred_ids 변수명, greedy_decode max_len 파라미터) |
-| `Modify_Round/round1train/inference.py` | fix 함수 + measure_segmented_ter + barline_ids |
-| `Modify_Round/round2train/inference.py` | 동일 |
-| `Modify_Round/round3train/inference.py` | 동일 (treble/bass/else 3개 greedy_decode 호출 모두 패치) |
-
-**추가된 파일 (generate_scores.py 이전)**:
-- `ml/omr/data_gen/round1/generate_scores.py` — Round 1 기호 (clef-G/F, key 5종, time 3종, note/rest, barline)
-- `ml/omr/data_gen/round2/generate_scores.py` — Round 2 추가 (dynamics, hairpin, artic, ornament, slur, tuplet, ottava, chord)
-- `ml/omr/data_gen/round3/generate_scores.py` — Round 3 추가 (grand staff, staff-bass 토큰)
-
-**다음 단계**: Round 2 재학습 준비 완료 — `data_dir` = Round1+Round2 누적, tokenizer = round2train/tokenizer.json, `--resume` = root seq2seq_best.pt (val_TER 0.29, vocab 1012)
-
----
-
-### 우선순위 높은 TODO (학습 외)
-
-#### Flutter NotationWidget 미구현 — 데모 전 필수
-- [ ] **쉼표 표시**: `ScoreNote`에 타입 필드 추가 (`isRest: bool`), 회색 빈 셀 렌더링
-- [ ] **박자표 표시**: `NotationWidget`에 `timeSignature` 파라미터 추가, 보표 좌측에 숫자 표시
-- [ ] **셈여림 표시**: `ScoreNote` 또는 별도 이벤트로 `dynamic` 처리, Python처럼 한국어 변환 후 마디 상단
-- [ ] **Grand staff (2단 보표)**: treble + bass `NotationWidget` 수직 배치 (`Column` 래퍼)
-- [ ] **도돌이표 시각화**: `barline-start/end-repeat` 구분, `:‖` / `‖:` 기호 표시
-
-#### 웹/서버
-- [ ] FastAPI OMR 추론 서버 구성 (Round 2 완료 후 병행 시작)
-- [ ] 웹 프론트엔드 OMR API 연결 (샘플 악보 즉시 체험 버튼 포함)
-
-#### 예산 (연말 팝업 운영 기준, 100만원 내)
-- Apple Developer (130,000원) + Google Play (35,000원) + 도메인 (15,000원)
-- 서버: Railway 무료 플랜 먼저, 초과 시 Hetzner CX21 (≈6,000원/월)
-- 디자인 에셋: UI8 Music UI Kit 일회성 (55,000~100,000원) + Envato Elements 1개월 집중 (30,000원) + LottieFiles 팩 (30,000원)
-
-#### 영상 제작 일정
-- 8/3~8/5: 앱+웹 화면 녹화 / 8/5~8/8: 나레이션+다이어그램 / 8/8~8/12: DaVinci Resolve 편집 / 8/15: 완성본
-
----
-
-### 커스텀 악보 렌더러 미구현 현황
-
-| 항목 | Python 렌더러 | Flutter Widget | 우선순위 |
-|---|---|---|---|
-| 쉼표 | ✅ | ❌ | 데모 필수 |
-| 박자표 | ✅ | ❌ | 데모 필수 |
-| Grand staff (2단) | ✅ | ❌ | 데모 필수 |
-| 셈여림 | ✅ | ❌ | 데모 필수 |
-| 도돌이표 시각화 | ⚠️ | ❌ | 데모 필수 |
-| 크레센도·디미누엔도 | ❌ | ❌ | 있으면 좋음 |
-| 아티큘레이션 | ❌ | ❌ | 있으면 좋음 |
-| 셋잇단음표 | ❌ | ❌ | 있으면 좋음 |
-| 이음줄/꾸밈음/페르마타/ottava/긴트릴 | ❌ | ❌ | 데모 범위 외 |
-
----
-
-> 최종 수정: 2026-06-22  
-> **현재 단계**: 수정 1~4 완료 (fix_chord_tokens, fix_span_tokens, measure_segmented_ter) — Round 2 재학습 준비 완료  
-> **다음 실행**: Round 2 재학습 (누적 데이터 + 증강 강화, 목표 val_acc 75%+)  
->  
-> **학습 현황**: Round 1 val_acc **72%** (TER 0.28), 평가 84~92% / Round 2 val_acc **64%** (Round 1보다 하락)  
-> 가중치 위치: `segnet_best.pt`, `seq2seq_best.pt` (루트 — Round 1 기준)  
-> 개선 방안: `docs/score-training-agent.md` 참조 / 상세 구현: 본 문서 "진행 현황 업데이트 (2026-06-22)" 섹션
-
----
-
-## Working Guidelines
-
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
-
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-
-### 1. Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-### 2. Simplicity First
-
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-### 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-### 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
-
----
+> 세부 문서: 학습 히스토리 [`train/docs/TRAINING_REPORT.md`](train/docs/TRAINING_REPORT.md) ·
+> 학습 인계 상태 [`train/docs/HANDOFF_STATUS.md`](train/docs/HANDOFF_STATUS.md) · RunPod
+> 체크리스트 [`train/docs/POD_TRAINING_CHECKLIST.md`](train/docs/POD_TRAINING_CHECKLIST.md) ·
+> claude.ai/code 연동 [`train/docs/CLOUD_SETUP.md`](train/docs/CLOUD_SETUP.md) · 저장소 구조/명령어
+> [`CLAUDE.md`](CLAUDE.md) · Flutter 시절 과거 기록(참고용) [`docs/archive/`](docs/archive/).
+> 이 문서는 요약/현황판 역할만 한다.
 
 ## 목표
 
-악보의 장벽을 허물어 누구나 음악에 "연결"될 수 있도록 한다.  
-악보 이미지를 촬영·업로드하면 OMR 모델이 음표를 인식하고 **사용자 정의 표기법**으로 변환한다.  
-변환된 악보로 직접 연주 연습하고, 전세계 사용자와 공유할 수 있다.
+악보의 장벽을 허물어 누구나 음악에 "연결"될 수 있도록 한다. 악보 이미지를 촬영·업로드하면 자체
+학습한 OMR 모델이 음표를 인식하고 **사용자 정의 표기법**으로 변환한다. 변환된 악보로 화면 위
+가상 피아노 또는 연결된 전자 피아노(MIDI)로 직접 연주 연습할 수 있다.
 
-**타겟 유저**: 악보를 처음 접하거나 읽기 어려운 사람 (현재: 피아노 중심, 향후 확장 가능)  
-**입력 범위**: 이미지 한 장 기준 최대 3~4 마디, 초·중급 수준 악보  
-**상업 출시**: Android / iOS 앱 + 웹 (학습 파이프라인 전체 상업 라이선스 확인 완료)
+**타겟 유저**: 악보를 처음 접하거나 읽기 어려운 사람 (현재: 피아노 중심)
+**입력 범위**: 이미지 한 장 기준 최대 1~4 마디, 초·중급 수준 악보
+**형태**: 웹 앱 단일 구조(`server.py` FastAPI + `webpage/` 정적 프론트) — 전시 부스 태블릿/폰
+데모 및 온라인 체험 겸용. Flutter 네이티브 앱 트랙은 2026-08-09 전면 폐기(아래 "과거 결정" 참고).
+**제출 마감**: 2026-08-17 — 데모 + 포스터 + 이미지 + 영상 제출.
 
-### 플랫폼별 역할
+---
 
-| 플랫폼 | 핵심 기능 |
-|--------|---------|
-| **웹 (온라인 팝업)** | 악보 이미지 업로드 → 커스텀 악보 변환 / 키보드 입력 가상 피아노 연주 |
-| **앱 (Flutter)** | 변환 악보 공유 커뮤니티 / 마이크·MIDI 실시간 연주 감지 → 커스텀 악보 대조 피드백 |
+## 현재 상태 (2026-08-09 기준)
+
+- **웹앱 전면 구현 완료**: 랜딩 화면(3개 핫스팟) → 튜토리얼(규칙 0~3 + 테스트 5문항, 가로 화면
+  auto-fit) / 체험하기(샘플 3곡 + 카메라 촬영, 오른손만·양손 모드, 마디 단위 자동 진행 연주,
+  MIDI 연동, 리더보드) 흐름 전부 동작. 상세는 `webpage/` 코드 및 `docs/ui-design-specialist.md`.
+- **OMR 모델**: `train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt` 채택 확정
+  (재확인 완료, 아래 "OMR 모델 현황" 참고).
+- **저장소 재구성 완료(로컬)**: `musicscore_flutter` → `TransNote`, `online_webpage` → `webpage`,
+  `round3train` → `train`, 대분류 `webpage/`·`train/`·`test/`·`realImage/` 확립, Flutter/구버전
+  ML 파이프라인(`android/`, `ios/`, `lib/`, `ml/`, `round1/`, `omr_bridge/`) 삭제. **git
+  commit/push는 아직 미실행** — 사용자 확인 대기 중.
+- **HTTPS 제약**: Web MIDI API는 보안 컨텍스트(https:// 또는 localhost) 필요 — 일반 LAN http로는
+  MIDI 연동 테스트 불가. 전시 당일 네트워크 구성 시 고려 필요.
+
+---
+
+## OMR 모델 현황
+
+**프로덕션 체크포인트**: `train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt` +
+`train/tokenizer258.json` (segnet 불필요 — 현재 추론 경로는 오선 검출에 학습 모델을 안 씀,
+자세한 근거는 `CLAUDE.md`의 "추론 경로" 절).
+
+| 지표 | 값 | 비고 |
+|---|---|---|
+| 실사 촬영 12곡 정확도(held-out) | **87.2%** | 최신 채택 수치 |
+| teacher-forcing 정확도 | 98.0% | 실전(자기회귀) 수치와 격차 큼, 신뢰 안 함 |
+| 촬영 노이즈 대응 전 정확도 | 21.8% | 노이즈 증강 도입 전 — 약 4배 개선됨 |
+
+r15 이후 시도한 r16(박자표 미노출 보강)/r17(리듬 분포 보강)은 **둘 다 실사 검증에서 r15를
+넘지 못해 기각** — r15가 계속 유일한 프로덕션 체크포인트다. 전체 라운드별 데이터/에폭/정확도와
+문제 해결 과정(exposure bias 완화, 노이즈 강건성, 마르코프 체인 기반 피치 가중, r16/r17 기각
+근거)은 [`train/docs/TRAINING_REPORT.md`](train/docs/TRAINING_REPORT.md) 참고.
+
+**남은 정확도 이슈**(우선순위 순, `train/docs/HANDOFF_STATUS.md`에서 이관):
+1. newage23 GT 데이터 버그(어휘에 없는 토큰) — 검증 정확도 왜곡, 저비용 수정 가능
+2. 3도 오독(단/장3도 음이름 혼동) — 전 검증셋 공통 최다 오류, 근본 원인 미해결
+3. 옥타브(8va/8vb)/헤어핀 span 토큰 — 구조적 한계로 recall 20~37%만 지원
+
+**알려진 인식 범위**: 대보표/단일오선, 시스템당 1~4마디, 박자 4종(4/4·3/4·2/4·6/8), 조표 13종,
+음표 온음표~16분음표, 화음(2~3음)·다이나믹·페르마타·셋잇단음표·붙임줄·클렙전환. 음높이
+C2~B6. **스코프 밖**: 도돌이표, 아티큘레이션/오나먼트/슬러, 5마디 이상 시스템.
+
+---
+
+## RunPod 배포 번들
+
+`train/deploy_bundle/`에 프로덕션 체크포인트(seq2seq_best.pt) + tokenizer258.json 2개 파일만
+스테이징해둠(README 포함, git 미추적 — 재생성은 원본 두 경로에서 복사). segnet은 현재 추론
+경로에서 안 쓰여서 제외. 상세는 [`train/deploy_bundle/README.md`](train/deploy_bundle/README.md).
+
+---
+
+## 코드 정리 현황 (`.py` orphan 감사)
+
+`train/` 최상위 활성 스크립트(~14개) 기준 아무 코드에서도 참조되지 않는 파일:
+
+| 파일 | 사유 | 조치 |
+|---|---|---|
+| `train/export_tflite.py` | 삭제된 Flutter/C++ 모바일 엔진 전용 export — 현재 웹서버는 PyTorch 직접 추론이라 불필요 | 유지(향후 네이티브 앱 재추진 시 필요할 수 있어 삭제는 보류, 삭제 원하면 알려주세요) |
+| `train/tokenizer1013.json` | vocab 분할(1013→258) 이전 구버전, 참조 0건 | 삭제해도 안전 |
+| `train/tokenizer258_pre_tie.json` | tie 토큰 추가 이전 스냅샷, `train/experiments/`의 아카이브된 1회성 스크립트에서만 참조 | 유지(용량 작음, 참고용) |
+
+`train/experiments/`(과거 라운드별 curriculum 셸스크립트 ~100개)와 `test/`(평가 스크립트
+~32개)는 이미 "이력 보존용 아카이브"로 격리되어 있어 이번 감사 범위에서 제외했다 — 개별 스크립트
+전수 감사가 필요하면 별도로 요청.
+
+---
+
+## 디자인 계획
+
+**웹 UI**: `webpage/` 자체 그라데이션/카드 기반 UI, 앱형 하단 탭바 + 랜딩 핫스팟 네비게이션.
+Glory Music/QuickScan UI 킷(`designKit/`에 보관)은 Flutter 시절 참고 자산으로 현재 웹 UI에는
+직접 채택하지 않음(웹 전용 톤앤매너로 별도 진행 중, 필요 시 색상/타이포만 준용 검토 가능).
 
 ---
 
@@ -189,117 +101,38 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 | 문서 | 담당 에이전트 | 내용 |
 |---|---|---|
-| [`docs/project-orchestrator.md`](docs/project-orchestrator.md) | `project-orchestrator` | Phase 계획, 전체 현황, 에이전트 간 의존 관계, 병목 추적 |
-| [`docs/score-training-agent.md`](docs/score-training-agent.md) | `score-training-agent` | 데이터 생성, 모델 아키텍처, Round 1~5 학습 파이프라인 |
-| [`docs/score-recognition-engine.md`](docs/score-recognition-engine.md) | `score-recognition-engine` | C++ 추론 엔진 구조, INT8 양자화, 속도 최적화 |
-| [`docs/sheet-music-qa.md`](docs/sheet-music-qa.md) | `sheet-music-qa` | Round별 정확도 평가, PASS 기준, 평가 스크립트 |
-| [`docs/music-notation-rule-designer.md`](docs/music-notation-rule-designer.md) | `music-notation-rule-designer` | DeepScore 토큰 vocabulary, 커스텀 악보 표기법 시각 규칙 |
-| [`docs/flutter-integration-architect.md`](docs/flutter-integration-architect.md) | `flutter-integration-architect` | Flutter/Dart FFI 통합, Riverpod 상태 관리, 카메라 연동 |
-| [`docs/ui-design-specialist.md`](docs/ui-design-specialist.md) | `ui-design-specialist` | 튜토리얼·악보·연습 화면 UI, CustomPainter 악보 렌더러, 웹 데모 |
+| [`docs/project-orchestrator.md`](docs/project-orchestrator.md) | `project-orchestrator` | Phase 계획, 전체 현황, 병목 추적 |
+| [`docs/score-training-agent.md`](docs/score-training-agent.md) | `score-training-agent` | 데이터 생성, 모델 아키텍처, 학습 파이프라인 |
+| [`docs/score-recognition-engine.md`](docs/score-recognition-engine.md) | `score-recognition-engine` | 추론 엔진 구조 |
+| [`docs/sheet-music-qa.md`](docs/sheet-music-qa.md) | `sheet-music-qa` | 정확도 평가, PASS 기준, 평가 스크립트 |
+| [`docs/music-notation-rule-designer.md`](docs/music-notation-rule-designer.md) | `music-notation-rule-designer` | DeepScore 토큰 vocabulary, 커스텀 표기법 시각 규칙 |
+| [`docs/ui-design-specialist.md`](docs/ui-design-specialist.md) | `ui-design-specialist` | 튜토리얼·악보·연습 화면 UI |
+| [`docs/flutter-integration-architect.md`](docs/flutter-integration-architect.md) | `flutter-integration-architect` | **Flutter 트랙 폐기로 현재 미사용** — 과거 기록만 남음 |
+
+> 위 문서들은 Flutter/구 아키텍처 시절 작성분이 섞여 있어 개별 내용이 최신 상태와 다를 수 있음
+> — 이번 정리 범위 밖(요청 시 별도로 최신화).
 
 ---
 
-## 현재 구현 상태
+## 기술 스택 (현재)
 
-| 레이어 | 상태 |
+| 항목 | 내용 |
 |---|---|
-| Flutter UI (갤러리 선택 → MusicXML 표시) | ✅ 기본 구현 |
-| Android Kotlin JNI 브리지 | ✅ 구현 완료 |
-| C++ 추론 엔진 (`ml/omr/engine/`) | ✅ 구현 완료 (학습 완료 후 모델 교체 필요) |
-| Python 렌더러 (`ml/omr/utils/render_notation.py`) | ✅ 구현 완료 |
-| 학습 코드 (`ml/omr/training/`) | ✅ 구현 완료 (model.py·train.py·dataset.py) |
-| TFLite 변환 스크립트 (`ml/omr/training/export_tflite.py`) | ✅ 구현 완료 (PyTorch → TFLite INT8) |
-| 데이터 생성 (`ml/data/generate_random_scores.py`) | ✅ Round 2 기호 추가 완료 (vocab 1012) |
-| 웹 데모 (`online_webpage/`) | ✅ 구현 완료 + UI 개선 (그라데이션·옥타브 연동·마우스 휠) |
-| **Flutter 앱 UI 데모 (Phase 5-A)** | ✅ **완료** — 3탭(튜토리얼·악보·연습), CustomPainter 악보, 피아노 위젯 |
-| Round 1 실제 학습 실행 | ✅ **완료** — Round 1 val_acc 72%, 평가 정확도 84~92% |
-| Round 2 실제 학습 실행 | ⚠️ **완료 (재학습 권장)** — Round 2가 Round 1보다 낮음(64%), 누적 학습 방식으로 재학습 필요 |
-| iOS OMR 브리지 | ❌ 스텁만 존재 (방안 A: ObjC++ 브리지 예정) |
-| 실시간 카메라 | ❌ 미구현 |
-| 웹 가상 피아노 (키보드 입력) | ❌ 미구현 |
-| 악보 공유 백엔드 | ❌ 미구현 |
-| 실시간 연주 감지 (MIDI / 마이크) | ❌ 미구현 |
+| 서버 | FastAPI(`server.py`), 정적 파일 서빙 + `/api/recognize`·`/api/status`·`/api/score`·`/api/qr` |
+| 프론트엔드 | 바닐라 JS(`webpage/js/`), SVG 커스텀 표기법 렌더링, Web Audio(연주 합성), Web MIDI(전자 피아노 연동) |
+| OMR 모델 | PyTorch(CNN 인코더 + Transformer 디코더), `train/` 자체 학습 |
+| 학습 데이터 | `music21` 생성(`train/generate_scores.py`, 마르코프 체인 가중 피치) + 실사 사진(`realImage/`) |
+| 라벨 형식 | DeepScore 토큰 시퀀스(`tokenizer258.json`) |
+| DB | Firebase(닉네임 저장, 무료 티어) — 클라이언트 SDK `webpage/js/firebase.js` |
+| 호스팅 | Vercel(무료 플랜) 준비 중 |
 
 ---
 
-## Phase 계획 요약
+## 과거 결정 (요약)
 
-```
-Phase 0  ✅  커스텀 표기법 규칙 확정 + C++ 엔진 분석
-Phase 1  ✅  데이터 생성 파이프라인 (generate_dataset.py)
-Phase 2  ✅  모델 학습 완료 (RTX 3080)
-               Round 1: val_acc 72%, TER 0.28 → ml/models/round1/
-               Round 2: val_acc 64% (Round 1 역전, 재학습 권장) → ml/models/round2/
-               Round 3: 누적 학습 + 증강 강화 후 재학습 → IMSLP 실사 fine-tuning 포함
-               Round 4: 실사 사진 fine-tuning
-Phase 3  ✅  모델 변환·양자화 스크립트 완료 (ml/omr/training/export_tflite.py)
-               실제 변환은 Round 1 학습 완료 후 실행
-Phase 4  ✅  C++ 추론 엔진 구현 완료 (ml/omr/engine/)
-Phase 5-A ✅  Flutter 앱 UI 데모 완료
-               [구현 완료]
-                 lib/main.dart          — 3탭 NavigationBar 셸 (튜토리얼·악보·연습)
-                 lib/screens/tutorial_screen.dart — PageView 3단계 규칙 설명 + 미니 악보
-                 lib/screens/score_screen.dart    — 샘플 악보 선택 → 커스텀 악보 + 피아노
-                 lib/screens/practice_screen.dart — 순서대로 누르기 연습 (정답/오답 피드백)
-                 lib/widgets/notation_widget.dart — CustomPainter 악보 렌더러
-                 lib/widgets/piano_widget.dart    — 88건반 피아노 (하이라이트·오답 빨간 깜빡임)
-                 lib/services/audio_service.dart  — 플랫폼 분기 오디오 (Web/네이티브 스텁)
-                 lib/data/samples.dart            — 샘플 악보 데이터 (반짝반짝 등)
-               [실행]
-                 flutter run -d chrome      # 브라우저
-                 flutter run -d windows    # 데스크탑
-               [iOS 브리지] 방안 A (ObjC++ + MethodChannel) — Phase 5 이후 별도 진행
-Phase 5      Flutter 통합 (Dart FFI 전환, 카메라, Riverpod)
-Phase 6  🔄  커스텀 표기법 렌더링 (Python 렌더러 완료 / Flutter CustomPainter 미구현)
-Phase 7      멀티플랫폼 (iOS CMake/Xcode + 웹 FastAPI)
-Phase 8      웹 데모 — 악보 업로드 → 커스텀 변환 + 가상 피아노 연주
-               - FastAPI 서버: OMR 추론 API + Python 렌더러 엔드포인트
-               - 웹 프론트엔드: 악보 이미지 업로드 → 커스텀 악보 표시
-               - 가상 피아노: 키보드 매핑 + Web Audio API 발음
-               - 샘플 악보 번들 제공 (업로드 없이 즉시 체험)
-Phase 9      공유 커뮤니티 + 연주 감지
-               - 악보 공유 백엔드 (Firebase / Supabase)
-               - MIDI 입력 (Web MIDI API) → 커스텀 악보 실시간 대조 ← 1순위
-               - 마이크 단음 감지 (Web Audio API) → 대조 ← 2순위 (화음 불가)
-```
-
----
-
-## 기술 스택
-
-| 항목 | 현재 | 목표 |
-|---|---|---|
-| OMR 모델 가중치 | 기존 HOMR 가중치 | 직접 학습 (PyTorch, RTX 3080) |
-| 학습 데이터 | — | music21 생성 + 실사 사진 |
-| 라벨 형식 | MusicXML | DeepScore 토큰 시퀀스 |
-| 모델 포맷 (추론) | TFLite + ONNX | TFLite INT8 통일 |
-| 추론 엔진 | MusicScore C++ JNI | 신규 C++ (ml/omr/engine/), Dart FFI |
-| Flutter 브리지 | MethodChannel | Dart FFI |
-| 이미지 입력 | 갤러리 선택 | 실시간 카메라 + 갤러리 |
-| 출력 | MusicXML 텍스트 | 커스텀 표기법 이미지 |
-| iOS | 스텁 | Dart FFI 기반 완전 구현 |
-| 웹 | 없음 | FastAPI (OMR API) + React/Next.js 또는 Flutter Web |
-| 악보 공유 백엔드 | 없음 | Firebase / Supabase (파일 스토리지 + DB) |
-| 연주 입력 | 없음 | Web MIDI API (1순위) / Web Audio API 단음 감지 (2순위) |
-| 상태 관리 | setState() | Riverpod |
-
----
-
-## 현실적 검토 사항
-
-### 실현 어려운 부분
-
-| 항목 | 이유 | 대안 |
-|------|------|------|
-| 마이크 화음 감지 | 피아노 배음 구조로 기본 주파수 감지 어려움, 화음 동시 감지 사실상 불가 | 단음만 지원, MIDI 우선 권장 |
-| 웹 OMR 브라우저 직접 실행 | C++ 엔진 WASM 빌드는 큰 작업, 모델 크기(수 MB) 로딩 지연 | FastAPI 서버 사이드 추론 API 방식 |
-| 웹 데모 시기 | Phase 2~3 학습 완료 전까지 OMR 정확도 미보장 | 학습 전까지 MusicXML 직접 업로드 입력으로 데모 |
-
-### 추가하면 좋은 것
-
-| 항목 | 이유 |
-|------|------|
-| **MIDI 키보드 지원** (Web MIDI API) | 마이크보다 신뢰성 높음, USB-MIDI로 실제 피아노 연결 가능 |
-| **샘플 악보 번들** | 업로드 없이 바로 체험 → 온보딩 마찰 제거 |
-| **연주 점수 표시** | 몇 음 중 몇 음 맞았는지 — 학습 동기 부여 |
-| **악보 난이도 자동 태깅** | 음표 밀도 기반 초/중/고급 분류 → 공유 시 유용 |
+- **2026-07-30**: 학습 계보 전면 재시작(exposure bias·클렙 편향 등 구조적 문제로 처음부터
+  Round1~3 재설계). 이전 로드맵(`TrainingStep.md`)은 이 시점에 폐기됨.
+- **2026-08-05**: r15를 프로덕션 체크포인트로 확정, r16/r17 시도 후 기각.
+- **2026-08-09**: Flutter 앱 트랙 전면 폐기, 웹 단일 구조로 전환. 저장소 재구성
+  (`TransNote`/`webpage`/`train`/`test`/`realImage`), 학습 히스토리 문서 통합
+  (`train/docs/TRAINING_REPORT.md`), `.py` orphan 감사.

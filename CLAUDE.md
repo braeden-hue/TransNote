@@ -4,12 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Working Guidelines
 
-
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-## 1. Think Before Coding
+### 1. Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
 
@@ -19,7 +18,7 @@ Before implementing:
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
 
-## 2. Simplicity First
+### 2. Simplicity First
 
 **Minimum code that solves the problem. Nothing speculative.**
 
@@ -31,7 +30,7 @@ Before implementing:
 
 Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-## 3. Surgical Changes
+### 3. Surgical Changes
 
 **Touch only what you must. Clean up only your own mess.**
 
@@ -47,7 +46,7 @@ When your changes create orphans:
 
 The test: Every changed line should trace directly to the user's request.
 
-## 4. Goal-Driven Execution
+### 4. Goal-Driven Execution
 
 **Define success criteria. Loop until verified.**
 
@@ -69,112 +68,112 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-클로드 md 파일 가이드라인 적용
-
 ## Project Overview
 
-Flutter-based Optical Music Recognition (OMR) app that captures sheet music images and converts them to structured data. The OMR engine (`ml/omr/engine/`) is a self-authored C++ pipeline that lives entirely inside this repo — there is no dependency on any sibling repository.
+TransNote — 악보 이미지를 촬영/업로드하면 자체 학습한 OMR(광학 악보 인식) 모델이 음표를 인식해
+**사용자 정의 표기법**으로 변환해주는 웹 앱. `server.py`(FastAPI) 하나가 정적 웹앱(`webpage/`)을
+서빙하면서 동시에 인식 API도 제공한다 — 별도 백엔드/프론트엔드 레포 분리 없음.
 
-An earlier prototype linked a sibling `MusicScore/` repo (JNI bridge, based on the AGPLv3-licensed `homr` project). That path has been removed: AGPL is incompatible with the planned commercial release, so `ml/omr/engine/` was built from scratch with its own architecture and its own single unified "DeepScore" token vocabulary instead of reusing homr's code, model weights, or its rhythm/pitch/lift/note tokenizer split. See `docs/project-orchestrator.md` ("상업 라이선스 확인 완료") and `project.md` (기술 스택 표) for the decision record.
+**2026-08-09 이전에는 Flutter 앱 + 자체 C++ TFLite 엔진(`ml/omr/engine/`) 구조였으나 전면
+폐기됨** — Flutter가 더 이상 타겟 플랫폼이 아니라서 `android/`, `ios/`, `lib/`, `ml/`,
+`round1/`, `omr_bridge/`를 전부 삭제하고 웹(FastAPI + 바닐라 JS) 단일 구조로 재구성했다. 과거
+Flutter 시절 문서(`appMake.md`, `FLUTTER_UI_PROGRESS.md`, 옛 학습 로드맵 `PODPLAN.md`/
+`TrainingStep.md`/`step.md`)는 `docs/archive/`에 이력 보존용으로만 남아있다 — 현재 구조를
+파악할 땐 참고하지 말 것, 최신 정보는 이 파일과 [`project.md`](project.md)를 따른다.
+
+## Directory Layout
+
+```
+server.py            # FastAPI 서버 — webpage/ 서빙 + /api/recognize, /api/status, /api/score, /api/qr
+webpage/              # 정적 웹앱(HTML/CSS/JS), PWA(manifest.json)
+train/                # OMR 학습 파이프라인(PyTorch) — 아래 "ML Training" 참고
+test/                 # 학습된 모델 평가/진단 스크립트(eval_*.py 등)
+realImage/            # 실사 촬영 이미지(로컬 전용, .gitignore로 git 미포함)
+designKit/            # 원본 악보(.mscz) 등 소스 자산
+docs/                 # 서브에이전트별 상세 문서(docs/*.md) + docs/archive/(과거 로그)
+secrets/              # API 키 등(.gitignore로 git 미포함, 절대 커밋 금지)
+```
 
 ## Build & Run Commands
 
-### Flutter
+### 웹 서버
 ```bash
-flutter pub get
-flutter run                        # run on connected device
-flutter build apk                  # Android release APK
-flutter build ios                  # iOS (requires macOS)
-flutter build web                  # Web (not yet configured; OMR is unavailable on web — see Platform Notes)
+python server.py                   # 0.0.0.0:8080, webpage/ 서빙 + OMR API
 ```
 
-### Desktop C++ Test Binaries (`ml/omr/engine/`, Linux / WSL / Windows)
+### ML Training (`train/`)
 ```bash
-cd ml/omr/engine
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DTFLITE_ROOT=/path/to/tflite -DOpenCV_DIR=/usr/include/opencv4
-cmake --build build -j$(nproc)
-
-./build/omr_test <image.jpg> <segnet.tflite> <encoder.tflite> <decoder.tflite> <tokenizer.json>
-./build/omr_eval <test_dir> <segnet.tflite> <encoder.tflite> <decoder.tflite> <tokenizer.json> [--threshold 0.90] [--report report.csv]
+python train/train.py --phase 2 --data_dir <dir> --tokenizer train/tokenizer258.json \
+    --resume <ckpt.pt>             # 항상 이전 체크포인트에서 resume — random init은 학습 안 됨(실측 확인됨)
+python train/inference.py --seq2seq <ckpt.pt> --tokenizer train/tokenizer258.json --analyze <dir>
+python train/generate_scores.py --output train/Round3 ...   # music21+MuseScore로 합성 학습 데이터 생성
+bash train/gen_render_local.sh     # 로컬 렌더링+검증 후 일괄 복사 (RunPod 데이터 생성 표준 경로)
 ```
 
-### Python Validation
-```bash
-python ml/omr/utils/compare_musicxml.py <ground_truth.musicxml> <output.xml>
-python ml/omr/utils/inspect_tflite.py    # inspect TFLite model tensor shapes
-```
-
-### ML Training (Round 3 / grand staff — `round3train/`)
-```bash
-python round3train/train.py --phase 2 --data_dir <dir> --tokenizer round3train/tokenizer.json \
-    --resume <old_ckpt.pt> --resume_tokenizer <old_tokenizer.json>   # only needed when the vocab changed since <old_ckpt.pt>
-python round3train/train.py --phase 3 --data_dir <dir> --tokenizer round3train/tokenizer.json --resume <ckpt.pt>
-python round3train/inference.py --seq2seq <ckpt.pt> --tokenizer round3train/tokenizer.json --analyze <dir>
-```
+데이터 생성·에폭·라운드별 정확도·문제 해결 과정(exposure bias, 노이즈 강건성, 마르코프 체인
+가중 피치 선택 등)은 [`train/docs/TRAINING_REPORT.md`](train/docs/TRAINING_REPORT.md)에 정리돼
+있다 — 학습 관련 작업 전에 먼저 읽을 것.
 
 ## Architecture
 
-### Layer Stack
+### 추론 경로 (실제 서비스, `server.py`)
 ```
-Flutter UI (Dart)
-  ↓ dart:ffi — DynamicLibrary.open("libomr_engine.so")
-C++ OmrEngine (ml/omr/engine/, self-authored, TFLite-only)
+webpage/(카메라 촬영·업로드) → POST /api/recognize
+  → train/inference.py: run_image()
+      1. dataset.py: detect_staffs() — OpenCV 고전 알고리즘으로 오선 검출(학습된 모델 아님)
+      2. dataset.py: extract_staff_canvas() / extract_system_canvas() — 오선 크롭·정규화
+      3. model.py: OmrSeq2Seq — CNN 인코더 + Transformer 디코더, autoregressive 토큰 생성
+  → token_to_notes.py: tokens_to_score() — 토큰 시퀀스 → 커스텀 표기법 JSON
+  → webpage/js/notation.js: renderNotation()/renderGrandStaff() — SVG 렌더링
 ```
-No JNI, no MethodChannel, no sibling repo involved. `MainActivity.kt` is a bare `FlutterActivity` — Dart loads the native library directly.
 
-### Key Files
-| File | Role |
-|------|------|
-| `lib/main.dart` | Entire Flutter UI — init, image pick, result display |
-| `lib/omr_service.dart` | `dart:ffi` bridge to `libomr_engine` — `init(modelDir)`, `process(bytes) -> List<OmrToken>` |
-| `android/app/src/main/kotlin/.../MainActivity.kt` | Bare `FlutterActivity`, no OMR-specific code |
-| `android/app/build.gradle.kts` | `externalNativeBuild.cmake.path` → `ml/omr/engine/CMakeLists.txt` (builds `libomr_engine.so` straight into the APK) |
-| `ml/omr/engine/` | Self-authored C++ OMR engine (pipeline stages below) |
-| `round3train/` | Round 3 (grand staff) PyTorch training pipeline — see "ML Training Pipelines" note below |
+**SegNet은 현재 추론 경로에 없다.** `inference.py`에 segnet 관련 코드가 전혀 없음 — 오선 검출은
+순수 OpenCV(`detect_staffs()`)로만 한다. SegNet은 삭제된 옛 C++ 모바일 엔진 전용이었고
+`train/checkpoints_legacy/segnet_best.pt`에 참고용으로만 남아있다(재도입 논의 시에만 필요).
 
-### Native Library (Android NDK, C++20) — `ml/omr/engine/`
-- **OpenCV** — image decode & preprocessing
-- **TensorFlow Lite** — segnet + encoder + decoder; all three stages are unified on TFLite. (No ONNX Runtime — that was only needed by the removed homr-based prototype.)
-- No third-party OMR/ML source is vendored or linked in.
-
-### Model Assets
+### 프로덕션 체크포인트
 ```
-<modelDir>/
-  segnet.tflite
-  encoder.tflite
-  decoder.tflite
-  tokenizer.json      -- single unified DeepScore vocabulary (round3train/tokenizer.json)
+train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt   # 유일한 채택 체크포인트
+train/tokenizer258.json                                    # DeepScore 토큰 vocabulary
 ```
-Not yet bundled as Flutter assets — model export (`ml/omr/training/export_tflite.py`) hasn't been run against a finished Round 3 checkpoint yet. `OmrService.init(modelDir)` takes a plain filesystem directory path; copying the models out of the Flutter asset bundle onto disk is still open (see Known Gaps).
+아키텍처(in_ch/backbone 깊이/pool_h)는 `model.py`의 `infer_arch_from_state_dict()`가 체크포인트
+텐서 shape에서 자동 역산 — 별도 config 파일 불필요. r15 채택 근거·r16/r17 기각 이유는
+`train/docs/TRAINING_REPORT.md`와 `train/docs/HANDOFF_STATUS.md` 참고. RunPod 등 원격 배포 시
+필요한 파일은 [`train/deploy_bundle/`](train/deploy_bundle/README.md) 참고(seq2seq+tokenizer
+2개 파일만 필요, segnet 불필요).
 
-### OMR Pipeline Stages (C++, `ml/omr/engine/src/`)
-1. `preprocessor` → `perspective_corrector` → `noise_filter` — image cleanup
-2. `segnet_runner` (TFLite) → `staff_detector` → `staff_canvas` → `page_dewarper` — staff geometry
-3. `encoder_runner` (TFLite) → `decoder_runner` (TFLite, autoregressive) — seq2seq inference
-4. `token_parser` — token IDs ↔ strings via `tokenizer.json`
+### `train/` 내부 구조
+| 위치 | 역할 |
+|---|---|
+| `train/*.py` (top-level, ~14개) | 현재 활성 파이프라인 — `dataset.py`/`model.py`/`train.py`/`inference.py`가 핵심, 나머지는 데이터 생성(`generate_scores.py`, `mscz_to_tokens.py`)·렌더링(`render_custom_notation.py`)·증강(`real_texture_augment.py`)·디버그 도구(`dump_canvas.py`, `render_one_exactpicture.py`, `render_sample10_comparison.py`) |
+| `train/checkpoints/` | r15(채택) + r16/r17(기각, 참고용) — 전부 `.gitignore` 처리 |
+| `train/checkpoints_legacy/` | 옛 Flutter/C++ 엔진 시절 체크포인트(segnet 포함) — 현재 파이프라인 미사용, 참고용 보관 |
+| `train/experiments/` | 과거 라운드별 curriculum/pod/prepare/diag 셸스크립트 ~100개 — 이력 보존용 아카이브, 신규 작업은 여기 참고만 하고 새로 작성 |
+| `train/docs/` | 학습 운영 문서(`TRAINING_REPORT.md`, `HANDOFF_STATUS.md`, `POD_TRAINING_CHECKLIST.md`, `CLOUD_SETUP.md`, `PLAN_r16_hide_timesig.md`) |
+| `train/deploy_bundle/` | RunPod 등 원격 배포용 체크포인트 스테이징(생성물, git 미추적) |
 
-## ML Training Pipelines (two parallel implementations — read before touching)
-
-There are **two** separate PyTorch training pipelines in this repo implementing roughly the same architecture:
-- `ml/omr/training/` + `ml/omr/data_gen/round{1,2,3}/` — what `ml/scripts/train_round.py` actually invokes for every round, defaulting to the shared `ml/data/tokenizer.json`.
-- `round3train/` — a separately-built Round 3 (grand staff) fork used for the actual recent Round 3 experiments; has its own `round3train/tokenizer.json`.
-
-These have drifted: `round3train/tokenizer.json` was recently changed to fix low note-pitch recognition accuracy (`note-{pitch}-{dur}` split into `note-{pitch}` + `dur-{dur}`, vocab 1013 → 258 — see `round3train/relabel_notes.py` for migrating existing labels without re-rendering images). `ml/data/tokenizer.json` and `ml/omr/training/` were **not** updated to match, so `train_round.py --round 3` currently still uses the old, un-split vocab. Decide whether to consolidate onto one pipeline before running more Round 3 training.
-
-## iOS Status
-
-iOS has only a stub `AppDelegate.swift`. No native OMR bridge yet — planned as Dart FFI + a statically-linked `libomr_engine.a` (no ObjC/Swift bridge code needed, since `dart:ffi` works the same way on iOS). See `docs/flutter-integration-architect.md`.
-
-## Known Gaps / Follow-ups
-
-- `android/app/build.gradle.kts` now points `externalNativeBuild` at `ml/omr/engine/CMakeLists.txt`, but that CMake file's Android branch expects `-DOPENCV_ANDROID_SDK=` / `-DTFLITE_ROOT=` cache variables (classic `find_package`/`find_library`), while Gradle currently supplies OpenCV/TensorFlow Lite via **prefab** AARs (`buildFeatures.prefab = true`). This mismatch has not been reconciled or build-tested — no Android SDK/NDK toolchain was available to verify a real `flutter build apk` after this change; resolve and test on a machine with the Android toolchain before relying on it.
-- `OmrService.init(modelDir)` expects real filesystem paths; nothing yet copies the model files out of the Flutter asset bundle onto disk (native code can't read directly into the asset bundle on Android/iOS). Likely needs `path_provider` + a one-time copy step once models are actually exported.
-- Two training pipelines and their tokenizers have diverged — see "ML Training Pipelines" above.
+**알려진 orphan(현재 아무 코드에서도 참조 안 됨, 삭제 검토 가능)**:
+- `train/export_tflite.py` — 삭제된 Flutter/C++ 모바일 엔진용 TFLite export 스크립트. `server.py`는
+  PyTorch 직접 추론이라 TFLite 변환 자체가 현재 배포 경로에 불필요. 향후 네이티브 앱을 다시
+  추진할 때만 필요.
+- `train/tokenizer1013.json` — vocab 분할(1013→258, `note-{pitch}-{dur}` → `note-{pitch}` +
+  `dur-{dur}`) 이전의 구버전 vocab. 코드 어디서도 참조 안 됨.
+- `train/tokenizer258_pre_tie.json` — tie(붙임줄) 토큰 추가 이전 스냅샷. `train/experiments/`의
+  이미 아카이브된 1회성 마이그레이션 스크립트에서만 참조됨.
 
 ## Platform Notes
 
-- **Min Android SDK:** 24, NDK ABIs: `arm64-v8a`, `x86_64`
-- **C++ Standard:** C++20
-- **Java/Kotlin:** Java 17
-- **Gradle JVM heap:** 8 GB (`gradle.properties`)
-- `ml/omr/engine/` builds standalone on Linux/WSL/Windows too (`omr_test`/`omr_eval` desktop binaries) — no Android-only code paths in the C++ itself.
+- Python 서버(FastAPI/uvicorn) — Flutter/Dart/Android/iOS 툴체인 불필요.
+- Web MIDI API(`navigator.requestMIDIAccess`)는 보안 컨텍스트(https:// 또는 http://localhost)
+  필요 — 일반 LAN `http://<IP>:8080`에서는 동작 안 함, 실물 전자 피아노 연동 테스트 시 주의.
+- `webpage/`는 CSS `zoom` 기반 auto-fit(`autoFitTutBoxes()`/`autoFitExpScore()`)으로 세로 스크롤
+  없이 화면에 맞추는 패턴을 씀 — 비표준이지만 Chromium/Safari 지원, 태블릿/폰 가로 모드 타겟.
+
+## Known Gaps / Follow-ups
+
+- `test/`, `train/experiments/`의 개별 스크립트 전수 감사는 아직 안 함(상위 레벨 orphan만 확인) —
+  필요 시 요청.
+- Firebase(닉네임 저장, 무료 티어) 클라이언트 SDK는 `webpage/js/firebase.js`에 이미 있음, 서버
+  측 추가 폴더는 불필요하다고 판단됨(재검토 필요 시 `project.md` 참고).
+- `git commit`/`push`로 이 저장소 재구성(TransNote 개명 포함)을 확정하는 작업은 사용자 확인
+  대기 중 — 임의로 커밋하지 말 것.

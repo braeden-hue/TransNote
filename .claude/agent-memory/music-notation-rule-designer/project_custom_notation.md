@@ -41,6 +41,27 @@ metadata:
 | 미구현(규칙 정의됨) | 쉼표, 세로줄 종류, 셈여림, 아티큘레이션, 꾸밈음, 이음줄, 셋잇단음표, 페르마타 |
 | ML 내부 전용 | PAD/SOS/EOS/UNK |
 
+### 마디 중간 클렙 전환 표기 (2026-07-29 구현 완료)
+- 규칙 원문: `docs/music-notation-rule-designer.md` "마디 중간 클렙 전환 표기" 섹션
+- 적용 범위: **한 보표 내부**에서 마디 중간에 active clef가 바뀌는 표준 표기(예: 치보표가 극저음
+  구간에서 잠시 낮은음자리로 전환)만 대상. 대보표 치/베이스 두 보표가 원래 다른 clef인 것과는 무관.
+- 데이터 모델: note 단위 `clef` 필드 추가(nullable, 'treble'|'bass'), 미지정 시 보표 clef 상속.
+  - Flutter: `ScoreNote.clef` (`lib/data/samples.dart`)
+  - 웹: note object의 optional `clef` (`online_webpage/js/samples.js`)
+  - 공통 헬퍼: `effectiveClef(note, staffClef)`, `hasMixedClef(notes, staffClef)` — 둘 다 새 필드 없는
+    기존 note 리스트에 대해서는 항상 원래 clef만 반환 → 기존 렌더링과 100% 동일 보장.
+- 배경 틴트: 치 활성 = `#6C63FF`(청보라), 베이스 활성 = `#FFB347`(호박색), 둘 다 ~12% opacity.
+  **`hasMixedClef()==true`일 때만** 그림 (게이팅 없으면 모든 기존 화면 색감이 바뀌므로 필수 조건).
+  섞여 있으면 오버라이드된 note뿐 아니라 보표 전체 note를 각자의 유효 clef로 칠해서 전체 비교 가능.
+  텍스트/테두리/하이라이트보다 아래 레이어(먼저 그림).
+- zone(옥타브 세로 위치) 계산도 note의 effective clef 기준 — Flutter `_hitTest`/`_drawNotes`, 웹
+  `renderNotation()` 모두 `pitchToZone(pitch, effectiveClef(...))`로 변경.
+- 웹 화음 셀의 기본(비하이라이트) fill이 원래 불투명 `#FFFFFF`라 tint를 완전히 가려서, mixedClef일
+  때만 `rgba(255,255,255,0.55)`로 낮춤(비mixed일 때는 그대로 불투명 유지 — 회귀 없음).
+- 토큰: 새 vocab 불필요, 기존 `clef-G`/`clef-F` 토큰이 시퀀스 중간에 재등장하는 것으로 매핑.
+- 미구현: 샘플 데이터에 클렙 전환 예시 없음(기존 samples 배열 의도적으로 미변경). round3train
+  generate_scores.py 쪽 학습 데이터 생성은 이번 범위에서 완전히 제외됨.
+
 ### Grand Staff 구조적 제약 (2026-05-30 확인)
 - renderGrandStaff(): 두 보표를 flex-column으로 각각 독립 SVG + 독립 스크롤로 렌더링
 - 보표 간 연결선(동시 연주 표시) 추가 시 DOM 구조 문제 발생
