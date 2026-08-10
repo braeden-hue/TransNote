@@ -783,11 +783,14 @@ function initExpFlow() {
       .find(id => !document.getElementById(id)?.classList.contains('hidden'));
     const el = visible && document.getElementById(visible);
     if (!el) { hideExpScreens(); showLanding(); return; }
+    // 랜딩을 먼저 보여준 뒤(.exp-screen이 z-index로 여전히 위에 덮고 있어 화면상 변화는
+    // 없음) 지금 화면을 페이드아웃 — 그래야 옅어지는 동안 뒤로 비치는 게 랜딩이지,
+    // 뒤에 깔려 있던 다른 화면(튜토리얼 등)이 잠깐 비치는 일이 없다.
+    showLanding();
     el.style.transition = `opacity ${FADE_EXIT_MS}ms ease`;
     el.style.opacity = '0';
     setTimeout(() => {
       hideExpScreens();
-      showLanding();
       el.style.transition = '';
       el.style.opacity = '';
     }, FADE_EXIT_MS);
