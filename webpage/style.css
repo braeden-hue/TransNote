@@ -755,10 +755,12 @@ kbd {
 .tut-home-btn:hover  { box-shadow: 0 4px 18px rgba(0,118,206,0.35); }
 .tut-home-btn:active { transform: scale(0.92); }
 @media (max-width: 480px) {
-  /* 돋보기(.octave-magnifier)는 모바일에서 right 오프셋만 8px로 줄어듦(크기는 46px 그대로) */
+  /* 돋보기(.octave-magnifier)는 모바일에서 right 오프셋만 8px로 줄어듦(크기는 46px 그대로) --
+     이 버튼도 크기를 그대로 46px로 둬야 함(2026-08-10 수정: 예전엔 40px로 줄여서, right
+     오프셋이 같아도 두 버튼의 폭이 달라 오른쪽 가장자리는 맞아도 중심(x좌표)은 3px씩
+     어긋났었음 -- 폭이 같아야 right 오프셋이 같을 때 중심도 같이 맞음). */
   .tut-home-btn {
     top: calc(50% - 70px); right: calc(8px + var(--safe-r));
-    width: 40px; height: 40px; font-size: 18px;
   }
 }
 
