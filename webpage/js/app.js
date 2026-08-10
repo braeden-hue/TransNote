@@ -267,6 +267,7 @@ function hideExpScreens() {
 
 function showExpSelect() {
   hideExpScreens();
+  setMagnifierVisible(false);
   document.getElementById('screen-exp-select')?.classList.remove('hidden');
 }
 
@@ -535,6 +536,8 @@ function showExpHandMode() {
   document.getElementById('screen-exp-handmode')?.classList.remove('hidden');
   const bothBtn = document.getElementById('exp-handmode-both');
   bothBtn?.classList.toggle('exp-handmode-disabled', !(state.expScoreData?.staves?.length >= 2));
+  // 연주하기 버튼을 누른 순간부터(오른손/양손 선택 → 대기 → 연주) 12음 참고 돋보기 노출.
+  setMagnifierVisible(true);
 }
 
 // ── 4/5: 전자피아노 연결 확인 + 닉네임 대기 화면 ───────────────────────────
@@ -578,6 +581,7 @@ function startExpPerform(nickname) {
     bassMeasures:   splitMeasures(bassNotes),
     measureIdx: 0, tIdx: 0, bIdx: 0,
     tHit: new Set(), bHit: new Set(), // 현재 스텝(화음 포함)에서 이미 맞힌 음들 — 화음은 전부 눌러야 그 손이 다음으로 넘어감
+    held: new Set(), // 지금 물리적으로 눌려 있는(뗴지 않은) 음들 — 화음이 "동시에" 눌렸는지 판정용
     correct: 0, wrong: 0,
     pianoCtrl: null,
   };
@@ -637,30 +641,35 @@ function startExpPerform(nickname) {
   // 오른손/왼손이 동시에 눌려야 하는 화음도 "어느 손이 지금 이 음을 낼 차례인가"를
   // 헷갈리지 않게 판단 — 오른손(트레블) 스텝에 아직 안 채워진 음이면 오른손으로,
   // 아니면 왼손 스텝을 본다. 둘 다 아니면 오답.
-  function handleExpNote(pitch) {
+  //
+  // 화음(2음 이상)은 "동시에" 눌러야 정답 — 한 음만 누른 순간엔 정답/오답 판정을
+  // 보류하고(p.held로 지금 물리적으로 눌려 있는 음들을 추적), 나머지 화음 구성음이
+  // 전부 같이 눌려 있을 때만 한꺼번에 정답 처리한다. 하나만 누르고 떼면(동시가 아니면)
+  // 그 음은 무효가 되어 다시 처음부터 같이 눌러야 한다.
+  function handleExpNotePress(pitch) {
     const p = state.expPerform;
+    p.held.add(pitch);
     const { t, b } = currentMeasures();
     const tStep = stepPitches(t, p.tIdx);
     const bStep = p.handMode === 'both' ? stepPitches(b, p.bIdx) : [];
 
-    let matched = false;
+    let step = null, hitSet = null, advance = null;
     if (tStep.includes(pitch) && !p.tHit.has(pitch)) {
-      p.tHit.add(pitch);
-      matched = true;
-      if (p.tHit.size >= tStep.length) { p.tIdx++; p.tHit.clear(); }
+      step = tStep; hitSet = p.tHit; advance = () => { p.tIdx++; p.tHit.clear(); };
     } else if (bStep.includes(pitch) && !p.bHit.has(pitch)) {
-      p.bHit.add(pitch);
-      matched = true;
-      if (p.bHit.size >= bStep.length) { p.bIdx++; p.bHit.clear(); }
+      step = bStep; hitSet = p.bHit; advance = () => { p.bIdx++; p.bHit.clear(); };
     }
 
-    if (!matched) {
+    if (!step) {
       p.wrong++;
       p.pianoCtrl?.flashWrong(pitch);
       return;
     }
-    p.correct++;
-    p.pianoCtrl?.flashCorrect(pitch);
+
+    if (!step.every(n => p.held.has(n) || hitSet.has(n))) return; // 화음 전체가 아직 같이 안 눌림 — 보류
+
+    step.forEach(n => { if (!hitSet.has(n)) { hitSet.add(n); p.correct++; p.pianoCtrl?.flashCorrect(n); } });
+    if (hitSet.size >= step.length) advance();
 
     const tDone = p.tIdx >= t.length;
     const bDone = p.handMode !== 'both' || p.bIdx >= b.length;
@@ -674,9 +683,13 @@ function startExpPerform(nickname) {
     updateHighlight();
   }
 
+  function handleExpNoteRelease(pitch) {
+    state.expPerform?.held.delete(pitch);
+  }
+
   if (state.expMidiConfirmed) {
     const inputs = midi.listInputs();
-    if (inputs.length) midi.setInput(inputs[0].id, { onNoteOn: handleExpNote, onNoteOff: () => {} });
+    if (inputs.length) midi.setInput(inputs[0].id, { onNoteOn: handleExpNotePress, onNoteOff: handleExpNoteRelease });
   } else {
     const wrap = document.createElement('div');
     wrap.className = 'piano-wrapper mini-piano';
@@ -684,7 +697,7 @@ function startExpPerform(nickname) {
     pianoEl.className = 'piano';
     wrap.appendChild(pianoEl);
     pianoWrap.appendChild(wrap);
-    state.expPerform.pianoCtrl = buildPiano(pianoEl, wrap, { showLabels: true, onPress: handleExpNote });
+    state.expPerform.pianoCtrl = buildPiano(pianoEl, wrap, { showLabels: true, onPress: handleExpNotePress, onRelease: handleExpNoteRelease });
   }
   updateHighlight();
 }
@@ -756,6 +769,7 @@ function initExpFlow() {
     startExpPerform(nickname);
   });
   document.getElementById('exp-perform-done-btn')?.addEventListener('click', () => {
+    setMagnifierVisible(false);
     showExpScore(state.expScoreData); // 순위표 갱신 포함해서 악보 화면으로 복귀
   });
 
@@ -764,6 +778,7 @@ function initExpFlow() {
   // hideExpScreens()를 써야 재생 중인 곡 정지/촬영 미리보기 정리 등 체험하기 전용
   // 뒷정리가 같이 되므로 fadeExitToLanding을 그대로 재사용하지 않고 따로 만든다.
   const goHome = () => {
+    setMagnifierVisible(false);
     const visible = ['screen-exp-select', 'screen-exp-score', 'screen-exp-handmode', 'screen-exp-wait', 'screen-exp-perform']
       .find(id => !document.getElementById(id)?.classList.contains('hidden'));
     const el = visible && document.getElementById(visible);
@@ -806,12 +821,9 @@ function initOctaveMagnifier() {
   const popup = document.getElementById('magnifier-popup');
   if (!wrap || !btn || !popup) return;
 
-  const show = () => { ensureMagnifierPopup(); popup.classList.add('visible'); };
   const hide = () => popup.classList.remove('visible');
 
-  btn.addEventListener('mouseenter', show);
-  btn.addEventListener('mouseleave', hide);
-  // 터치 기기는 hover가 없으므로 탭으로 토글
+  // 마우스를 올릴 때(hover)가 아니라 눌렀을 때만 뜨고, 다시 누르면 사라지는 토글로 동작.
   btn.addEventListener('click', e => {
     e.stopPropagation();
     ensureMagnifierPopup();

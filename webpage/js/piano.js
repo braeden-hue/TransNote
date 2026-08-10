@@ -180,6 +180,10 @@ export function buildPiano(pianoEl, pianoWrapper, {
   const kbHeld = new Set();
   function kbDown(e) {
     if (e.repeat || e.ctrlKey || e.metaKey) return;
+    // 닉네임/제목 입력 등 텍스트 필드에 포커스가 있을 땐 글자 입력(a, s, d, f...)이
+    // KB_MAP과 겹쳐 의도치 않게 피아노 소리가 나던 버그 — 입력 중엔 건반 매핑을 끈다.
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
     const note = KB_MAP[e.key.toLowerCase()]; if (!note || kbHeld.has(note)) return;
     kbHeld.add(note); press(note);
   }
