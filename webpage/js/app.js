@@ -1,7 +1,7 @@
 import { SAMPLES, BEAT_COLORS }          from './samples.js';
 import { audio }                           from './audio.js';
 import { renderNotation, renderGrandStaff, renderDigitalStaff } from './notation.js';
-import { buildPiano, renderLabeledOctave } from './piano.js';
+import { buildPiano, renderLabeledOctave, buildPhotoPiano } from './piano.js';
 import { loadAll, saveNotation, deleteNotation, generateId } from './storage.js';
 import { signInWithGoogle, signOutUser, onAuthChange,
          saveScoreCloud, loadScoresCloud, deleteScoreCloud } from './firebase.js';
@@ -214,12 +214,16 @@ function fitLandingFrame() {
 window.addEventListener('resize', fitLandingFrame);
 
 // ── 화면 전환 연출: 대상(그랜드피아노/책상)을 향해 실제로 걸어 들어가는 듯한 확대 전환 ──
-// 랜딩은 그대로 둔 채(z-index로 이미 위에 덮임) 참고 사진을 확대하면서 살짝 밝아지고
-// 또렷해지게 만든 뒤, 다 다가간 시점에 실제 목적지(튜토리얼 화면/모달)를 띄우고 사진을
-// 다시 걷어낸다 — CSS(.walkin-overlay)의 트랜지션 시간(WALKIN_MS)과 맞물려야 한다.
-const WALKIN_MS = 800;
+// 랜딩은 그대로 둔 채(z-index로 이미 위에 덮임) 참고 사진을 천천히 확대하면서 밝아지고
+// 또렷해지게 만든다. 두 가지 쓰임이 있다:
+//   - stay:false(기본, 튜토리얼) — 다 다가간 시점에 실제 목적지 화면으로 바꿔치기하고
+//     사진을 다시 걷어내며 그 화면을 드러낸다.
+//   - stay:true(AI 모델) — 다 다가간 뒤에도 사진을 그대로 띄워둔 채(그 앞에 도착해서 멈춰
+//     선 상태) 모달만 그 위에 띄운다. playWalkOut()으로 축소하며 다시 랜딩으로 돌아간다.
+// CSS(.walkin-overlay)의 트랜지션 시간(WALKIN_MS)과 반드시 맞물려야 한다.
+const WALKIN_MS = 2200;
 let walkinInProgress = false;
-function playWalkIn(imgSrc, onArrive) {
+function playWalkIn(imgSrc, { onArrive, stay = false } = {}) {
   if (walkinInProgress) return;
   walkinInProgress = true;
   const overlay = document.getElementById('walkin-overlay');
@@ -231,7 +235,21 @@ function playWalkIn(imgSrc, onArrive) {
   requestAnimationFrame(() => overlay.classList.add('walking'));
   setTimeout(() => {
     onArrive();
-    overlay.classList.remove('visible', 'walking');
+    if (!stay) {
+      overlay.classList.remove('visible', 'walking');
+      walkinInProgress = false;
+    }
+    // stay:true면 walkinInProgress를 계속 true로 둬서(=사진이 떠 있는 동안) 다른 핫스팟이
+    // 끼어들지 못하게 막는다 — playWalkOut()이 끝나야 풀린다.
+  }, WALKIN_MS);
+}
+
+// stay:true로 멈춰 서 있던 사진을 다시 축소하며 걷어내고 랜딩으로 돌아간다.
+function playWalkOut() {
+  const overlay = document.getElementById('walkin-overlay');
+  overlay.classList.remove('walking'); // 확대 상태 해제 → 원래 크기로 줄어드는 트랜지션 재생
+  setTimeout(() => {
+    overlay.classList.remove('visible');
     walkinInProgress = false;
   }, WALKIN_MS);
 }
@@ -242,14 +260,14 @@ function initLanding() {
     btn.addEventListener('click', () => {
       const target = btn.dataset.landing;
       if (target === 'about') { showAboutModal(); return; }
-      if (target === 'ai') { playWalkIn('assets/walkin-desk.jpg', showAiModal); return; }
+      if (target === 'ai') { playWalkIn('assets/walkin-desk.jpg', { onArrive: showAiModal, stay: true }); return; }
       if (target === 'tutorial') {
-        playWalkIn('assets/walkin-piano.jpg', () => {
+        playWalkIn('assets/walkin-piano.jpg', { onArrive: () => {
           hideLanding();
           enterFlow(['tutorial']);
           renderTutPage(0);
           navigate('tutorial', { instant: true });
-        });
+        } });
         return;
       }
       hideLanding();
@@ -262,7 +280,16 @@ function initLanding() {
 function showAboutModal() { document.getElementById('about-modal')?.classList.remove('hidden'); }
 function hideAboutModal() { document.getElementById('about-modal')?.classList.add('hidden'); }
 function showAiModal() { document.getElementById('ai-modal')?.classList.remove('hidden'); }
-function hideAiModal() { document.getElementById('ai-modal')?.classList.add('hidden'); }
+// AI 모델 모달을 닫을 땐 책상 사진 앞에 멈춰 서 있던 걸(stay:true) 다시 축소하며 랜딩으로.
+// (실제로 열려 있던 경우에만 — Escape 키는 about/ai 모달 둘 다에 무조건 걸리므로, 안 열려
+// 있었는데도 걸어나가기 연출이 잘못 발동하는 것을 막는다. 다른 워크인이 한창 진행 중일 때
+// 끼어들어 취소해버리는 것도 방지된다.)
+function hideAiModal() {
+  const modal = document.getElementById('ai-modal');
+  const wasOpen = !!modal && !modal.classList.contains('hidden');
+  modal?.classList.add('hidden');
+  if (wasOpen) playWalkOut();
+}
 
 function initAboutModal() {
   document.getElementById('about-modal-close')?.addEventListener('click', hideAboutModal);
@@ -954,31 +981,41 @@ function zoneColorsForHand(hand) {
 const TREBLE_ZONE_COLORS = zoneColorsForHand('오른손');
 const BASS_ZONE_COLORS   = ['#999999', '#FFC98A', '#E8590C']; // z0=4옥+(회색) z1=3옥(연한주황) z2=2옥 이하(진한주황)
 
-// 옥타브 내비게이션 + 피아노를 container 안에 새로 만들고 state.tutorialPianoCtrl에 연결.
-// (페이지 전환마다 renderTutPage()가 이전 피아노를 destroy()하므로 리스너가 쌓이지 않는다.)
-function buildTutPiano(container, opts = {}) {
-  const wrap = document.createElement('div');
-  wrap.innerHTML = `
-    <div class="octave-nav">
-      <button class="octave-btn" data-role="down">◀</button>
-      <span data-role="label">C3 ~ B4 영역</span>
-      <button class="octave-btn" data-role="up">▶</button>
-      <span class="octave-hint">옥타브 이동</span>
-    </div>
-    <div class="piano-wrapper mini-piano"><div class="piano"></div></div>`;
-  container.appendChild(wrap);
+// 사진(그랜드피아노, 튜토.png) 기반 건반 — 규칙0 이후 모든 튜토리얼 페이지에서 쓴다.
+// (예전엔 옥타브 스크롤이 있는 합성 건반(buildTutPiano)이었는데, 사진 위에 88건반이
+// 한 번에 다 보이는 지금 구조에선 옥타브 내비게이션 자체가 필요 없어져 더 단순해졌다.)
+// 옵션/반환 API(press/setExpected/flashCorrect/flashWrong/setDots/setZoneBands/setArrows/
+// destroy)는 예전 buildTutPiano()와 맞춰서 기존 호출부를 그대로 재사용할 수 있게 했다.
+function buildTutPhotoPiano(container, opts = {}) {
+  container.innerHTML = '<div class="tut-piano-photo-frame" id="tut-piano-photo-frame"></div>';
+  const frame = container.querySelector('.tut-piano-photo-frame');
+  const ctrl = buildPhotoPiano(frame, 'assets/tut-piano-keys.jpg', opts);
+  state.tutorialPianoCtrl = ctrl;
+  return ctrl;
+}
 
-  const ctrl = buildPiano(wrap.querySelector('.piano'), wrap.querySelector('.piano-wrapper'), {
-    showLabels: true,
-    navPrevEl:  wrap.querySelector('[data-role="down"]'),
-    navNextEl:  wrap.querySelector('[data-role="up"]'),
-    navLabelEl: wrap.querySelector('[data-role="label"]'),
+// 규칙0 전용 — 가온다가 속한 한 옥타브만 사진에서 크게 잘라내 확대해서 자세히 보여준다.
+// 크롭 좌표(cropLeftPx/cropWidthPx)는 designKit/튜토.png를 직접 측정해서 얻은 값 —
+// assets/tut-piano-closeup.jpg 자체가 그 구간만 잘라낸 파일이라 이 둘이 반드시 같이 가야 한다.
+function buildTutPhotoPianoCloseup(container, opts = {}) {
+  container.innerHTML = '<div class="tut-piano-photo-frame tut-piano-closeup-frame" id="tut-piano-closeup-frame"></div>';
+  const frame = container.querySelector('.tut-piano-closeup-frame');
+  const ctrl = buildPhotoPiano(frame, 'assets/tut-piano-closeup.jpg', {
+    cropLeftPx: 589.5, cropWidthPx: 252.8,
+    notes: ['C4', 'C#4', 'D4', 'D#4', 'E4', 'F4', 'F#4', 'G4', 'G#4', 'A4', 'A#4', 'B4'],
     ...opts,
   });
   state.tutorialPianoCtrl = ctrl;
-  ctrl.setArrows(REF_ARROWS);
-  ctrl.setDots([{ note: 'C4', color: '#FF4444' }]);
+  ctrl.labelOctave(4);
   return ctrl;
+}
+
+// 규칙0 이후 페이지 상단 박스 공통 — 튜토.png의 악보책 사진을 깔고, 실제 페이지(악보/설명)가
+// 놓인 영역(tut-book-page-area, designKit/튜토.png 실측 좌표)에만 콘텐츠를 얹는다. 반환값은
+// 그 안쪽 페이지 영역 엘리먼트 — 호출부가 여기에 원하는 내용을 채운다.
+function renderBookFrame(container) {
+  container.innerHTML = '<div class="tut-book-photo-frame"><div class="tut-book-page-area" id="tut-book-page-area"></div></div>';
+  return document.getElementById('tut-book-page-area');
 }
 
 // "다음 음: 도" 배지 + 피아노로 순서대로 연주해보는 연습 독 (규칙2+3 페이지 전용).
@@ -997,7 +1034,7 @@ function buildPracticeDock(container, pitchSeq) {
   const updateBadge = () => { badge.textContent = `다음 음: ${solfegeOf(pitchSeq[idx])}`; };
   updateBadge();
 
-  const ctrl = buildTutPiano(document.getElementById('tut-dock-piano'), {
+  const ctrl = buildTutPhotoPiano(document.getElementById('tut-dock-piano'), {
     onPress(note) {
       if (note === pitchSeq[idx]) {
         ctrl.flashCorrect(note);
@@ -1029,7 +1066,8 @@ function buildQuizPage(order, spec) {
            : isSeq   ? '한 마디 — 순서대로 눌러보세요'
            : '어느 건반을 눌러야 할까요?',
     render(top, bottom) {
-      top.innerHTML = '<div class="notation-container" id="tut-quiz-notation"></div>';
+      const page = renderBookFrame(top);
+      page.innerHTML = '<div class="notation-container" id="tut-quiz-notation"></div>';
       const noteData = isChord
         ? [{ pitch: targets[0], duration: 2, beat: 1, chordNotes: targets.slice(1) }]
         : isSeq
@@ -1052,7 +1090,7 @@ function buildQuizPage(order, spec) {
         }, 700); // ✓ 표시를 잠깐 보여준 뒤 자동 전환
       }
 
-      const ctrl = buildTutPiano(document.getElementById('tut-quiz-piano'), {
+      const ctrl = buildTutPhotoPiano(document.getElementById('tut-quiz-piano'), {
         onPress(note) {
           audio.unlock(); audio.playNote(note, 0.4);
 
@@ -1127,13 +1165,15 @@ const TUT_PAGES = [
     chip: '규칙 0',
     caption: '흰 건반 도~시, 검은 건반 1~5 — 눌러서 들어보세요',
     render(top, bottom) {
-      top.innerHTML = `
+      const page = renderBookFrame(top);
+      page.innerHTML = `
         <p class="tut-compare-label">방금 본 커스텀 악보의 높은음자리(오른손) 부분</p>
         <img class="tut-compare-img" src="assets/rule0-treble.png" alt="커스텀 악보 높은음자리 부분 — 음 이름이 D, G, B 등으로 표시됨">
-        <p style="font-size:16px;color:var(--text-dim);text-align:center;max-width:520px;line-height:1.6;margin-top:6px;">
+        <p style="font-size:14px;color:#5a4326;text-align:center;max-width:480px;line-height:1.5;margin-top:4px;">
           여기 쓰인 음 이름들은 한 옥타브 = 흰 건반 7개 + 검은 건반 5개, 총 12음에서 나와요
         </p>`;
-      renderLabeledOctave(bottom, { oct: 4 });
+      // 튜토.png 실물 건반의 가온다(C4) 옥타브만 크게 잘라 확대 — "자세히 보여주는" 효과.
+      buildTutPhotoPianoCloseup(bottom);
     },
   },
   {
@@ -1150,7 +1190,8 @@ const TUT_PAGES = [
         { pitch: 'G2', duration: 1, beat: 2 },
         { pitch: 'C1', duration: 1, beat: 3 },
       ];
-      top.innerHTML = '<div id="tut-r1-grand" style="width:100%; height:100%;"></div>';
+      const page = renderBookFrame(top);
+      page.innerHTML = '<div id="tut-r1-grand" style="width:100%; height:100%;"></div>';
       // 이 화면 한정: 존 배경을 하단 피아노 존 밴드와 같은 색으로 칠하고, 음표 자체(밑줄
       // 포함)는 아예 안 그려서 순수 존 색상만 보이게 함. 왼쪽=낮은음자리, 오른쪽=높은음자리로
       // 나란히 배치 — 가로로 눕힌 화면에서 세로 공간을 절반만 써서 스크롤 없이 들어오게.
@@ -1169,7 +1210,9 @@ const TUT_PAGES = [
         legend.insertAdjacentHTML('beforeend',
           `<span><i style="background:${z.hex}"></i>${z.hand} ${z.zone}</span>`);
       });
-      const ctrl = buildTutPiano(document.getElementById('tut-r1-piano'), {
+      // 옥타브별 색상을 실제(사진) 건반 위에 직접 칠한다 — 88건반이 스크롤 없이 한 번에
+      // 다 보이는 사진 건반이라 8개 존 전부를 동시에 보여줄 수 있다.
+      const ctrl = buildTutPhotoPiano(document.getElementById('tut-r1-piano'), {
         onPress(note) { audio.unlock(); audio.playNote(note, 0.4); },
       });
       ctrl.setZoneBands(HAND_ZONES.map(z => ({ fromNote: z.from, toNote: z.to, color: hexToRgba(z.hex, 0.4) })));
@@ -1189,9 +1232,9 @@ const TUT_PAGES = [
         { pitch: 'C5', duration: 1,   beat: 2 },
         { pitch: 'E4', duration: 2,   beat: 3 },
       ];
-      top.innerHTML = `
-        <div class="notation-container" id="tut-r23-notation"></div>
-        <div class="tut-zone-legend" id="tut-beat-legend"></div>`;
+      const page = renderBookFrame(top);
+      page.innerHTML = '<div class="notation-container" id="tut-r23-notation"></div>';
+      top.insertAdjacentHTML('beforeend', '<div class="tut-zone-legend" id="tut-beat-legend"></div>');
       // 존별 다른 색 + 음표 글자 숨김은 규칙1 전용 — 규칙2는 기본 반투명 존 배경 +
       // 음표 글자(G, C, E) 표시 그대로.
       renderNotation(document.getElementById('tut-r23-notation'), rule23Notes, {});
@@ -1209,12 +1252,13 @@ const TUT_PAGES = [
     caption: '화음 = 두 음을 동시에 눌러요',
     render(top, bottom) {
       const chordNote = { pitch: 'C4', duration: 2, beat: 1, chordNotes: ['E4'] };
-      top.innerHTML = '<div class="notation-container" id="tut-chord-notation"></div>';
+      const page = renderBookFrame(top);
+      page.innerHTML = '<div class="notation-container" id="tut-chord-notation"></div>';
       renderNotation(document.getElementById('tut-chord-notation'), [chordNote], {});
 
       bottom.innerHTML = '<div id="tut-chord-piano"></div>';
       const target = [chordNote.pitch, ...chordNote.chordNotes];
-      const ctrl = buildTutPiano(document.getElementById('tut-chord-piano'), {
+      const ctrl = buildTutPhotoPiano(document.getElementById('tut-chord-piano'), {
         onPress(note) { audio.unlock(); audio.playNote(note, 0.5); },
       });
       ctrl.setDots(target.map(n => ({ note: n, color: '#0076CE' })));
@@ -1273,6 +1317,9 @@ function renderTutPage(idx) {
   bottom.innerHTML = '';
   document.getElementById('tut-page-frame')
     .classList.toggle('tut-split-row', page.splitDirection === 'row');
+  // "시작하기 전에"(0번)는 기존 다크 유리 패널 그대로, 규칙0부터는 튜토.png(그랜드피아노+
+  // 악보책) 사진 위에 얹는 종이 악보책 컨셉으로 전환.
+  document.getElementById('screen-tutorial')?.classList.toggle('tut-page-photo', idx > 0);
   page.render(top, bottom);
   autoFitTutBoxes();
 
@@ -1294,26 +1341,38 @@ function renderTutPage(idx) {
   setMagnifierVisible(idx >= 3);
 }
 
-// 버튼 누를 때마다 화면이 뚝 끊기지 않도록, 나가는 방향으로 살짝 페이드아웃 →
-// 내용 교체 → 반대쪽에서 페이드인. 태블릿에서 체감이 크게 달라지는 부분이라 별도 함수로 분리.
-const TUT_ANIM_MS = 180;
+// 버튼 누를 때마다 마치 책장을 넘기듯, 지금 페이지가 세로축(rotateY)으로 살짝 들리며
+// 반대쪽으로 넘어가 사라지고 → 내용 교체 → 다음 페이지가 반대편에서 같은 방식으로
+// 넘어와 자리잡는다. dir(1=다음→왼쪽으로 넘어감, -1=이전→오른쪽으로 넘어감)에 따라
+// 회전축(transform-origin)과 방향을 반대로 잡는다. perspective는 부모(.screen-content)에서.
+const TUT_ANIM_MS = 420;
 function goToTutPage(idx) {
   if (idx < 0 || idx >= TUT_PAGES.length || idx === tutPageIdx) return;
-  const dir = idx > tutPageIdx ? 1 : -1; // 1=다음(왼쪽으로 퇴장), -1=이전(오른쪽으로 퇴장)
+  const dir = idx > tutPageIdx ? 1 : -1; // 1=다음, -1=이전
   const frame = document.getElementById('tut-page-frame');
+  const EASE = `cubic-bezier(0.45, 0, 0.2, 1)`;
 
-  frame.style.transition = `opacity ${TUT_ANIM_MS}ms ease, transform ${TUT_ANIM_MS}ms ease`;
-  frame.style.opacity = '0';
-  frame.style.transform = `translateX(${dir * -18}px)`;
+  // 나가는 페이지: dir=1(다음)이면 오른쪽 모서리를 축으로 왼쪽으로 넘어가며 사라짐,
+  // dir=-1(이전)이면 왼쪽 모서리를 축으로 오른쪽으로 넘어가며 사라짐.
+  frame.style.transformOrigin = dir === 1 ? 'right center' : 'left center';
+  frame.style.transition = `transform ${TUT_ANIM_MS}ms ${EASE}, opacity ${TUT_ANIM_MS}ms ease, box-shadow ${TUT_ANIM_MS}ms ease`;
+  frame.style.transform  = `rotateY(${dir * -16}deg) translateX(${dir * -5}%)`;
+  frame.style.opacity    = '0.25';
+  frame.style.boxShadow  = `${dir * -36}px 0 50px -12px rgba(0,0,0,0.55)`;
 
   setTimeout(() => {
     renderTutPage(idx);
+    // 들어오는 페이지: 반대쪽 모서리를 축으로 살짝 들린 채 시작해서 제자리로 접힌다.
     frame.style.transition = 'none';
-    frame.style.transform = `translateX(${dir * 18}px)`;
+    frame.style.transformOrigin = dir === 1 ? 'left center' : 'right center';
+    frame.style.transform  = `rotateY(${dir * 16}deg) translateX(${dir * 5}%)`;
+    frame.style.opacity    = '0.25';
+    frame.style.boxShadow  = `${dir * 36}px 0 50px -12px rgba(0,0,0,0.55)`;
     void frame.offsetWidth; // 강제 리플로우 — 위 스타일을 실제로 적용시킨 뒤 아래 트랜지션 시작
-    frame.style.transition = `opacity ${TUT_ANIM_MS}ms ease, transform ${TUT_ANIM_MS}ms ease`;
-    frame.style.opacity = '1';
-    frame.style.transform = 'translateX(0)';
+    frame.style.transition = `transform ${TUT_ANIM_MS}ms ${EASE}, opacity ${TUT_ANIM_MS}ms ease, box-shadow ${TUT_ANIM_MS}ms ease`;
+    frame.style.transform  = 'rotateY(0deg) translateX(0)';
+    frame.style.opacity    = '1';
+    frame.style.boxShadow  = 'none';
   }, TUT_ANIM_MS);
 }
 

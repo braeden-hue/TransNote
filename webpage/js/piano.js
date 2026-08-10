@@ -498,3 +498,292 @@ function makeBlackKey(note, pos) {
   `;
   return k;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── 사진(그랜드피아노) 기반 인터랙티브 건반 ──────────────────────────────────────
+// 규칙0 이후 튜토리얼에서 사용 — 합성 건반 대신 실사(튜토.png) 위에 건반 히트존을
+// 정확한 픽셀 좌표로 겹쳐서, 사진 그대로의 모양을 유지한 채 클릭/터치로 소리가 나게 한다.
+// 좌표는 designKit/튜토.png(1408x768, 흰건반 A0~C8 = 52개)를 직접 측정해서 얻은 값 —
+// 사진이 바뀌면 이 상수들도 다시 재야 한다.
+const PHOTO_KEYS_LEFT   = 46.0;  // A0(첫 흰건반) 중심 x — 원본(=건반 크롭) 픽셀 기준
+const PHOTO_WK_W        = 25.28; // 흰건반 폭(px, 원본 기준)
+const PHOTO_IMG_W       = 1408;  // 원본/건반 크롭 이미지의 가로 폭(px)
+const PHOTO_BK_W_RATIO  = 0.56;  // 검은건반 폭 = 흰건반 폭의 이 비율
+
+function photoWhiteKeyList() {
+  const list = [['A', 0], ['B', 0]];
+  for (let oct = 1; oct <= 7; oct++) for (const n of ['C','D','E','F','G','A','B']) list.push([n, oct]);
+  list.push(['C', 8]);
+  return list;
+}
+
+// note('C4' 등) -> 원본 이미지 기준 중심 x(px) + 검은건반 여부. 못 찾으면 null.
+function photoKeyCenterPx(note) {
+  const name = note.slice(0, -1);
+  const oct  = parseInt(note.slice(-1));
+  const whites = photoWhiteKeyList();
+  const idx = whites.findIndex(([n, o]) => n === name && o === oct);
+  if (idx >= 0) return { centerPx: PHOTO_KEYS_LEFT + idx * PHOTO_WK_W, isBlack: false };
+  const def = BLACK_DEFS.find(d => d.name === name);
+  if (!def) return null;
+  const cIdx = whites.findIndex(([n, o]) => n === 'C' && o === oct);
+  if (cIdx < 0) return null;
+  const groupCenter = PHOTO_KEYS_LEFT + cIdx * PHOTO_WK_W; // 그 옥타브 C키 중심
+  return { centerPx: groupCenter + def.pos * PHOTO_WK_W, isBlack: true };
+}
+
+function photoAllKeyNames() {
+  const out = [];
+  photoWhiteKeyList().forEach(([n, o]) => out.push(`${n}${o}`));
+  for (let oct = 1; oct <= 7; oct++) BLACK_DEFS.forEach(d => out.push(`${d.name}${oct}`));
+  return out;
+}
+
+// container에 사진 배경 + 건반 히트존을 깐다.
+//   imgSrc          — 배경 사진(건반 전체 크롭 또는 옥타브 클로즈업 크롭)
+//   cropLeftPx/cropWidthPx — 그 imgSrc가 원본 이미지에서 잘라낸 x 구간(px, 원본 기준).
+//                            기본값(0, 1408)은 "건반 전체가 그대로 담긴" 크롭(tut-piano-keys.jpg)용.
+//                            옥타브 클로즈업처럼 일부만 잘라낸 이미지를 쓸 땐 그 구간을 넘겨야
+//                            건반 위치가 사진과 정확히 겹친다.
+//   notes            — null이면(기본) 크롭 범위 안에 들어오는 건반을 전부 자동으로 씀.
+//                       특정 건반만 필요하면(옥타브 클로즈업 등) 배열로 지정.
+// buildPiano()와 최대한 같은 반환 API(press/release/setExpected/flashCorrect/flashWrong/
+// setDots/setZoneBands/setArrows/destroy)를 제공해 TUT_PAGES 쪽 코드를 그대로 재사용한다.
+export function buildPhotoPiano(container, imgSrc, {
+  onPress, onRelease,
+  cropLeftPx = 0, cropWidthPx = PHOTO_IMG_W,
+  notes = null,
+  whiteHeightPct = 84, blackHeightPct = 58,
+} = {}) {
+  container.innerHTML = '';
+  container.style.cssText = `
+    position:relative; width:100%; height:100%; overflow:hidden;
+    touch-action:none; user-select:none; background:#000;
+  `;
+  const imgEl = document.createElement('img');
+  imgEl.src = imgSrc;
+  imgEl.alt = '';
+  imgEl.draggable = false;
+  imgEl.style.cssText =
+    'position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; display:block;';
+  container.appendChild(imgEl);
+
+  const keyEls = {};
+  const allNotes = notes ?? photoAllKeyNames();
+  allNotes.forEach(note => {
+    const info = photoKeyCenterPx(note);
+    if (!info) return;
+    const wPx = info.isBlack ? PHOTO_WK_W * PHOTO_BK_W_RATIO : PHOTO_WK_W;
+    const leftPx = info.centerPx - wPx / 2 - cropLeftPx;
+    if (leftPx + wPx < 0 || leftPx > cropWidthPx) return; // 지금 크롭 범위 밖이면 건너뜀
+    const k = document.createElement('div');
+    k.className    = 'photo-piano-key' + (info.isBlack ? ' bk' : ' wk');
+    k.dataset.note = note;
+    k.style.cssText = `
+      position:absolute; top:0; left:${leftPx / cropWidthPx * 100}%; width:${wPx / cropWidthPx * 100}%;
+      height:${info.isBlack ? blackHeightPct : whiteHeightPct}%;
+      z-index:${info.isBlack ? 2 : 1}; cursor:pointer;
+      background:rgba(0,0,0,0); box-shadow:none; transition:background .1s, box-shadow .1s;
+    `;
+    keyEls[note] = k;
+    container.appendChild(k);
+  });
+
+  // ── 상태 + 시각 피드백 — 색 자체(건반)는 사진 그대로 두고, 반투명 오버레이로만 표시 ──
+  const pressedSet = new Set();
+  const expectedState = { note: null };
+
+  function applyVisual(note) {
+    const k = keyEls[note]; if (!k) return;
+    const isE = note === expectedState.note;
+    const isP = pressedSet.has(note);
+    if (isP) {
+      k.style.background = 'rgba(0,118,206,0.55)';
+      k.style.boxShadow   = 'inset 0 0 0 2px rgba(255,255,255,0.6)';
+    } else if (isE) {
+      k.style.background = 'rgba(0,118,206,0.3)';
+      k.style.boxShadow   = '0 0 12px 3px rgba(0,118,206,0.85)';
+    } else {
+      k.style.background = 'rgba(0,0,0,0)';
+      k.style.boxShadow   = 'none';
+    }
+  }
+
+  function press(note, { silent = false } = {}) {
+    if (!keyEls[note] || pressedSet.has(note)) return;
+    pressedSet.add(note);
+    applyVisual(note);
+    if (!silent) { audio.unlock(); audio.playNote(note, 0.5); }
+    onPress?.(note);
+  }
+  function release(note) {
+    if (!pressedSet.has(note)) return;
+    pressedSet.delete(note);
+    applyVisual(note);
+    onRelease?.(note);
+  }
+
+  const pointerNoteMap = {};
+  container.addEventListener('pointerdown', e => {
+    const k = e.target.closest('.photo-piano-key'); if (!k) return;
+    e.preventDefault();
+    container.setPointerCapture(e.pointerId);
+    pointerNoteMap[e.pointerId] = k.dataset.note;
+    press(k.dataset.note);
+  });
+  container.addEventListener('pointerup', e => {
+    const note = pointerNoteMap[e.pointerId];
+    if (note) { release(note); delete pointerNoteMap[e.pointerId]; }
+  });
+  container.addEventListener('pointercancel', e => {
+    const note = pointerNoteMap[e.pointerId];
+    if (note) { release(note); delete pointerNoteMap[e.pointerId]; }
+  });
+
+  // ── 키보드(QWERTY) 입력도 동일하게 지원 — 텍스트 입력 중엔 꺼짐(피아노.js의 kbDown과 동일 원칙) ──
+  const kbHeld = new Set();
+  function kbDown(e) {
+    if (e.repeat || e.ctrlKey || e.metaKey) return;
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    const note = KB_MAP[e.key.toLowerCase()]; if (!note || !keyEls[note] || kbHeld.has(note)) return;
+    kbHeld.add(note); press(note);
+  }
+  function kbUp(e) {
+    const note = KB_MAP[e.key.toLowerCase()]; if (!note) return;
+    kbHeld.delete(note); release(note);
+  }
+  document.addEventListener('keydown', kbDown);
+  document.addEventListener('keyup', kbUp);
+
+  return {
+    press, release,
+    setExpected(note) {
+      const prev = expectedState.note;
+      expectedState.note = note;
+      if (prev && prev !== note) applyVisual(prev);
+      applyVisual(note);
+    },
+    clearExpected() {
+      const prev = expectedState.note;
+      expectedState.note = null;
+      if (prev) applyVisual(prev);
+    },
+    flashCorrect(note) {
+      const k = keyEls[note]; if (!k) return;
+      k.style.background = 'rgba(47,170,110,0.6)';
+      k.style.boxShadow   = '0 0 14px 4px rgba(47,170,110,0.9)';
+      setTimeout(() => applyVisual(note), 350);
+    },
+    flashWrong(note) {
+      const k = keyEls[note]; if (!k) return;
+      k.style.background = 'rgba(230,69,69,0.6)';
+      k.style.boxShadow   = '0 0 12px 3px rgba(230,69,69,0.9)';
+      setTimeout(() => applyVisual(note), 350);
+    },
+    // 규칙0 클로즈업 전용 — 흰건반엔 음이름+계이름(도레미…), 검은건반엔 1~5+계이름을
+    // 사진 건반 위에 직접 겹쳐 보여준다(renderLabeledOctave()의 라벨 방식과 동일 규칙).
+    labelOctave(oct) {
+      container.querySelectorAll('.photo-piano-label').forEach(l => l.remove());
+      const whites = ['C','D','E','F','G','A','B'];
+      const blackLabels = { 'C#':'1', 'D#':'2', 'F#':'3', 'G#':'4', 'A#':'5' };
+      whites.forEach(name => {
+        const k = keyEls[name + oct]; if (!k) return;
+        const lbl = document.createElement('div');
+        lbl.className = 'photo-piano-label';
+        lbl.style.cssText = `
+          position:absolute; bottom:6%; left:50%; transform:translateX(-50%);
+          display:flex; flex-direction:column; align-items:center; gap:2px;
+          pointer-events:none; z-index:6; text-align:center;`;
+        lbl.innerHTML = `
+          <span style="font-size:22px;font-weight:800;color:#0076CE;font-family:system-ui;
+            text-shadow:0 0 3px #fff,0 0 6px #fff;">${name}</span>
+          <span style="font-size:12px;font-weight:700;color:#0060AA;font-family:system-ui;
+            text-shadow:0 0 3px #fff,0 0 6px #fff;">${SOLFEGE_MAP[name]}</span>`;
+        k.appendChild(lbl);
+      });
+      Object.entries(blackLabels).forEach(([name, num]) => {
+        const k = keyEls[name + oct]; if (!k) return;
+        const lbl = document.createElement('div');
+        lbl.className = 'photo-piano-label';
+        lbl.style.cssText = `
+          position:absolute; bottom:8%; left:50%; transform:translateX(-50%);
+          display:flex; flex-direction:column; align-items:center; gap:1px;
+          pointer-events:none; z-index:6; text-align:center;`;
+        lbl.innerHTML = `
+          <span style="font-size:15px;font-weight:800;color:#fff;font-family:system-ui;
+            text-shadow:0 0 3px #000;">${num}</span>
+          <span style="font-size:9px;font-weight:700;color:#eee;font-family:system-ui;
+            text-shadow:0 0 3px #000;">${SOLFEGE_MAP[name]}</span>`;
+        k.appendChild(lbl);
+      });
+    },
+    // 옥타브별 색상을 실제 건반 위치 위에 반투명하게 직접 칠한다(규칙1).
+    setZoneBands(bands) {
+      container.querySelectorAll('.photo-piano-zone').forEach(b => b.remove());
+      bands.forEach(({ fromNote, toNote, color }) => {
+        const kFrom = keyEls[fromNote], kTo = keyEls[toNote];
+        if (!kFrom || !kTo) return;
+        const left  = parseFloat(kFrom.style.left);
+        const right = parseFloat(kTo.style.left) + parseFloat(kTo.style.width);
+        const band = document.createElement('div');
+        band.className = 'photo-piano-zone';
+        band.style.cssText = `
+          position:absolute; left:${left}%; width:${right - left}%; top:0; height:100%;
+          background:${color}; pointer-events:none; z-index:0;
+        `;
+        container.appendChild(band);
+      });
+    },
+    setDots(specs) {
+      container.querySelectorAll('.photo-piano-dot, .photo-piano-dot-label').forEach(d => d.remove());
+      specs.forEach(({ note, color = '#FF4444', label = '' }) => {
+        const k = keyEls[note]; if (!k) return;
+        const dot = document.createElement('div');
+        dot.className = 'photo-piano-dot';
+        dot.style.cssText = `
+          position:absolute; bottom:10%; left:50%; transform:translateX(-50%);
+          width:8px; height:8px; border-radius:50%; background:${color};
+          box-shadow:0 0 5px 1px ${color}; pointer-events:none; z-index:6;
+        `;
+        k.appendChild(dot);
+        if (label) {
+          const lbl = document.createElement('div');
+          lbl.className = 'photo-piano-dot-label';
+          lbl.textContent = label;
+          lbl.style.cssText = `
+            position:absolute; bottom:22%; left:50%; transform:translateX(-50%);
+            font-size:12px; line-height:1; pointer-events:none; z-index:6;
+            filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff);
+          `;
+          k.appendChild(lbl);
+        }
+      });
+    },
+    setArrows(specs) {
+      container.querySelectorAll('.photo-piano-arrow').forEach(a => a.remove());
+      specs.forEach(({ note, color = '#FF4444', label = '' }) => {
+        const k = keyEls[note];
+        if (!k || k.classList.contains('bk')) return;
+        const arrow = document.createElement('div');
+        arrow.className = 'photo-piano-arrow';
+        arrow.style.cssText = `
+          position:absolute; top:2%; left:0; right:0;
+          display:flex; flex-direction:column; align-items:center; gap:1px;
+          pointer-events:none; z-index:5;
+        `;
+        arrow.innerHTML = `
+          <span style="font-size:7px; color:${color}; font-weight:900; font-family:system-ui;
+            line-height:1; text-shadow:0 0 4px #000, 0 0 2px #000; white-space:nowrap;">${label}</span>
+          <svg width="10" height="7" viewBox="0 0 10 7" style="display:block;overflow:visible;">
+            <polygon points="5,7 0,0 10,0" fill="${color}" style="filter:drop-shadow(0 0 2px ${color});"/>
+          </svg>`;
+        k.appendChild(arrow);
+      });
+    },
+    destroy() {
+      document.removeEventListener('keydown', kbDown);
+      document.removeEventListener('keyup', kbUp);
+    },
+  };
+}

@@ -339,6 +339,7 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
   border: 1px solid rgba(255,255,255,0.14);
   border-radius: 22px;
   box-shadow: 0 24px 60px rgba(0,8,24,0.45);
+  perspective: 1600px; /* 이전/다음 페이지턴(책장 넘기기) 3D 회전용 */
 }
 .tut-topbar { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; row-gap: 6px; gap: 14px; padding: 4px 0 10px; }
 .tut-chip {
@@ -428,6 +429,64 @@ body[data-kiosk="convert"] .omr-coming-soon { display: none; }
   .tut-nav button { font-size: 14px; padding: 9px 20px; }
   .tut-caption { font-size: 18px; }
 }
+
+/* ── 규칙0 이후 — 종이 악보책 컨셉(튜토.png) ──────────────────────────────
+   "시작하기 전에"(0번)만 위의 다크 유리 패널을 그대로 쓰고, 그 다음부터는 배경 자체가
+   따뜻한 톤(오래된 종이/나무 느낌)으로 바뀐다 — #screen-tutorial::before(피아노 방 블러
+   사진)는 계속 깔려 있고, 그 위 유리 패널의 색만 다크 네이비 → 따뜻한 종이색으로 전환. */
+#screen-tutorial.tut-page-photo .screen-content {
+  background: rgba(38,28,16,0.5);
+  border-color: rgba(210,180,120,0.28);
+}
+#screen-tutorial.tut-page-photo .tut-caption { color: #FBF3E2; }
+#screen-tutorial.tut-page-photo .tut-subcaption { color: rgba(250,235,205,0.72); }
+#screen-tutorial.tut-page-photo .tut-dot { background: rgba(255,240,210,0.28); }
+#screen-tutorial.tut-page-photo .tut-dot.active {
+  background: #D9A73B; box-shadow: 0 0 10px 3px rgba(217,167,59,0.75);
+}
+#screen-tutorial.tut-page-photo .tut-chip { box-shadow: 0 0 14px rgba(217,167,59,0.5); }
+#screen-tutorial.tut-page-photo .tut-nav .btn-secondary {
+  border-color: rgba(255,240,210,0.4); color: #FBF3E2;
+}
+#screen-tutorial.tut-page-photo .tut-nav .btn-primary { box-shadow: 0 4px 20px rgba(217,167,59,0.5); }
+
+/* 위/아래 박스 자체는 배경 없는 투명 틀로 — 안에 들어가는 사진 프레임들이 시각을 담당. */
+#screen-tutorial.tut-page-photo .tut-split-top,
+#screen-tutorial.tut-page-photo .tut-split-bottom {
+  background: transparent; border: none; box-shadow: none; padding: 6px; gap: 6px;
+}
+
+/* 악보책 사진 프레임(위 박스) — designKit/튜토.png 실측 좌표로 잘라낸 크롭
+   (webpage/assets/tut-score-book.jpg, 650x300)을 그대로 배경으로 쓴다. */
+.tut-book-photo-frame {
+  position: relative; width: 100%; max-height: 100%;
+  aspect-ratio: 650 / 300;
+  border-radius: 10px; overflow: hidden;
+  background: #000 url('assets/tut-score-book.jpg') center / cover no-repeat;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.4);
+}
+/* 실제 책장에서 페이지(악보)가 놓인 영역만 — 그 안에 커스텀 악보를 얹는다. */
+.tut-book-page-area {
+  position: absolute; left: 4%; right: 3.8%; top: 5%; bottom: 11.7%;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.tut-book-page-area .notation-container {
+  background: transparent; border: none; box-shadow: none; min-height: 0;
+}
+.tut-book-page-area .tut-compare-label { font-size: 12px; color: #5a4326; }
+.tut-book-page-area .tut-compare-img { max-height: 62%; box-shadow: none; background: transparent; }
+
+/* 그랜드피아노 사진 프레임(아래 박스) — webpage/assets/tut-piano-keys.jpg(1408x245,
+   건반 전체) 기준. buildPhotoPiano()가 이 프레임 안에 실제 건반 히트존을 겹친다. */
+.tut-piano-photo-frame {
+  position: relative; width: 100%; max-height: 100%;
+  aspect-ratio: 1408 / 245;
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.4);
+}
+/* 규칙0 클로즈업 — tut-piano-closeup.jpg(253x245, 가온다 옥타브만)는 가로세로 비율이 달라
+   따로 지정. */
+.tut-piano-closeup-frame { aspect-ratio: 253 / 245; max-width: 340px; margin: 0 auto; }
 
 /* ── 튜토리얼 페이지 보조 컴포넌트 ─────────────────────────────── */
 .tut-compare-label { font-size: 15px; font-weight: 700; color: var(--text-mute); }
@@ -738,12 +797,12 @@ kbd {
 .empty-state { padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 14px; line-height: 2; }
 .hint { font-size: 12px; color: var(--text-mute); margin-top: 4px; }
 
-/* ── 튜토리얼 "처음으로" 버튼 — 오른쪽 중앙 부근, 돋보기(규칙2+에서 같은 자리 아래에
-   나타남)와 안 겹치게 그 위쪽에 고정 배치 ──────────────────────────────── */
+/* ── 튜토리얼 "처음으로" 버튼 — 돋보기 버튼과 같은 y축(세로 중앙)에, 그 왼쪽에
+   나란히 고정 배치 ──────────────────────────────────────────────────────── */
 /* 흰 동그라미 아이콘 버튼 — 같은 화면의 돋보기 버튼(.magnifier-btn)과 같은 모양 언어 */
 .tut-home-btn {
   position: fixed; z-index: 260;
-  top: calc(50% - 88px); right: calc(14px + var(--safe-r));
+  top: 50%; right: calc(14px + 46px + 10px + var(--safe-r)); transform: translateY(-50%);
   width: 46px; height: 46px; border-radius: 50%;
   background: rgba(255,255,255,0.92); backdrop-filter: blur(6px);
   border: 1px solid var(--border-hi); box-shadow: 0 3px 14px rgba(79,195,247,0.3);
@@ -751,9 +810,13 @@ kbd {
   transition: transform .15s, box-shadow .15s;
 }
 .tut-home-btn:hover  { box-shadow: 0 4px 18px rgba(0,118,206,0.35); }
-.tut-home-btn:active { transform: scale(0.92); }
+.tut-home-btn:active { transform: translateY(-50%) scale(0.92); }
 @media (max-width: 480px) {
-  .tut-home-btn { right: calc(8px + var(--safe-r)); width: 40px; height: 40px; font-size: 18px; }
+  /* 돋보기(.octave-magnifier)는 모바일에서도 46px 그대로, right 오프셋만 8px로 줄어듦 */
+  .tut-home-btn {
+    right: calc(8px + 46px + 8px + var(--safe-r));
+    width: 40px; height: 40px; font-size: 18px;
+  }
 }
 
 /* ── 12음 참고 돋보기 ──────────────────────────────────────────── */
@@ -892,18 +955,19 @@ kbd {
   position: fixed; inset: 0; z-index: 500;
   overflow: hidden; background: #000;
   opacity: 0; pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.4s ease;
 }
 .walkin-overlay.visible { opacity: 1; pointer-events: auto; }
 .walkin-overlay img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
   transform: scale(1);
-  filter: brightness(0.7) blur(3px);
-  transition: transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1), filter 0.8s ease;
+  filter: brightness(0.65) blur(4px);
+  /* WALKIN_MS(app.js)와 반드시 같은 값 — 천천히 다가가는 속도 */
+  transition: transform 2.2s cubic-bezier(0.22, 0.61, 0.36, 1), filter 2.2s ease;
 }
 /* .walking 클래스가 붙는 순간 확대+또렷해짐 — "다가가는" 동작 */
 .walkin-overlay.walking img {
-  transform: scale(1.22);
+  transform: scale(1.3);
   filter: brightness(1) blur(0px);
 }
 
