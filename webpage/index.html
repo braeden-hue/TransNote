@@ -590,6 +590,13 @@
        쓴다. type="module"이 아닌 평범한 스크립트라 여기서 먼저 실행돼 window.VexFlow를
        채워두고, 그 다음 모듈 스크립트(app.js → notation.js)가 그걸 참조한다. -->
   <script src="js/vendor/vexflow.js"></script>
+
+  <!-- Motion(motion.dev, MIT) — UI 애니메이션 라이브러리. vexflow와 같은 이유로 CDN 대신
+       로컬 vendor/에 내려받은 UMD 빌드를 쓴다(부스 네트워크 의존 없음). type="module"이 아닌
+       평범한 스크립트라 여기서 먼저 실행돼 window.Motion을 채워두고, 그 다음 모듈 스크립트
+       (app.js 등)에서 Motion.animate(...)처럼 참조하면 된다. -->
+  <script src="js/vendor/motion.js"></script>
+
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
