@@ -379,7 +379,13 @@ async function renderLeaderboard(songKey) {
   const el = document.getElementById('exp-leaderboard-list');
   if (!el) return;
   let list = [];
-  try { list = await loadLeaderboardCloud(songKey, 3); } catch { /* 네트워크 오류 등 -- 빈 목록으로 표시 */ }
+  try {
+    list = await loadLeaderboardCloud(songKey, 3);
+  } catch (e) {
+    // 네트워크/권한 오류 등 -- 빈 목록으로 표시하되, 원인 파악용으로 콘솔에는 남긴다
+    // (Firestore 보안규칙 미설정이 원인인 경우가 많음 — firestore.rules 참고).
+    console.error('[renderLeaderboard] 순위표 로드 실패:', e);
+  }
   el.innerHTML = list.length
     ? list.map((e, i) => `
         <li>
@@ -831,8 +837,9 @@ function finishExpPerform() {
     : `${p.nickname}님, ${score}점이에요! (${p.maxScore}점 만점)`;
   document.getElementById('exp-perform-result').classList.remove('hidden');
   // 실패해도(네트워크 등) 연주 결과 화면 자체는 이미 떴으니 조용히 무시 — 순위표 등록
-  // 실패가 사용자 체험을 막으면 안 됨.
-  saveLeaderboardEntryCloud(state.expScoreData?.title, p.nickname, score, p.maxScore).catch(() => {});
+  // 실패가 사용자 체험을 막으면 안 됨. 원인 파악용으로 콘솔에는 남긴다.
+  saveLeaderboardEntryCloud(state.expScoreData?.title, p.nickname, score, p.maxScore)
+    .catch(e => console.error('[saveLeaderboardEntryCloud] 저장 실패:', e));
 }
 
 function initExpFlow() {
@@ -908,7 +915,11 @@ function initExpFlow() {
       let taken = false;
       try {
         taken = await isNicknameTakenInSong(songKey, nickname);
-      } catch { /* 확인 실패(네트워크 등) 시엔 막지 않고 통과시킴 -- 체험이 우선 */ }
+      } catch (e) {
+        // 확인 실패(네트워크 등) 시엔 막지 않고 통과시킴 -- 체험이 우선. 원인 파악용으로
+        // 콘솔에는 남긴다(Firestore 보안규칙 미설정이 원인인 경우가 많음).
+        console.error('[isNicknameTakenInSong] 확인 실패:', e);
+      }
       btn.disabled = false;
       if (taken) {
         if (errEl) {

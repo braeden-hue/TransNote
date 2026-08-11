@@ -1,0 +1,25 @@
+// firestore.rules — TransNote Firestore 보안 규칙.
+//
+// Firebase 콘솔이 이 저장소를 직접 배포하지 않으므로(firebase.json/CLI 미연동), 이 파일은
+// "의도된 규칙"의 기준 문서이자 콘솔에 그대로 붙여넣을 원본이다. 적용 방법:
+//   1. https://console.firebase.google.com → 해당 프로젝트(musicakbo-fac10) 선택
+//   2. Firestore Database → 규칙(Rules) 탭
+//   3. 아래 내용을 그대로 복사해 붙여넣고 게시(Publish)
+//
+// scores(개인 저장, webpage/js/firebase.js의 saveScoreCloud/loadScoresCloud 등) — 로그인
+// 필요, 본인 문서만 접근. leaderboard(체험하기 순위표) — 부스 회전율 때문에 로그인 없이
+// 닉네임만으로 참여하므로 읽기/생성은 공개, 수정/삭제는 막아 부정 정정을 방지한다.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scores/{scoreId} {
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+    }
+    match /leaderboard/{entryId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false; // 한 번 저장된 기록은 못 고침(점수 조작 방지)
+    }
+  }
+}

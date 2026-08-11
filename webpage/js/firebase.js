@@ -15,7 +15,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup,
          signOut as fbSignOut, onAuthStateChanged }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getFirestore, collection, doc, setDoc, getDocs,
-         deleteDoc, addDoc, query, where, orderBy, limit }
+         deleteDoc, addDoc, query, where }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ── 여기를 Firebase Console에서 복사한 값으로 교체 ──────────────────────────
@@ -110,13 +110,19 @@ export async function saveLeaderboardEntryCloud(songKey, nickname, score, maxSco
                { songKey, nickname, score, maxScore, createdAt: Date.now() });
 }
 
-/** songKey 기준 상위 점수 목록 불러오기(1회성). 로그인 불필요. */
+/** songKey 기준 상위 점수 목록 불러오기(1회성). 로그인 불필요.
+ * where(songKey) + orderBy(score)를 그대로 Firestore에 보내면 복합 색인(composite index)이
+ * 미리 만들어져 있어야 하는데(Firebase 콘솔에서 수동 생성 필요), 안 만들어진 상태면 쿼리
+ * 자체가 에러를 던져서 항상 빈 목록으로 보였다(2026-08 확인된 버그) — orderBy를 빼고
+ * songKey 단일 조건(색인 불필요)으로만 가져온 뒤 정렬은 여기서 직접 한다. 부스 특성상
+ * 곡 하나당 기록 수가 많지 않아 클라이언트 정렬로도 충분하다. */
 export async function loadLeaderboardCloud(songKey, top = 3) {
   if (!_db) return [];
-  const q = query(collection(_db, 'leaderboard'),
-                   where('songKey', '==', songKey), orderBy('score', 'desc'), limit(top));
+  const q = query(collection(_db, 'leaderboard'), where('songKey', '==', songKey));
   const snap = await getDocs(q);
-  return snap.docs.map(d => d.data());
+  const list = snap.docs.map(d => d.data());
+  list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return list.slice(0, top);
 }
 
 export { IS_CONFIGURED };
