@@ -37,10 +37,12 @@
     <div class="landing-frame">
       <img class="landing-bg" src="assets/landing-bg.jpg" alt="피아노가 있는 방">
       <div class="landing-hotspots">
-        <!-- 왼쪽 책상 — AI 모델에 대해(plus.png 워크인 전환 후 모달) -->
+        <!-- 왼쪽 책상 — TransNote 모델 설명(walkin-desk.jpg로 워크인 후 그 자리에 멈춤,
+             모달을 자동으로 띄우지 않고 책 위 별도 핫스팟(#walkin-book-hotspot)을 눌러야
+             모델 설명 책(#book-modal)이 열린다 — initLanding() 참고). -->
         <button class="landing-hotspot" id="landing-hotspot-ai" data-landing="ai"
-                title="AI 모델에 대해" aria-label="AI 모델에 대해" style="left:22.6%; top:65.8%;">
-          <span class="landing-hotspot-label">AI 모델에 대해</span>
+                title="TransNote" aria-label="TransNote" style="left:22.6%; top:65.8%;">
+          <span class="landing-hotspot-label">TransNote</span>
         </button>
         <!-- 가운데 그랜드피아노 — 튜토리얼(튜토리얼.png 워크인 전환) -->
         <button class="landing-hotspot" id="landing-hotspot-tutorial" data-landing="tutorial"
@@ -68,6 +70,12 @@
   <div class="walkin-overlay" id="walkin-overlay">
     <img id="walkin-img-under" class="walkin-layer" src="assets/landing-bg.jpg" alt="">
     <img id="walkin-img-over" class="walkin-layer walkin-layer-over" alt="">
+    <!-- desk-stay 클래스가 붙어있는 동안(TransNote 핫스팟으로 도착해 멈춰 선 상태)만 보임 -->
+    <button class="walkin-back-btn" id="walkin-back-btn" aria-label="처음으로">← 처음으로</button>
+    <button class="landing-hotspot walkin-book-hotspot" id="walkin-book-hotspot"
+            title="모델 설명 보기" aria-label="모델 설명 보기" style="left:60%; top:63%;">
+      <span class="landing-hotspot-label">모델 설명 보기</span>
+    </button>
   </div>
 
   <!-- 프로젝트에 대해 모달 -->
@@ -87,20 +95,58 @@
     </div>
   </div>
 
-  <!-- AI 모델에 대해 모달 -->
-  <div class="about-modal hidden" id="ai-modal">
-    <div class="about-modal-backdrop" id="ai-modal-backdrop"></div>
-    <div class="about-modal-card">
-      <button class="about-modal-close" id="ai-modal-close" aria-label="닫기">✕</button>
-      <h2>AI 모델에 대해</h2>
-      <p>
-        악보 인식은 자체 학습한 OMR(광학 악보 인식) 모델이 담당해요. CNN 인코더와
-        Transformer 디코더로 이루어진 구조로, 촬영한 악보 이미지에서 오선을 찾아내고
-        음표·박자·화음을 순서대로 인식해 커스텀 표기법으로 바꿔줍니다. 실제 촬영한
-        악보로 검증했을 때 약 87%의 인식 정확도를 확보했어요.
-      </p>
-      <p class="about-modal-note">※ 소개 문구는 임시 초안입니다 — 필요하면 언제든 다듬어 드릴게요.</p>
-      <button class="btn-primary" id="ai-modal-ok">확인</button>
+  <!-- ══ TransNote 모델 설명 — 책 펼침 화면(desk 위 책 핫스팟을 누르면 열림) ══
+       배경은 designKit/모델설명_책.png(펼쳐진 빈 책 사진)를 그대로 쓰고, 왼쪽/오른쪽
+       페이지 자리에 실제 내용을 절대좌표(%)로 얹는다. 페이지 경계 %는 사진을 직접
+       보고 눈대중으로 잡은 값이라, 실제 화면에서 살짝 어긋나 보이면 book-page-left/
+       book-page-right의 left/top/width/height만 조정하면 된다. -->
+  <div class="book-modal hidden" id="book-modal">
+    <div class="book-modal-backdrop" id="book-modal-backdrop"></div>
+    <div class="book-frame">
+      <img class="book-bg" src="assets/model-book.png" alt="펼쳐진 책">
+      <button class="book-close" id="book-close" aria-label="닫기">✕</button>
+
+      <!-- 왼쪽 페이지 — 어떻게 읽는지 + 왜 이 방식인지 + 마르코프 체인 -->
+      <div class="book-page book-page-left">
+        <p class="book-page-title">TransNote는 악보를 어떻게 읽을까요?</p>
+        <img class="book-e2e-img" src="assets/model-end2end.png" alt="오선을 따라 흐르는 음의 흐름(End-to-End)">
+        <p class="book-text">
+          음표를 하나하나 따로 떼어 인식한 뒤 규칙으로 다시 조립하는 대신, 오선 전체를
+          한 번에 보면서 <strong>음의 흐름</strong>을 그대로 따라가며 다음 음을 예측해요
+          (End‑to‑End).
+        </p>
+        <p class="book-text">
+          <strong>왜 이 방식을 택했을까요?</strong> TransNote는 전문가가 아니라
+          <strong>대중</strong>을 위한 서비스예요. 복잡한 클래식 기호 하나하나보다
+          <strong>코드와 멜로디의 흐름</strong>이 더 중요하다고 판단해서, 음표를 낱개
+          기호가 아니라 흐름으로 읽는 방식을 선택했습니다.
+        </p>
+        <p class="book-text">
+          <strong>마르코프 체인.</strong> 멜로디의 흐름 위주로 학습하도록, 실제로
+          작곡된 곡 <strong>9천여 개</strong>에서 "다음 음이 실제로 어디로 움직이는지"
+          통계를 미리 뽑아 학습 데이터를 만드는 데 사용했어요.
+        </p>
+        <div class="book-continue-arrow" aria-hidden="true">➜</div>
+      </div>
+
+      <!-- 오른쪽 페이지 — 학습 데이터 3단계(캡처→노이즈→실사) -->
+      <div class="book-page book-page-right">
+        <p class="book-page-title">TransNote는 어떤 데이터로 학습했을까요?</p>
+        <div class="book-stage">
+          <img src="assets/model-stage-capture.png" alt="마르코프 체인으로 생성한 합성 악보">
+          <p><strong>캡처 단계</strong> — 마르코프 체인이 적용된 무작위 악보를 생성해 학습</p>
+        </div>
+        <div class="book-stage-arrow" aria-hidden="true">↓</div>
+        <div class="book-stage">
+          <img src="assets/model-stage-noise.jpg" alt="노이즈가 더해진 악보 이미지">
+          <p><strong>노이즈 단계</strong> — 실사 이미지에서 뽑은 기울기·곡면·그림자 등을 강도별로 입혀 학습</p>
+        </div>
+        <div class="book-stage-arrow" aria-hidden="true">↓</div>
+        <div class="book-stage">
+          <img src="assets/model-stage-real.jpg" alt="직접 촬영한 악보 이미지">
+          <p><strong>실사 단계</strong> — 직접 촬영한 이미지 1,600장을 학습에 사용</p>
+        </div>
+      </div>
     </div>
   </div>
 

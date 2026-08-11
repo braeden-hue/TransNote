@@ -964,6 +964,24 @@ kbd {
   filter: brightness(1) blur(0px);
 }
 
+/* desk-stay: TransNote 핫스팟으로 걸어 들어가 책상 사진 앞에 멈춰 선 상태(app.js
+   initLanding()의 target==='ai' 분기 참고) — 이때만 "처음으로" 버튼과 책 위 핫스팟이
+   보인다. 튜토리얼 워크인(stay:false)은 순식간에 지나가므로 이 클래스가 안 붙는다. */
+.walkin-back-btn, .walkin-book-hotspot { display: none; }
+.walkin-overlay.desk-stay .walkin-back-btn,
+.walkin-overlay.desk-stay .walkin-book-hotspot { display: flex; }
+.walkin-back-btn {
+  position: absolute; z-index: 2; top: calc(16px + var(--safe-t)); left: calc(16px + var(--safe-l));
+  align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.9); border: 1px solid var(--border-hi);
+  border-radius: 20px; padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--primary);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+}
+.walkin-back-btn:active { transform: scale(0.96); }
+/* .landing-hotspot은 원래 position:absolute 기준 조상이 .landing-frame이지만, 여기선
+   .walkin-overlay(position:fixed)가 그 역할을 그대로 대신하므로 같은 left/top% 방식이
+   문제없이 동작한다 — display만 위 규칙으로 얹어서 켠다. */
+
 /* ── 프로젝트에 대해 모달 ──────────────────────────────────────── */
 .about-modal { position: fixed; inset: 0; z-index: 600; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .about-modal.hidden { display: none; }
@@ -985,6 +1003,75 @@ kbd {
   transition: background .15s;
 }
 .about-modal-close:hover { background: var(--bg-hover); color: var(--text); }
+
+/* ── TransNote 모델 설명 — 책 펼침 화면 ──────────────────────────── */
+/* walkin-overlay(500)보다 위, 다른 일반 모달(600)과 같은 층 — 책상 위에서 열리는
+   전용 오버레이라 about-modal과 동시에 뜰 일이 없어 z-index 충돌 걱정은 없다. */
+.book-modal { position: fixed; inset: 0; z-index: 600; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.book-modal.hidden { display: none; }
+.book-modal-backdrop { position: absolute; inset: 0; background: rgba(10,8,4,0.75); backdrop-filter: blur(2px); }
+
+/* 책 사진(1375:768) 비율을 유지한 채 화면에 맞추고, 그 안에서 %로 페이지 내용을 배치 */
+.book-frame {
+  position: relative; z-index: 1;
+  width: min(94vw, 94vh * 1375 / 768);
+  aspect-ratio: 1375 / 768;
+}
+.book-bg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; display: block; pointer-events: none;
+  filter: drop-shadow(0 20px 50px rgba(0,0,0,0.55));
+}
+.book-close {
+  position: absolute; z-index: 2; top: -6px; right: -6px;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(255,255,255,0.95); color: var(--text);
+  font-size: 16px; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.book-close:active { transform: scale(0.94); }
+
+/* 왼쪽/오른쪽 페이지 — %는 model-book.png(펼쳐진 빈 책) 사진 위 실제 종이 영역을
+   눈대중으로 잡은 값. 내용이 페이지보다 길어질 수 있어 overflow-y:auto로 안전장치. */
+.book-page {
+  position: absolute; top: 9%; bottom: 8%;
+  width: 34%; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 2%;
+  font-family: Georgia, '바탕', Batang, serif; color: #4a3520;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.4);
+}
+.book-page-left  { left: 14.5%; }
+.book-page-right { left: 51.5%; }
+.book-page-title {
+  font-size: clamp(11px, 1.6vw, 15px); font-weight: 700; text-align: center;
+  color: #33240f; letter-spacing: .02em; flex: 0 0 auto;
+}
+.book-e2e-img {
+  width: 100%; flex: 0 0 auto; border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.book-text {
+  font-size: clamp(9px, 1.25vw, 12.5px); line-height: 1.5; flex: 0 0 auto;
+}
+.book-text strong { color: #33240f; }
+.book-continue-arrow {
+  flex: 0 0 auto; align-self: flex-end; margin-top: auto;
+  font-size: clamp(16px, 2.4vw, 26px); color: #8a6a3a; opacity: .8;
+}
+.book-stage { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4%; align-items: center; }
+.book-stage img {
+  /* %가 아니라 vh 기준 — 부모(.book-stage)가 auto 높이라 %max-height는 안 먹힘 */
+  width: 100%; max-height: 15vh; object-fit: contain; border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25); background: #f4ead4;
+}
+.book-stage p { font-size: clamp(9px, 1.2vw, 12px); line-height: 1.45; text-align: center; }
+.book-stage-arrow {
+  flex: 0 0 auto; text-align: center;
+  font-size: clamp(14px, 2vw, 20px); color: #8a6a3a; opacity: .8;
+}
+@media (max-width: 700px) {
+  .book-page { font-size: 9px; }
+}
 
 /* ── 체험하기 (샘플 선택 + 단일 마디 악보) ─────────────────────────── */
 .exp-screen {

@@ -280,7 +280,12 @@ function initLanding() {
       const originYPct = parseFloat(btn.style.top) || 50;
       if (target === 'about') { showAboutModal(); return; }
       if (target === 'ai') {
-        playWalkIn('assets/walkin-desk.jpg', { onArrive: showAiModal, stay: true, originXPct, originYPct });
+        // 도착해서 멈춰 선 채(stay:true) 모달을 자동으로 띄우지 않는다 — 책 위 별도
+        // 핫스팟(#walkin-book-hotspot)을 직접 눌러야 모델 설명 책이 열린다.
+        playWalkIn('assets/walkin-desk.jpg', {
+          stay: true, originXPct, originYPct,
+          onArrive: () => document.getElementById('walkin-overlay')?.classList.add('desk-stay'),
+        });
         return;
       }
       if (target === 'tutorial') {
@@ -301,30 +306,41 @@ function initLanding() {
   });
 }
 
-// ── 프로젝트에 대해 / AI 모델에 대해 모달 ─────────────────────────────────────────
+// ── 프로젝트에 대해 모달 ──────────────────────────────────────────────────────
 function showAboutModal() { document.getElementById('about-modal')?.classList.remove('hidden'); }
 function hideAboutModal() { document.getElementById('about-modal')?.classList.add('hidden'); }
-function showAiModal() { document.getElementById('ai-modal')?.classList.remove('hidden'); }
-// AI 모델 모달을 닫을 땐 책상 사진 앞에 멈춰 서 있던 걸(stay:true) 다시 축소하며 랜딩으로.
-// (실제로 열려 있던 경우에만 — Escape 키는 about/ai 모달 둘 다에 무조건 걸리므로, 안 열려
-// 있었는데도 걸어나가기 연출이 잘못 발동하는 것을 막는다. 다른 워크인이 한창 진행 중일 때
-// 끼어들어 취소해버리는 것도 방지된다.)
-function hideAiModal() {
-  const modal = document.getElementById('ai-modal');
-  const wasOpen = !!modal && !modal.classList.contains('hidden');
-  modal?.classList.add('hidden');
-  if (wasOpen) playWalkOut();
-}
 
 function initAboutModal() {
   document.getElementById('about-modal-close')?.addEventListener('click', hideAboutModal);
   document.getElementById('about-modal-backdrop')?.addEventListener('click', hideAboutModal);
   document.getElementById('about-modal-ok')?.addEventListener('click', hideAboutModal);
-  document.getElementById('ai-modal-close')?.addEventListener('click', hideAiModal);
-  document.getElementById('ai-modal-backdrop')?.addEventListener('click', hideAiModal);
-  document.getElementById('ai-modal-ok')?.addEventListener('click', hideAiModal);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideAboutModal(); });
+}
+
+// ── TransNote(책상) 워크인 — 도착해서 멈춰 선 상태 나가기 + 모델 설명 책 ──────────────
+// "← 처음으로"는 desk-stay 상태(책상 사진 앞에 멈춰 서 있는 동안)에만 보이고, 누르면
+// 책이 열려 있었다면 먼저 닫고 playWalkOut()으로 축소하며 랜딩으로 돌아간다.
+function hideDeskStay() {
+  const overlay = document.getElementById('walkin-overlay');
+  if (!overlay || !overlay.classList.contains('desk-stay')) return;
+  hideBookModal();
+  overlay.classList.remove('desk-stay');
+  playWalkOut();
+}
+
+function showBookModal() { document.getElementById('book-modal')?.classList.remove('hidden'); }
+function hideBookModal() { document.getElementById('book-modal')?.classList.add('hidden'); }
+
+function initWalkinBack() {
+  document.getElementById('walkin-back-btn')?.addEventListener('click', hideDeskStay);
+  document.getElementById('walkin-book-hotspot')?.addEventListener('click', showBookModal);
+  document.getElementById('book-close')?.addEventListener('click', hideBookModal);
+  document.getElementById('book-modal-backdrop')?.addEventListener('click', hideBookModal);
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { hideAboutModal(); hideAiModal(); }
+    if (e.key !== 'Escape') return;
+    const modal = document.getElementById('book-modal');
+    if (modal && !modal.classList.contains('hidden')) { hideBookModal(); return; }
+    hideDeskStay();
   });
 }
 
@@ -2592,6 +2608,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initLanding();
   initExpFlow();
   initAboutModal();
+  initWalkinBack();
 
   // navigate는 이미 active를 설정했으므로 state만 맞춤
   function settleOn(name) {
