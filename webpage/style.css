@@ -737,6 +737,19 @@ kbd {
 .piano-wrapper-pannable:active { cursor: grabbing; }
 .piano-wrapper-pannable::-webkit-scrollbar { display: none; }
 
+/* 건반 바로 위 드래그 전용 손잡이 바 — 건반이 하나도 없는 영역이라 여기서 드래그하면
+   음이 눌릴 일 없이 화면만 이동한다(piano.js pannable 옵션 참고). */
+.piano-drag-handle {
+  width: 100%; height: 20px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab; touch-action: none;
+}
+.piano-drag-handle:active { cursor: grabbing; }
+.piano-drag-handle span {
+  width: 40px; height: 5px; border-radius: 3px;
+  background: rgba(255,255,255,0.6);
+}
+
 /* ── Library ───────────────────────────────────────────────── */
 .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; }
 .library-card {

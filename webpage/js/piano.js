@@ -65,6 +65,29 @@ export function buildPiano(pianoEl, pianoWrapper, {
     pianoWrapper.style.overflowY = 'hidden';
     pianoWrapper.style.scrollbarWidth = 'none'; // Firefox
     pianoWrapper.classList.add('piano-wrapper-pannable'); // ::-webkit-scrollbar 숨김용(style.css)
+
+    // 건반 위 전용 드래그 손잡이 — 키 위에서 드래그해도 패닝은 되지만(아래 pointerdown
+    // 임계값 로직), 그 전까지 짧게라도 press()가 한 번 불려서 음이 살짝 눌리는 게
+    // 보였다("스크롤할 때 건반이 눌린다" 리포트). 건반이 전혀 없는 별도 손잡이 바를
+    // 만들어 여기서 드래그하면 애초에 press() 호출 자체가 없어 그 문제가 안 생긴다.
+    const handle = document.createElement('div');
+    handle.className = 'piano-drag-handle';
+    handle.innerHTML = '<span></span>';
+    pianoWrapper.insertBefore(handle, pianoEl);
+
+    let handleDragging = false, handleStartX = 0, handleStartScroll = 0;
+    handle.addEventListener('pointerdown', e => {
+      handleDragging = true;
+      handleStartX = e.clientX;
+      handleStartScroll = pianoWrapper.scrollLeft;
+      handle.setPointerCapture(e.pointerId);
+    });
+    handle.addEventListener('pointermove', e => {
+      if (!handleDragging) return;
+      pianoWrapper.scrollLeft = handleStartScroll - (e.clientX - handleStartX);
+    });
+    handle.addEventListener('pointerup',     () => { handleDragging = false; });
+    handle.addEventListener('pointercancel', () => { handleDragging = false; });
   }
 
   const keyEls = {};
