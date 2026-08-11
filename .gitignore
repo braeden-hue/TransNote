@@ -50,3 +50,7 @@ reports/*.csv
 *api_key*
 *API_KEY*
 secrets/
+
+# 서드파티 Claude Code 스킬(uipro init으로 설치, ui-ux-pro-max 등) — 로컬 개발 도구일 뿐
+# 프로젝트 소스가 아니라 커밋 안 함
+.claude/skills/
