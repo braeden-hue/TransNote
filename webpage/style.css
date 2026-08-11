@@ -1178,8 +1178,19 @@ kbd {
 /* ── 체험하기: 연주 진행 + 결과 ─────────────────────────────────────── */
 .exp-perform-body { height: 100%; max-height: 100%; width: 100%; max-width: 620px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
 .exp-perform-title { flex: 0 0 auto; font-size: 20px; font-weight: 800; color: var(--text); }
-.exp-perform-piano { flex: 0 0 auto; width: 100%; }
-.exp-perform-piano.hidden { display: none; }
+.exp-perform-piano-row { flex: 0 0 auto; width: 100%; display: flex; align-items: center; gap: 10px; }
+.exp-perform-piano-row.hidden { display: none; }
+.exp-perform-piano { flex: 1 1 auto; width: auto; }
+.exp-hint-btn {
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%;
+  border: 1.5px solid var(--border-hi); background: #fff; font-size: 18px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background .15s, border-color .15s, box-shadow .15s, transform .1s;
+}
+.exp-hint-btn:active { transform: scale(0.92); }
+.exp-hint-btn.exp-hint-on {
+  background: #FFF4D6; border-color: #E8B400; box-shadow: 0 0 0 3px rgba(232,180,0,0.25);
+}
 .exp-perform-result { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .exp-perform-result.hidden { display: none; }
 .exp-perform-score { font-size: 22px; font-weight: 800; color: var(--primary); }

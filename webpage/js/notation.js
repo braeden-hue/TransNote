@@ -236,14 +236,14 @@ export function renderNotation(container, notes, {
     if (isExp) {
       const arrowCx  = x + w / 2;
       const arrowTip = y - 2;
-      const arrowTop = Math.max(2, arrowTip - 13);
+      const arrowTop = Math.max(2, arrowTip - 18);
       svg.appendChild(el('rect', {
-        x: arrowCx - 6, y: arrowTop - 1, width: 12, height: arrowTip - arrowTop + 2,
+        x: arrowCx - 8, y: arrowTop - 1, width: 16, height: arrowTip - arrowTop + 2,
         fill: 'rgba(255,255,255,0.85)', rx: '2',
       }));
       const tri = el('polygon', {
-        points: `${arrowCx - 5},${arrowTop} ${arrowCx + 5},${arrowTop} ${arrowCx},${arrowTip}`,
-        fill: '#0076CE',
+        points: `${arrowCx - 7},${arrowTop} ${arrowCx + 7},${arrowTop} ${arrowCx},${arrowTip}`,
+        fill: '#E5383B',
       });
       const anim2 = document.createElementNS(NS, 'animateTransform');
       anim2.setAttribute('attributeName', 'transform');

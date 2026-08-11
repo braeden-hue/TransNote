@@ -2,6 +2,7 @@ import { SAMPLES, BEAT_COLORS }          from './samples.js';
 import { audio }                           from './audio.js';
 import { renderNotation, renderGrandStaff, renderDigitalStaff } from './notation.js';
 import { buildPiano, renderLabeledOctave } from './piano.js';
+import { recognizeImage }                  from './recognize.js';
 import { loadAll, saveNotation, deleteNotation, generateId, getById } from './storage.js';
 import { signInWithGoogle, signOutUser, onAuthChange,
          saveScoreCloud, loadScoresCloud, deleteScoreCloud,
@@ -528,23 +529,21 @@ async function handleExpCameraCapture(file, fullFile) {
   const overlay = document.getElementById('exp-recognizing-overlay');
   overlay?.classList.remove('hidden');
   try {
-    const form = new FormData();
-    form.append('file', file);
-    const res = await fetch('/api/recognize?model=custom', { method: 'POST', body: form });
-    if (!res.ok) {
-      // 서버가 돌려준 실제 에러 메시지를 그대로 살려서 던진다 — 예전엔 "server"로만
-      // 뭉뚱그려서 원인(타임아웃/콜드스타트/인식실패 등)을 전혀 구분할 수 없었음.
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `서버 오류 (HTTP ${res.status})`);
-    }
-    const json = await res.json();
+    // 콜드스타트 중엔 IN_QUEUE 상태로 몇 번이고 다시 물어보게 되는데, 그동안 태블릿
+    // 화면이 그냥 멈춘 것처럼 보이지 않도록 대기 시간을 토스트로 계속 갱신해준다.
+    const json = await recognizeImage(file, {
+      model: 'custom',
+      onProgress: p => {
+        if (p.delayTimeMs != null) toast(`⏱ 대기 중... ${(p.delayTimeMs / 1000).toFixed(0)}s`);
+      },
+    });
     json._noScore = true;
-    // 진단용 — "매번 오래 걸린다"는 게 RunPod 대기/실행 중 어디서 오는지 태블릿에서도
-    // 바로 보이게 토스트로 띄운다(devtools 접근 불가). 원인 확정되면 제거할 것.
+    // 진단용 — 대기/실행 중 어디서 오래 걸리는지 태블릿에서도 바로 보이게 토스트로
+    // 띄운다(devtools 접근 불가). 원인 확정되면 제거할 것.
     if (json._timing) {
       const t = json._timing;
       const s = ms => (ms == null ? '?' : (ms / 1000).toFixed(1));
-      toast(`⏱ 대기 ${s(t.delayTimeMs)}s / 실행 ${s(t.executionTimeMs)}s / 총 ${s(t.vercelTotalMs)}s`);
+      toast(`⏱ 대기 ${s(t.delayTimeMs)}s / 실행 ${s(t.executionTimeMs)}s`);
     }
     // 미리보기엔 인식용으로 잘라 보낸 이미지가 아니라 촬영한 프레임 전체(fullFile)를
     // 보여준다 — 없으면(구형 브라우저 등) 잘라낸 이미지로라도 대체.
@@ -626,9 +625,15 @@ function showExpWait(handMode) {
     statusEl.textContent = `🎹 전자 피아노에서 ${solfegeOf(firstNote)} 음을 눌러 연결을 확인해주세요`;
     testMidiConnection(firstNote).then(ok => {
       state.expMidiConfirmed = ok;
-      statusEl.textContent = ok
-        ? '🎹 전자 피아노 연결을 확인했어요 — 화면 건반 없이 연주해요'
-        : '📱 화면 건반으로 연주해요 (전자 피아노 신호를 못 받았어요)';
+      // 양손 모드는 전자 피아노 연결이 확인된 경우에만 실제로 진행된다(startExpPerform에서
+      // 최종 결정) — 연결이 안 됐으면 시작 버튼을 누르기 전에 미리 안내해서 놀라지 않게.
+      if (ok) {
+        statusEl.textContent = '🎹 전자 피아노 연결을 확인했어요 — 화면 건반 없이 연주해요';
+      } else if (handMode === 'both') {
+        statusEl.textContent = '📱 전자 피아노 연결이 확인되지 않아 오른손만 연주로 진행돼요';
+      } else {
+        statusEl.textContent = '📱 화면 건반으로 연주해요 (전자 피아노 신호를 못 받았어요)';
+      }
     });
   }
 }
@@ -637,7 +642,11 @@ function showExpWait(handMode) {
 function startExpPerform(nickname) {
   const data = state.expScoreData;
   if (!data) return;
-  const handMode = state.expHandMode === 'both' && data.staves?.length >= 2 ? 'both' : 'right';
+  // 전자 피아노 연결이 확인되지 않으면 양손 모드를 골랐더라도 오른손만으로 진행한다 —
+  // 화면 터치 하나로는 양손 동시 입력을 안정적으로 받기 어려워, 실물 피아노가 확인된
+  // 경우에만 실제로 양손 모드를 허용한다(showExpWait에서 이미 이 경우 안내 문구를 띄움).
+  const handMode = state.expHandMode === 'both' && data.staves?.length >= 2 && state.expMidiConfirmed
+    ? 'both' : 'right';
 
   const trebleNotes = (data.staves?.[0]?.notes ?? data.notes ?? []).filter(n => !n.isRest);
   const bassNotes   = handMode === 'both' ? (data.staves[1].notes ?? []).filter(n => !n.isRest) : [];
@@ -652,8 +661,11 @@ function startExpPerform(nickname) {
     tHit: new Set(), bHit: new Set(), // 현재 스텝(화음 포함)에서 이미 맞힌 음들 — 화음은 전부 눌러야 그 손이 다음으로 넘어감
     held: new Set(), // 지금 물리적으로 눌려 있는(뗴지 않은) 음들 — 화음이 "동시에" 눌렸는지 판정용
     correct: 0, wrong: 0,
+    hintOn: false, hintUsed: false, // 힌트(💡) 상태 — 한 번이라도 켜면 hintUsed는 끝까지 true(최종 점수 -10)
     pianoCtrl: null,
+    refreshHighlight: null, // 힌트 버튼 클릭 시 최신 updateHighlight()를 부를 참조(아래에서 채움)
   };
+  document.getElementById('exp-hint-btn')?.classList.remove('exp-hint-on');
 
   hideExpScreens();
   document.getElementById('screen-exp-perform')?.classList.remove('hidden');
@@ -686,26 +698,30 @@ function startExpPerform(nickname) {
     }
     autoFitExpScore('exp-perform-notation');
   }
-  // 화면 건반엔 "아직 안 누른" 음들만 표시 — 화음 중 이미 누른 음은 더 이상 안내하지 않음.
+  // 화면 건반의 기준점(가온다 C4·한 옥타브 아래 도 C3) — 힌트와 무관하게 항상 표시.
+  const REF_DOTS = [{ note: 'C4', color: '#E5383B' }, { note: 'C3', color: '#E5383B' }];
+  // 힌트를 켰을 때만 "아직 안 누른" 음들을 건반에 표시 — 기본은 스스로 악보를 보고
+  // 찾게 하고(파란 하이라이트 없음), 힌트 버튼(💡)을 켰을 때만 다음 음을 보여준다.
   function updateHighlight() {
     const p = state.expPerform;
     const { t, b } = currentMeasures();
     const tRemain = stepPitches(t, p.tIdx).filter(n => !p.tHit.has(n));
     const bRemain = p.handMode === 'both' ? stepPitches(b, p.bIdx).filter(n => !p.bHit.has(n)) : [];
-    p.pianoCtrl?.setExpected(tRemain[0] ?? bRemain[0] ?? null);
-    if (p.handMode === 'both') {
-      p.pianoCtrl?.setDots([
-        ...tRemain.map(n => ({ note: n, color: '#0076CE' })), // 오른손 = 파랑
-        ...bRemain.map(n => ({ note: n, color: '#FF8A3D' })), // 왼손 = 주황
-      ]);
-    }
+    const hintDots = p.hintOn ? [
+      ...tRemain.map(n => ({ note: n, color: '#0076CE' })), // 오른손 = 파랑
+      ...bRemain.map(n => ({ note: n, color: '#FF8A3D' })), // 왼손 = 주황
+    ] : [];
+    p.pianoCtrl?.setDots([...REF_DOTS, ...hintDots]);
+    p.pianoCtrl?.setExpected(p.hintOn ? (tRemain[0] ?? bRemain[0] ?? null) : null);
   }
+  state.expPerform.refreshHighlight = updateHighlight;
   renderMeasure();
 
+  const pianoRow  = document.getElementById('exp-perform-piano-row');
   const pianoWrap = document.getElementById('exp-perform-piano');
   pianoWrap.innerHTML = '';
-  // 전자 피아노 연결이 확인됐으면 화면 건반은 띄우지 않음(실물로 연주) — 아니면 화면 건반 표시.
-  pianoWrap.classList.toggle('hidden', state.expMidiConfirmed);
+  // 전자 피아노 연결이 확인됐으면 화면 건반(+힌트 버튼)은 띄우지 않음(실물로 연주).
+  pianoRow?.classList.toggle('hidden', state.expMidiConfirmed);
 
   // 오른손/왼손이 동시에 눌려야 하는 화음도 "어느 손이 지금 이 음을 낼 차례인가"를
   // 헷갈리지 않게 판단 — 오른손(트레블) 스텝에 아직 안 채워진 음이면 오른손으로,
@@ -715,30 +731,54 @@ function startExpPerform(nickname) {
   // 보류하고(p.held로 지금 물리적으로 눌려 있는 음들을 추적), 나머지 화음 구성음이
   // 전부 같이 눌려 있을 때만 한꺼번에 정답 처리한다. 하나만 누르고 떼면(동시가 아니면)
   // 그 음은 무효가 되어 다시 처음부터 같이 눌러야 한다.
+  //
+  // 양손 모드에서 두 보표의 현재 음이 같은 박자(beat)에서 시작하면, 실제 악보처럼 두
+  // 손을 동시에 눌러야 하는 순간이므로 두 보표의 음을 하나의 화음처럼 합쳐서 동시
+  // 입력을 요구한다(synced 분기). 박자가 다르면(한쪽이 더 긴 음을 들고 있는 등) 기존
+  // 처럼 손마다 독립적으로 진행한다.
   function handleExpNotePress(pitch) {
     const p = state.expPerform;
     p.held.add(pitch);
     const { t, b } = currentMeasures();
-    const tStep = stepPitches(t, p.tIdx);
-    const bStep = p.handMode === 'both' ? stepPitches(b, p.bIdx) : [];
+    const tNote  = t[p.tIdx] ?? null;
+    const bNote  = p.handMode === 'both' ? (b[p.bIdx] ?? null) : null;
+    const synced = !!(tNote && bNote && tNote.beat === bNote.beat);
+    const tStep  = stepPitches(t, p.tIdx);
+    const bStep  = p.handMode === 'both' ? stepPitches(b, p.bIdx) : [];
 
-    let step = null, hitSet = null, advance = null;
-    if (tStep.includes(pitch) && !p.tHit.has(pitch)) {
-      step = tStep; hitSet = p.tHit; advance = () => { p.tIdx++; p.tHit.clear(); };
-    } else if (bStep.includes(pitch) && !p.bHit.has(pitch)) {
-      step = bStep; hitSet = p.bHit; advance = () => { p.bIdx++; p.bHit.clear(); };
+    if (synced) {
+      const combined = [...tStep, ...bStep];
+      const alreadyHit = n => p.tHit.has(n) || p.bHit.has(n);
+      if (!combined.includes(pitch) || alreadyHit(pitch)) {
+        p.wrong++;
+        p.pianoCtrl?.flashWrong(pitch);
+        return;
+      }
+      if (!combined.every(n => p.held.has(n) || alreadyHit(n))) return; // 양손 화음이 아직 같이 안 눌림 — 보류
+
+      tStep.forEach(n => { if (!p.tHit.has(n)) { p.tHit.add(n); p.correct++; p.pianoCtrl?.flashCorrect(n); } });
+      bStep.forEach(n => { if (!p.bHit.has(n)) { p.bHit.add(n); p.correct++; p.pianoCtrl?.flashCorrect(n); } });
+      if (p.tHit.size >= tStep.length) { p.tIdx++; p.tHit.clear(); }
+      if (p.bHit.size >= bStep.length) { p.bIdx++; p.bHit.clear(); }
+    } else {
+      let step = null, hitSet = null, advance = null;
+      if (tStep.includes(pitch) && !p.tHit.has(pitch)) {
+        step = tStep; hitSet = p.tHit; advance = () => { p.tIdx++; p.tHit.clear(); };
+      } else if (bStep.includes(pitch) && !p.bHit.has(pitch)) {
+        step = bStep; hitSet = p.bHit; advance = () => { p.bIdx++; p.bHit.clear(); };
+      }
+
+      if (!step) {
+        p.wrong++;
+        p.pianoCtrl?.flashWrong(pitch);
+        return;
+      }
+
+      if (!step.every(n => p.held.has(n) || hitSet.has(n))) return; // 화음 전체가 아직 같이 안 눌림 — 보류
+
+      step.forEach(n => { if (!hitSet.has(n)) { hitSet.add(n); p.correct++; p.pianoCtrl?.flashCorrect(n); } });
+      if (hitSet.size >= step.length) advance();
     }
-
-    if (!step) {
-      p.wrong++;
-      p.pianoCtrl?.flashWrong(pitch);
-      return;
-    }
-
-    if (!step.every(n => p.held.has(n) || hitSet.has(n))) return; // 화음 전체가 아직 같이 안 눌림 — 보류
-
-    step.forEach(n => { if (!hitSet.has(n)) { hitSet.add(n); p.correct++; p.pianoCtrl?.flashCorrect(n); } });
-    if (hitSet.size >= step.length) advance();
 
     const tDone = p.tIdx >= t.length;
     const bDone = p.handMode !== 'both' || p.bIdx >= b.length;
@@ -780,9 +820,12 @@ function finishExpPerform() {
     return;
   }
   const total = p.correct + p.wrong;
-  const score = total > 0 ? Math.round((p.correct / total) * p.maxScore * 10) / 10 : 0;
-  document.getElementById('exp-perform-score-text').textContent =
-    `${p.nickname}님, ${score}점이에요! (${p.maxScore}점 만점)`;
+  let score = total > 0 ? Math.round((p.correct / total) * p.maxScore * 10) / 10 : 0;
+  // 힌트(💡)를 한 번이라도 켰으면 최종 점수에서 10점 감점(0점 미만으로는 안 내려감).
+  if (p.hintUsed) score = Math.max(0, Math.round((score - 10) * 10) / 10);
+  document.getElementById('exp-perform-score-text').textContent = p.hintUsed
+    ? `${p.nickname}님, ${score}점이에요! (${p.maxScore}점 만점, 힌트 사용 -10점)`
+    : `${p.nickname}님, ${score}점이에요! (${p.maxScore}점 만점)`;
   document.getElementById('exp-perform-result').classList.remove('hidden');
   // 실패해도(네트워크 등) 연주 결과 화면 자체는 이미 떴으니 조용히 무시 — 순위표 등록
   // 실패가 사용자 체험을 막으면 안 됨.
@@ -835,6 +878,18 @@ function initExpFlow() {
 
   document.getElementById('exp-play-btn')?.addEventListener('click', playExpScore);
   document.getElementById('exp-perform-btn')?.addEventListener('click', showExpHandMode);
+
+  // 힌트(💡) 토글 — startExpPerform()이 매번 새로 만드는 화면 건반과 달리 이 버튼은
+  // 고정 DOM이라 리스너를 한 번만 등록하고, 그때그때 최신 상태(state.expPerform)를
+  // 읽고 refreshHighlight로 다시 그리게 한다(리스너 중복 등록 방지).
+  document.getElementById('exp-hint-btn')?.addEventListener('click', () => {
+    const p = state.expPerform;
+    if (!p) return;
+    p.hintOn = !p.hintOn;
+    if (p.hintOn) p.hintUsed = true;
+    document.getElementById('exp-hint-btn')?.classList.toggle('exp-hint-on', p.hintOn);
+    p.refreshHighlight?.();
+  });
 
   document.getElementById('exp-start-perform-btn')?.addEventListener('click', async () => {
     const nickname = document.getElementById('exp-nickname-input').value.trim() || '익명';
@@ -1739,16 +1794,9 @@ async function handleUpload(file) {
   showLoading();
 
   const model = document.getElementById('model-select')?.value || 'custom';
-  const form  = new FormData();
-  form.append('file', file);
 
   try {
-    const res = await fetch(`/api/recognize?model=${model}`, { method: 'POST', body: form });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `서버 오류 (${res.status})`);
-    }
-    const json = await res.json();
+    const json = await recognizeImage(file, { model });
     json._fromServer = true; // QR "테이크아웃" 버튼은 서버에 실제 저장된 결과에만 노출
     showResult(json);
   } catch (e) {
