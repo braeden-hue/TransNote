@@ -1,2 +1,0 @@
-- [Web Demo 구현 상태](project_webdemo_state.md) — online_webpage/ 완료/미완료 기능 갭 분석, 화음/공유 확장 방향
-- [Training Round Structure](project_training_rounds.md) — Round 1-4 token progression, script locations, data dirs, and curriculum learning setup

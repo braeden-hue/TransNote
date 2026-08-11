@@ -74,12 +74,15 @@ TransNote — 악보 이미지를 촬영/업로드하면 자체 학습한 OMR(�
 **사용자 정의 표기법**으로 변환해주는 웹 앱. `server.py`(FastAPI) 하나가 정적 웹앱(`webpage/`)을
 서빙하면서 동시에 인식 API도 제공한다 — 별도 백엔드/프론트엔드 레포 분리 없음.
 
-**2026-08-09 이전에는 Flutter 앱 + 자체 C++ TFLite 엔진(`ml/omr/engine/`) 구조였으나 전면
-폐기됨** — Flutter가 더 이상 타겟 플랫폼이 아니라서 `android/`, `ios/`, `lib/`, `ml/`,
-`round1/`, `omr_bridge/`를 전부 삭제하고 웹(FastAPI + 바닐라 JS) 단일 구조로 재구성했다. 과거
-Flutter 시절 문서(`appMake.md`, `FLUTTER_UI_PROGRESS.md`, 옛 학습 로드맵 `PODPLAN.md`/
-`TrainingStep.md`/`step.md`)는 `docs/archive/`에 이력 보존용으로만 남아있다 — 현재 구조를
-파악할 땐 참고하지 말 것, 최신 정보는 이 파일과 [`project.md`](project.md)를 따른다.
+**이 저장소는 서버/배포(FastAPI, Vercel, RunPod Docker) 중심으로 정리돼 있다.** 모델 학습
+코드·히스토리·정확도 근거는 별도 저장소 [Model_TransNote](https://github.com/braeden-hue/Model_TransNote)
+참고(2026-08-12 분리, `train/docs/`·`train/experiments/`·`test/`를 이 저장소에서 제거하고 이관).
+`train/` 최상위 `.py`/`tokenizer258.json`은 RunPod Docker 이미지가 실제로 빌드 시 복사해가는
+런타임 의존 파일이라 이 저장소에도 그대로 남아있다(아래 "train/ 내부 구조" 참고) — 지우면
+배포가 깨진다.
+
+**2026-08-09 이전에는 Flutter 앱 + 자체 C++ TFLite 엔진 구조였으나 전면 폐기됨** — 웹(FastAPI +
+바닐라 JS) 단일 구조로 재구성했다. Flutter 시절 잔재는 더 이상 저장소에 없다.
 
 ## Directory Layout
 
@@ -88,10 +91,9 @@ server/               # 로컬/LAN 실행용 FastAPI 서버(server.py) + token_t
 webpage/              # 정적 웹앱(HTML/CSS/JS), PWA(manifest.json)
 api/                  # Vercel 서버리스 함수(얇은 프록시, 실제 추론은 runpod_serverless/가 전담)
 runpod_serverless/    # RunPod Serverless GPU 추론 워커(Docker) — .github/workflows가 자동 빌드
-train/                # OMR 학습 파이프라인(PyTorch) — 아래 "ML Training" 참고
-test/                 # 학습된 모델 평가/진단 스크립트(eval_*.py 등)
+train/                # OMR 추론 런타임 코드(PyTorch) — Docker가 복사해가는 최소 세트만 유지
+docs/                 # music-notation-rule-designer.md 1개만 유지(커스텀 표기법 규칙, 코드가 실제 참조)
 realImage/            # 실사 촬영 이미지(로컬 전용, .gitignore로 git 미포함)
-docs/                 # 서브에이전트별 상세 문서(docs/*.md) + docs/archive/(과거 로그)
 secrets/              # API 키 등(.gitignore로 git 미포함, 절대 커밋 금지)
 ```
 
@@ -103,18 +105,12 @@ pip install -r server/requirements.txt
 python server/server.py            # 0.0.0.0:8080, webpage/ 서빙 + OMR API
 ```
 
-### ML Training (`train/`)
+### 추론 동작 확인 (`train/`)
 ```bash
-python train/train.py --phase 2 --data_dir <dir> --tokenizer train/tokenizer258.json \
-    --resume <ckpt.pt>             # 항상 이전 체크포인트에서 resume — random init은 학습 안 됨(실측 확인됨)
 python train/inference.py --seq2seq <ckpt.pt> --tokenizer train/tokenizer258.json --analyze <dir>
-python train/generate_scores.py --output train/Round3 ...   # music21+MuseScore로 합성 학습 데이터 생성
-bash train/gen_render_local.sh     # 로컬 렌더링+검증 후 일괄 복사 (RunPod 데이터 생성 표준 경로)
 ```
-
-데이터 생성·에폭·라운드별 정확도·문제 해결 과정(exposure bias, 노이즈 강건성, 마르코프 체인
-가중 피치 선택 등)은 [`train/docs/TRAINING_REPORT.md`](train/docs/TRAINING_REPORT.md)에 정리돼
-있다 — 학습 관련 작업 전에 먼저 읽을 것.
+학습(재학습·데이터 생성·라운드별 정확도)은 이 저장소 범위 밖 —
+[Model_TransNote](https://github.com/braeden-hue/Model_TransNote)에서 진행한다.
 
 ## Architecture
 
@@ -135,34 +131,25 @@ webpage/(카메라 촬영·업로드) → POST /api/recognize
 
 ### 프로덕션 체크포인트
 ```
-train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt   # 유일한 채택 체크포인트
+train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt   # 유일한 채택 체크포인트(로컬/gitignore, RunPod 빌드는 GitHub Release에서 받음)
 train/tokenizer258.json                                    # DeepScore 토큰 vocabulary
 ```
 아키텍처(in_ch/backbone 깊이/pool_h)는 `model.py`의 `infer_arch_from_state_dict()`가 체크포인트
-텐서 shape에서 자동 역산 — 별도 config 파일 불필요. r15 채택 근거·r16/r17/r18 기각 이유는
-`train/docs/TRAINING_REPORT.md` 참고. RunPod 등 원격 배포 시
-필요한 파일은 [`train/deploy_bundle/`](train/deploy_bundle/README.md) 참고(seq2seq+tokenizer
-2개 파일만 필요, segnet 불필요).
+텐서 shape에서 자동 역산 — 별도 config 파일 불필요. r15 채택 근거·r16/r17/r18 기각 이유 등
+학습 히스토리는 [Model_TransNote](https://github.com/braeden-hue/Model_TransNote)의
+`train/docs/TRAINING_REPORT.md` 참고(이 저장소엔 없음).
 
 ### `train/` 내부 구조
 | 위치 | 역할 |
 |---|---|
-| `train/*.py` (top-level, ~14개) | 현재 활성 파이프라인 — `dataset.py`/`model.py`/`train.py`/`inference.py`가 핵심, 나머지는 데이터 생성(`generate_scores.py`, `mscz_to_tokens.py`)·렌더링(`render_custom_notation.py`)·증강(`real_texture_augment.py`)·디버그 도구(`dump_canvas.py`, `render_one_exactpicture.py`, `render_sample10_comparison.py`) |
-| `train/checkpoints/` | r15(채택) + r16/r17(기각, 참고용) — 전부 `.gitignore` 처리 |
-| `train/checkpoints_legacy/` | 옛 Flutter/C++ 엔진 시절 체크포인트(segnet 포함) — 현재 파이프라인 미사용, 참고용 보관 |
-| `train/experiments/` | README.md "라운드별 핵심 결과"에 나오는 라운드의 curriculum 스크립트 27개(재현 가능한 것만) |
-| `train/experiments/archive/` | 그 외 1회성 진단/pod launcher/중간 iteration 스크립트 74개 — 이력 보존용, 신규 작업 참고만 |
-| `train/docs/` | 학습 운영 문서(`TRAINING_REPORT.md`, `HANDOFF_STATUS.md`, `POD_TRAINING_CHECKLIST.md`, `CLOUD_SETUP.md`, `PLAN_r16_hide_timesig.md`) |
-| `train/deploy_bundle/` | RunPod 등 원격 배포용 체크포인트 스테이징(생성물, git 미추적) |
+| `train/*.py` (top-level, ~14개) | `runpod_serverless/Dockerfile`이 `COPY train/*.py`로 통째로 복사해가는 런타임 세트 — `dataset.py`/`model.py`/`inference.py`가 실제 추론 경로에서 쓰이고, 나머지(`train.py`, `generate_scores.py` 등)는 학습 코드지만 sibling import 안전을 위해 같이 유지 |
+| `train/checkpoints/` | r15(채택) — `.gitignore` 처리, 로컬에만 존재 |
+| `train/checkpoints_legacy/` | 옛 Flutter/C++ 엔진 시절 체크포인트(segnet 포함) — 참고용, `.gitignore` 처리 |
+| `train/real_texture_bank/` | `real_texture_augment.py`가 참조하는 노이즈 텍스처 png(304KB) — 학습 전용 코드 의존성이지만 용량이 작아 유지 |
 
-**알려진 orphan(현재 아무 코드에서도 참조 안 됨, 삭제 검토 가능)**:
-- `train/export_tflite.py` — 삭제된 Flutter/C++ 모바일 엔진용 TFLite export 스크립트. `server.py`는
-  PyTorch 직접 추론이라 TFLite 변환 자체가 현재 배포 경로에 불필요. 향후 네이티브 앱을 다시
-  추진할 때만 필요.
-- `train/tokenizer1013.json` — vocab 분할(1013→258, `note-{pitch}-{dur}` → `note-{pitch}` +
-  `dur-{dur}`) 이전의 구버전 vocab. 코드 어디서도 참조 안 됨.
-- `train/tokenizer258_pre_tie.json` — tie(붙임줄) 토큰 추가 이전 스냅샷.
-  `train/experiments/archive/curriculum_6b_tie.sh`(1회성 마이그레이션)에서만 참조됨.
+학습 코드 전반(`train/experiments/`, `train/docs/`, 평가 스크립트 `test/`)은 2026-08-12에
+[Model_TransNote](https://github.com/braeden-hue/Model_TransNote)로 이관하고 이 저장소에서
+제거했다 — 학습/재현 관련 작업은 그 저장소에서 진행할 것.
 
 ## Platform Notes
 
@@ -174,10 +161,11 @@ train/tokenizer258.json                                    # DeepScore 토큰 vo
 
 ## Known Gaps / Follow-ups
 
-- `test/`의 개별 스크립트 전수 감사는 아직 안 함(상위 레벨 orphan만 확인) — 필요 시 요청.
-  `train/experiments/`는 2026-08-11에 README.md 라운드 결과 기준으로 27개만 남기고 나머지는
-  `train/experiments/archive/`로 옮김.
 - Firebase(닉네임 저장, 무료 티어) 클라이언트 SDK는 `webpage/js/firebase.js`에 이미 있음, 서버
   측 추가 폴더는 불필요하다고 판단됨(재검토 필요 시 `project.md` 참고).
-- `git commit`/`push`로 이 저장소 재구성(TransNote 개명 포함)을 확정하는 작업은 사용자 확인
-  대기 중 — 임의로 커밋하지 말 것.
+- 2026-08-12: `test/`, `train/experiments/`, `train/docs/`, `.claude/agent-memory/`,
+  `docs/archive/`·`docs/PLAN_booth_companion_page.md`를 저장소에서 제거(학습 히스토리는
+  Model_TransNote로 이관, 나머지는 Flutter 시절 등 stale 문서). `docs/music-notation-rule-designer.md`는
+  `webpage/js/notation.js`·`samples.js`·`train/generate_scores.py` 등이 실제로 참조하는 활성
+  문서라 유지. `train/` 최상위 `.py`/`tokenizer258.json`/`checkpoints/`/`real_texture_bank/`는
+  RunPod Docker 런타임 의존성이라 그대로 유지.
