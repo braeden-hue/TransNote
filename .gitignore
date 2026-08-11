@@ -54,3 +54,20 @@ secrets/
 # 서드파티 Claude Code 스킬(uipro init으로 설치, ui-ux-pro-max 등) — 로컬 개발 도구일 뿐
 # 프로젝트 소스가 아니라 커밋 안 함
 .claude/skills/
+
+# Flutter / Dart (앱)
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+*.g.dart
+android/.gradle/
+android/local.properties
+android/**/gradle-wrapper.jar
+ios/Pods/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/.symlinks/
+web/flutter_service_worker.js
