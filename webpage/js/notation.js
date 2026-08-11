@@ -16,6 +16,16 @@ const REF_ZONE = { treble: 2, bass: 1 };
 // 섞여 있을 때만(hasMixedClef) 그린다. ~12% opacity. docs/music-notation-rule-designer.md 참고.
 const CLEF_TINT = { treble: 'rgba(108,99,255,0.12)', bass: 'rgba(255,179,71,0.12)' };
 
+// 음표(밑줄/박스 테두리/글자)·쉼표 색 — noteColorMode:'octave'일 때 존(zone, pitchToZone()
+// 결과 0~2)별로 쓰는 고정 팔레트. 오선 칸(zone) 배경색과는 별개(그건 zoneColors 옵션이나
+// 기본 줄무늬가 그대로 담당) — 이건 그 위에 그려지는 음표 자체의 색만 결정한다. 값은
+// app.js의 TREBLE_ZONE_COLORS/BASS_ZONE_COLORS(HAND_ZONES 기반, 튜토리얼 규칙1과 동일
+// 팔레트)와 반드시 맞춰야 함 — 두 파일이 서로 import하지 않는 구조라 부득이 값만 복제.
+const NOTE_ZONE_COLORS = {
+  treble: ['#0076CE', '#3A9EE0', '#999999'], // z0=높음(6옥+) z1=중간(5옥) z2=낮음(4옥)
+  bass:   ['#999999', '#FFC98A', '#E8590C'], // z0=높음(4옥+, 겹침구간) z1=중간(3옥) z2=낮음(2옥 이하)
+};
+
 function el(tag, attrs = {}) {
   const e = document.createElementNS(NS, tag);
   Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
@@ -30,6 +40,10 @@ export function renderNotation(container, notes, {
   zoneColors,     // 옵션: [z0색, z1색, z2색] — 지정 시 기본 회청색 줄무늬 대신 이 3색으로 존 배경을 칠함 (튜토리얼 규칙2 전용)
   hideNoteNames = false, // 옵션: 음표 위 C/G 등 글자 라벨을 숨김 (튜토리얼 규칙2 전용 — 색/위치만으로 읽게 유도)
   hideNotes = false, // 옵션: 음표 표시(밑줄·박스·글자) 자체를 아예 안 그리고 존 배경만 남김 (튜토리얼 규칙1 전용)
+  // 옵션: 음표(밑줄·박스·글자)·쉼표 색의 기준 — 'beat'(기본, 박자 위치별 파랑 농담,
+  // README에 정의된 커스텀 표기 원칙) | 'octave'(존 위치별 고정 팔레트, 체험하기 전용 —
+  // 존 배경색은 그대로 두고 음표 자체 색만 옥타브를 나타내도록 바꿈).
+  noteColorMode = 'beat',
 } = {}) {
   if (!notes?.length) {
     container.innerHTML = '<p style="color:#555;padding:20px">음표 데이터가 없습니다</p>';
@@ -89,7 +103,9 @@ export function renderNotation(container, notes, {
     const zone    = note.isRest ? 1 : pitchToZone(note.pitch, effClef);
     const y       = CONTENT_Y + zone * ZONE_H + 5;
     const h       = CELL_H;
-    const color   = BEAT_COLORS[note.beat] || '#888';
+    const color   = noteColorMode === 'octave'
+      ? (NOTE_ZONE_COLORS[effClef] ?? NOTE_ZONE_COLORS.treble)[zone] ?? '#888'
+      : (BEAT_COLORS[note.beat] || '#888');
     const isHL    = i === highlightIdx;
     const isExp   = i === expectedIdx;
     const isChord = note.chordNotes?.length > 0;

@@ -1,4 +1,4 @@
-import { SAMPLES, BEAT_COLORS }          from './samples.js';
+import { SAMPLES, BEAT_COLORS, noteToFrequency } from './samples.js';
 import { audio }                           from './audio.js';
 import { renderNotation, renderGrandStaff, renderDigitalStaff } from './notation.js';
 import { buildPiano, renderLabeledOctave } from './piano.js';
@@ -402,9 +402,9 @@ function renderFirstMeasureInto(container, data) {
   container.innerHTML = '';
   if (data.staves?.length >= 2) {
     const trimmed = data.staves.map(s => ({ ...s, notes: firstMeasure(s.notes) }));
-    renderGrandStaff(container, trimmed);
+    renderGrandStaff(container, trimmed, { noteColorMode: 'octave' });
   } else {
-    renderNotation(container, firstMeasure(data.notes), {});
+    renderNotation(container, firstMeasure(data.notes), { noteColorMode: 'octave' });
   }
 }
 
@@ -698,9 +698,10 @@ function startExpPerform(nickname) {
     if (p.handMode === 'both') {
       renderGrandStaff(notationEl, [{ clef: 'treble', notes: t }, { clef: 'bass', notes: b }], {
         expectedIdxByClef: { treble: p.tIdx, bass: p.bIdx },
+        noteColorMode: 'octave',
       });
     } else {
-      renderNotation(notationEl, t, { expectedIdx: p.tIdx });
+      renderNotation(notationEl, t, { expectedIdx: p.tIdx, noteColorMode: 'octave' });
     }
     autoFitExpScore('exp-perform-notation');
   }
@@ -780,10 +781,22 @@ function startExpPerform(nickname) {
         return;
       }
 
-      if (!step.every(n => p.held.has(n) || hitSet.has(n))) return; // 화음 전체가 아직 같이 안 눌림 — 보류
-
-      step.forEach(n => { if (!hitSet.has(n)) { hitSet.add(n); p.correct++; p.pianoCtrl?.flashCorrect(n); } });
-      if (hitSet.size >= step.length) advance();
+      // MIDI 없이 화면 건반(마우스 커서 하나)으로 연주할 때는 화음 여러 음을 동시에
+      // 누를 방법이 없다 — 화음이면 그중 가장 높은 음 하나만 맞으면 전체를 통과시킨다.
+      // (양손 동기화 화음은 여기 안 옴 — 양손 모드는 MIDI 확인된 경우에만 진입하므로
+      // 이 else 분기는 항상 한 손 화음만 다룸.) MIDI로 실제 피아노를 칠 땐 진짜 화음을
+      // 눌러야 하므로 기존 동시입력 판정을 그대로 유지.
+      if (!state.expMidiConfirmed && step.length > 1) {
+        const highest = step.reduce((a, b) => (noteToFrequency(b) > noteToFrequency(a) ? b : a));
+        if (pitch !== highest) return; // 최고음이 아니면 오답 처리 없이 그냥 대기
+        step.forEach(n => { if (!hitSet.has(n)) { hitSet.add(n); p.correct++; } });
+        p.pianoCtrl?.flashCorrect(pitch);
+        advance();
+      } else {
+        if (!step.every(n => p.held.has(n) || hitSet.has(n))) return; // 화음 전체가 아직 같이 안 눌림 — 보류
+        step.forEach(n => { if (!hitSet.has(n)) { hitSet.add(n); p.correct++; p.pianoCtrl?.flashCorrect(n); } });
+        if (hitSet.size >= step.length) advance();
+      }
     }
 
     const tDone = p.tIdx >= t.length;
