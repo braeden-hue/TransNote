@@ -46,10 +46,26 @@ export function buildPiano(pianoEl, pianoWrapper, {
   navNextEl    = null,
   navLabelEl   = null,
   onOctaveChange = null,
+  // pannable: true면 마우스 왼쪽 클릭+드래그(데스크톱)/좌우 스와이프(태블릿·폰)로 건반
+  // 뷰를 직접 옆으로 옮길 수 있게 한다(체험하기 연주 화면 전용 — 기존 화면들은 옥타브
+  // 이동 버튼만 쓰므로 기본값 false로 기존 동작을 그대로 유지).
+  pannable = false,
+  // centerOnNotes: [note, note] — 지정하면 초기 스크롤 위치를 옥타브 단위 스냅 없이 이
+  // 두 음의 정중앙으로 맞춘다(미지정 시 기존처럼 scrollToOct(viewOct)).
+  centerOnNotes = null,
 } = {}) {
   pianoEl.innerHTML = '';
   pianoEl.style.cssText =
-    'position:relative; display:inline-flex; align-items:flex-end; touch-action:none; user-select:none;';
+    `position:relative; display:inline-flex; align-items:flex-end; user-select:none;` +
+    (pannable ? ' touch-action:pan-x;' : ' touch-action:none;');
+  if (pannable) {
+    // .piano-wrapper(overflow:hidden)/.mini-piano(overflow-x:auto) 클래스 순서에 따라
+    // CSS만으로는 어느 쪽이 이길지 불안정해서, 인라인 스타일로 확실히 스크롤 가능하게 한다.
+    pianoWrapper.style.overflowX = 'auto';
+    pianoWrapper.style.overflowY = 'hidden';
+    pianoWrapper.style.scrollbarWidth = 'none'; // Firefox
+    pianoWrapper.classList.add('piano-wrapper-pannable'); // ::-webkit-scrollbar 숨김용(style.css)
+  }
 
   const keyEls = {};
   let viewOct  = 3;
@@ -119,7 +135,19 @@ export function buildPiano(pianoEl, pianoWrapper, {
 
   navPrev?.addEventListener('click', () => scrollToOct(viewOct - 1));
   navNext?.addEventListener('click', () => scrollToOct(viewOct + 1));
-  scrollToOct(viewOct);
+
+  // 지정된 두 음(예: 가온다 C4·한 옥타브 아래 도 C3)의 정중앙이 뷰 중앙에 오도록 —
+  // scrollToOct처럼 옥타브 경계에 딱 맞추지 않고 픽셀 단위로 자유롭게 맞춘다.
+  function centerOn(notes) {
+    const xs = notes.map(whiteKeyX).filter(x => typeof x === 'number' && !isNaN(x));
+    if (!xs.length) { scrollToOct(viewOct); return; }
+    const mid = (Math.min(...xs) + Math.max(...xs) + WK_W) / 2;
+    pianoWrapper.scrollLeft = Math.max(0, mid - pianoWrapper.clientWidth / 2);
+    const octs = notes.map(n => parseInt(n.slice(-1))).filter(o => !isNaN(o));
+    if (octs.length && navLabel) navLabel.textContent = `C${Math.min(...octs)} ~ B${Math.max(...octs)} 영역`;
+  }
+
+  if (centerOnNotes) centerOn(centerOnNotes); else scrollToOct(viewOct);
 
   function press(note, { silent = false } = {}) {
     if (!keyEls[note] || pressedSet.has(note)) return;
@@ -145,16 +173,38 @@ export function buildPiano(pianoEl, pianoWrapper, {
 
   // ── 포인터 이벤트 ─────────────────────────────────────────────────────────
   const pointerNoteMap = {};
+  // 데스크톱 마우스 드래그로 화면 이동(pannable 전용) — 터치는 위 touch-action:pan-x +
+  // 브라우저 네이티브 스와이프 스크롤로 처리되지만(overflow-x:auto), 마우스는 클릭+드래그로
+  // 스크롤하는 동작이 브라우저 기본 기능이 아니라서 여기서 직접 흉내낸다. 이동 임계값을
+  // 넘기기 전까진 기존처럼 그냥 클릭(음 재생)으로 남고, 넘기는 순간 눌려있던 음은
+  // 취소하고 그 뒤로는 전부 화면 이동으로만 처리한다(글리산도 슬라이드와 동시에 안 겹치게).
+  const PAN_THRESHOLD = 6;
+  let panState = null; // { pointerId, startX, startScroll, dragging, note }
 
   pianoEl.addEventListener('pointerdown', e => {
     const k = e.target.closest('.piano-key'); if (!k) return;
     e.preventDefault();
     pianoEl.setPointerCapture(e.pointerId);
+    if (pannable && e.pointerType === 'mouse') {
+      panState = { pointerId: e.pointerId, startX: e.clientX, startScroll: pianoWrapper.scrollLeft, dragging: false, note: k.dataset.note };
+    }
     pointerNoteMap[e.pointerId] = k.dataset.note;
     press(k.dataset.note);
   });
 
   pianoEl.addEventListener('pointermove', e => {
+    if (panState && panState.pointerId === e.pointerId) {
+      const dx = e.clientX - panState.startX;
+      if (!panState.dragging && Math.abs(dx) > PAN_THRESHOLD) {
+        panState.dragging = true;
+        release(panState.note); // 드래그로 확정되는 순간 처음 눌렸던 음은 취소
+        delete pointerNoteMap[e.pointerId];
+      }
+      if (panState.dragging) {
+        pianoWrapper.scrollLeft = panState.startScroll - dx;
+        return; // 패닝 중엔 건반 슬라이드(글리산도) 판정을 하지 않음
+      }
+    }
     if (!pointerNoteMap[e.pointerId]) return;
     const k = document.elementFromPoint(e.clientX, e.clientY)?.closest('.piano-key');
     const oldNote = pointerNoteMap[e.pointerId];
@@ -167,11 +217,13 @@ export function buildPiano(pianoEl, pianoWrapper, {
   });
 
   pianoEl.addEventListener('pointerup', e => {
+    if (panState && panState.pointerId === e.pointerId) panState = null;
     const note = pointerNoteMap[e.pointerId];
     if (note) { release(note); delete pointerNoteMap[e.pointerId]; }
   });
 
   pianoEl.addEventListener('pointercancel', e => {
+    if (panState && panState.pointerId === e.pointerId) panState = null;
     const note = pointerNoteMap[e.pointerId];
     if (note) { release(note); delete pointerNoteMap[e.pointerId]; }
   });

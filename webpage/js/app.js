@@ -806,7 +806,10 @@ function startExpPerform(nickname) {
     pianoEl.className = 'piano';
     wrap.appendChild(pianoEl);
     pianoWrap.appendChild(wrap);
-    state.expPerform.pianoCtrl = buildPiano(pianoEl, wrap, { showLabels: true, onPress: handleExpNotePress, onRelease: handleExpNoteRelease });
+    state.expPerform.pianoCtrl = buildPiano(pianoEl, wrap, {
+      showLabels: true, onPress: handleExpNotePress, onRelease: handleExpNoteRelease,
+      pannable: true, centerOnNotes: ['C3', 'C4'], // 기본 뷰: 가온다·한옥타브 아래 도가 중앙에 오게, 드래그/스와이프로 좌우 이동 가능
+    });
   }
   updateHighlight();
 }
