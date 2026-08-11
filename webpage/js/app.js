@@ -222,6 +222,11 @@ function fitLandingFrame() {
   }
 }
 window.addEventListener('resize', fitLandingFrame);
+// 모바일에서 세로/가로 회전 시 resize 이벤트가 새 크기 확정 전에 먼저 발생하거나 아예
+// 안 오는 경우가 있어(브라우저·OS별로 제각각), orientationchange도 별도로 듣고 값이
+// 안정된 뒤(300ms, 카메라 가이드 재계산과 동일 지연) 다시 계산한다 — "세로/가로에 따라
+// 화면 크기가 어긋나 보이는" 버그의 주 원인이었다.
+window.addEventListener('orientationchange', () => setTimeout(fitLandingFrame, 300));
 
 // ── 화면 전환 연출: 누른 버튼 쪽으로 카메라가 줌인하는 느낌의 확대 전환 ──────────────
 // 랜딩(메인 화면) 자체가 그 버튼 위치를 중심으로 확대되며 흐려지고(under 레이어), 그
@@ -452,10 +457,15 @@ function autoFitExpScore(boxId = 'exp-score-notation') {
     Array.from(box.children).forEach(c => { c.style.zoom = zoom; });
   }
 }
-window.addEventListener('resize', () => {
+// 회전 시 resize만으로는 못 잡는 경우가 있어(위 fitLandingFrame 주석 참고)
+// orientationchange도 같이 듣는다 — 체험하기 악보/연주 화면 + 튜토리얼 박스 전부 해당.
+function refitVisibleBoxesOnResize() {
   if (state.expScoreData) autoFitExpScore('exp-score-notation');
   if (state.expPerform)   autoFitExpScore('exp-perform-notation');
-});
+  if (state.screen === 'tutorial') autoFitTutBoxes();
+}
+window.addEventListener('resize', refitVisibleBoxesOnResize);
+window.addEventListener('orientationchange', () => setTimeout(refitVisibleBoxesOnResize, 300));
 
 // 여러 보표(오른손/왼손)를 하나의 절대 시간축으로 합쳐서 재생 — 예전엔 각 손을
 // audio.playSequence()로 독립된 setTimeout 체인을 따로 돌렸는데, 이러면 (1) 두 손의
@@ -1731,6 +1741,8 @@ function setupCameraCapture(ids, onCaptured) {
     video.srcObject = null;
     captureBox.classList.add('hidden');
     state.activeCameraStop = null;
+    // 촬영 중에만 세로 모드를 허용해줬던 것도 원상복구(.rotate-prompt 참고).
+    document.body.classList.remove('camera-active');
   }
 
   async function openCamera() {
@@ -1738,6 +1750,9 @@ function setupCameraCapture(ids, onCaptured) {
     captureBox.classList.remove('hidden');
     state.activeCameraStop = cleanup;
     updateHint();
+    // 악보 사진은 세로로 들고 찍는 게 자연스러워서, 촬영 화면이 떠 있는 동안만
+    // 가로 고정(.rotate-prompt)을 풀어 세로로도 그대로 찍을 수 있게 한다.
+    document.body.classList.add('camera-active');
 
     if (!navigator.mediaDevices?.getUserMedia) {
       errorEl.textContent = '이 브라우저/연결에서는 카메라를 쓸 수 없습니다 (HTTPS 또는 localhost 접속이 필요해요) — 파일 선택을 이용해주세요';

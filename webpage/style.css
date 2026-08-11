@@ -50,9 +50,13 @@ body {
   0%, 100% { transform: rotate(0deg); }
   50%      { transform: rotate(90deg); }
 }
+/* body.camera-active(악보 촬영 화면이 떠 있는 동안, setupCameraCapture() 참고)일 땐
+   이 규칙 자체가 안 걸려서 세로로 들고도 그대로 촬영할 수 있다 — 악보 사진은 세로로
+   찍는 게 자연스러운데 매번 가로로 돌리라고 하면 오히려 불편하기 때문. 그 외
+   화면(튜토리얼·체험하기 연주 등)은 기존처럼 가로 고정을 유지한다. */
 @media (orientation: portrait) {
-  .rotate-prompt { display: flex; }
-  body > *:not(.rotate-prompt) { visibility: hidden; }
+  body:not(.camera-active) .rotate-prompt { display: flex; }
+  body:not(.camera-active) > *:not(.rotate-prompt) { visibility: hidden; }
 }
 
 button {
@@ -1014,7 +1018,7 @@ kbd {
 /* 책 사진(1375:768) 비율을 유지한 채 화면에 맞추고, 그 안에서 %로 페이지 내용을 배치 */
 .book-frame {
   position: relative; z-index: 1;
-  width: min(94vw, 94vh * 1375 / 768);
+  width: min(94vw, 94dvh * 1375 / 768); /* dvh — 모바일 주소창 표시 여부에 따라 vh가 흔들리는 문제 회피 */
   aspect-ratio: 1375 / 768;
 }
 .book-bg {
@@ -1060,8 +1064,9 @@ kbd {
 }
 .book-stage { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4%; align-items: center; }
 .book-stage img {
-  /* %가 아니라 vh 기준 — 부모(.book-stage)가 auto 높이라 %max-height는 안 먹힘 */
-  width: 100%; max-height: 15vh; object-fit: contain; border-radius: 4px;
+  /* %가 아니라 dvh 기준 — 부모(.book-stage)가 auto 높이라 %max-height는 안 먹히고,
+     일반 vh는 모바일 주소창 표시 여부에 따라 값이 흔들려서 dvh를 쓴다 */
+  width: 100%; max-height: 15dvh; object-fit: contain; border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.25); background: #f4ead4;
 }
 .book-stage p { font-size: clamp(9px, 1.2vw, 12px); line-height: 1.45; text-align: center; }
