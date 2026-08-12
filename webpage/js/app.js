@@ -910,17 +910,20 @@ function startExpPerform(nickname) {
     pannable: true, centerOnNotes: ['C3', 'C4'], // 기본 뷰: 가온다·한옥타브 아래 도가 중앙에 오게, 드래그/스와이프로 좌우 이동 가능
   });
 
-  if (state.expMidiConfirmed) {
-    const inputs = midi.listInputs();
+  // MIDI 리스너는 state.expMidiConfirmed(대기 화면에서 "정확히 그 음"을 눌러야만 true가
+  // 되는 엄격한 확인)와 상관없이, 기기가 하나라도 잡히면 무조건 연결한다 — 대기 화면에서
+  // 다른 음을 눌렀거나 타이밍이 안 맞아 확인 테스트만 실패했을 뿐 신호 자체는 정상으로
+  // 오는 경우가 있는데, 예전엔 이 조건 때문에 그런 경우 연주 화면에서 실물 건반 입력이
+  // 통째로 무시됐었다(화면 건반 탭은 되는데 실물 건반은 씹히는 버그의 원인).
+  const midiInputs = midi.listInputs();
+  if (midiInputs.length) {
     // 실물 건반 입력도 화면 건반과 같은 press/release 경로를 태워서 시각 효과(눌림 표시,
     // 정답/오답 플래시)가 그대로 적용되게 한다 — silent:true라 화면 건반 자체의 신시사이저
     // 소리는 안 나고(실물 피아노가 이미 냄) 시각 피드백만 탄다.
-    if (inputs.length) {
-      midi.setInput(inputs[0].id, {
-        onNoteOn:  note => state.expPerform.pianoCtrl?.press(note, { silent: true }),
-        onNoteOff: note => state.expPerform.pianoCtrl?.release(note),
-      });
-    }
+    midi.setInput(midiInputs[0].id, {
+      onNoteOn:  note => state.expPerform.pianoCtrl?.press(note, { silent: true }),
+      onNoteOff: note => state.expPerform.pianoCtrl?.release(note),
+    });
   }
   updateHighlight();
 }
