@@ -595,11 +595,17 @@ async function handleExpCameraCapture(file, fullFile) {
 // ── 전자 피아노 연결 테스트 ────────────────────────────────────────────────
 // 단순히 "MIDI 기기가 잡히는가"만 보면 실제로 안 눌러도 "연결됨"으로 오판할 수 있어서,
 // 커스텀 악보 첫 음에 해당하는 건반을 실제로 눌러보게 해서 신호가 오는지까지 확인한다.
-function testMidiConnection(targetNote, { timeoutMs = 6000 } = {}) {
+// onDevices/onAnyNote — 태블릿(devtools 없음)에서도 어디서 막히는지 화면에서 바로 보이게
+// 하기 위한 진단용 콜백. onDevices(names|null): null이면 requestMIDIAccess 자체가 실패
+// (권한 거부 등), []면 기기가 하나도 안 잡힘, 그 외는 감지된 기기 이름 목록.
+// onAnyNote(pitch): targetNote와 무관하게 "뭐라도" note-on이 들어올 때마다 호출 — 신호는
+// 오는데 원하는 음이 아닌 경우(옥타브 오프셋 등)를 구분하는 데 씀.
+function testMidiConnection(targetNote, { timeoutMs = 6000, onDevices, onAnyNote } = {}) {
   return new Promise(resolve => {
-    if (!targetNote || !midi.isSupported()) { resolve(false); return; }
+    if (!targetNote || !midi.isSupported()) { onDevices?.(null); resolve(false); return; }
     midi.requestAccess().then(() => {
       const inputs = midi.listInputs();
+      onDevices?.(inputs.map(i => i.name));
       if (!inputs.length) { resolve(false); return; }
       let done = false;
       const timer = setTimeout(() => finish(false), timeoutMs);
@@ -610,10 +616,10 @@ function testMidiConnection(targetNote, { timeoutMs = 6000 } = {}) {
         resolve(ok);
       }
       midi.setInput(inputs[0].id, {
-        onNoteOn: pitch => { if (pitch === targetNote) finish(true); },
+        onNoteOn: pitch => { onAnyNote?.(pitch); if (pitch === targetNote) finish(true); },
         onNoteOff: () => {},
       });
-    }).catch(() => resolve(false));
+    }).catch(() => { onDevices?.(null); resolve(false); });
   });
 }
 
@@ -662,6 +668,7 @@ function showExpWait(handMode) {
 // 눌러도 실제 연결 여부와 다르게 진행될 수 있어서, 확인 중엔 시작 버튼을 막아둔다.
 function runMidiCheck() {
   const statusEl = document.getElementById('exp-wait-midi-status');
+  const debugEl  = document.getElementById('exp-wait-midi-debug');
   const retryBtn = document.getElementById('exp-wait-midi-retry');
   const startBtn = document.getElementById('exp-start-perform-btn');
   const data = state.expScoreData;
@@ -669,13 +676,33 @@ function runMidiCheck() {
 
   state.expMidiConfirmed = false;
   retryBtn?.classList.add('hidden');
+  if (debugEl) debugEl.textContent = '';
   if (!firstNote) {
     statusEl.textContent = '📱 화면 건반으로 연주해요';
     return;
   }
+  // Web MIDI는 https:// 또는 http://localhost가 아니면 브라우저가 API 자체를 막는다 —
+  // 이 경우 케이블/기기는 멀쩡해도 절대 연결될 수 없으니, 신호를 기다리기 전에 먼저
+  // 걸러서 정확한 원인을 알려준다(devtools 없는 태블릿에서 특히 헷갈리기 쉬움).
+  if (!midi.isSupported()) {
+    if (debugEl) debugEl.textContent = `⚠️ 이 주소(${location.protocol}//${location.host})에서는 MIDI가 막혀 있어요 — https:// 또는 http://localhost 로 접속해야 해요`;
+    statusEl.textContent = '📱 화면 건반으로 연주해요 (전자 피아노 신호를 못 받았어요)';
+    return;
+  }
   statusEl.textContent = `🎹 전자 피아노에서 ${solfegeOf(firstNote)} 음을 눌러 연결을 확인해주세요`;
   if (startBtn) startBtn.disabled = true;
-  testMidiConnection(firstNote).then(ok => {
+  testMidiConnection(firstNote, {
+    // 태블릿엔 devtools가 없어서 콘솔 대신 이 줄로 어디서 막히는지 바로 보여준다.
+    onDevices: names => {
+      if (!debugEl) return;
+      if (names === null) debugEl.textContent = '⚠️ MIDI 권한 요청 실패 — 브라우저가 접근을 막았어요(주소창 자물쇠 아이콘에서 MIDI 권한 확인)';
+      else if (!names.length) debugEl.textContent = '🔌 감지된 MIDI 기기 없음 — 케이블/전원을 확인해주세요';
+      else debugEl.textContent = `🔌 기기 감지됨: ${names.join(', ')} — 아무 건반이나 눌러보세요`;
+    },
+    onAnyNote: pitch => {
+      if (debugEl) debugEl.textContent = `🔌 신호 수신됨 — 방금 누른 음: ${pitch}`;
+    },
+  }).then(ok => {
     state.expMidiConfirmed = ok;
     if (startBtn) startBtn.disabled = false;
     // 양손 모드는 전자 피아노 연결이 확인된 경우에만 실제로 진행된다(startExpPerform에서
