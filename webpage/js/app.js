@@ -634,8 +634,17 @@ function splitMeasures(notes) {
 function showExpHandMode() {
   hideExpScreens();
   document.getElementById('screen-exp-handmode')?.classList.remove('hidden');
-  const bothBtn = document.getElementById('exp-handmode-both');
+  const bothBtn  = document.getElementById('exp-handmode-both');
+  const rightBtn = document.getElementById('exp-handmode-right');
+  const noteEl   = document.getElementById('exp-handmode-note');
+  const onlyBoth = !!state.expScoreData?.onlyBothHands;
   bothBtn?.classList.toggle('exp-handmode-disabled', !(state.expScoreData?.staves?.length >= 2));
+  rightBtn?.classList.toggle('exp-handmode-disabled', onlyBoth);
+  if (noteEl) {
+    noteEl.textContent = onlyBoth
+      ? '※ 이 곡은 양손 연주만 선택할 수 있어요'
+      : '※ 단일 오선 악보는 양손 모드를 선택할 수 없어요';
+  }
   // 연주하기 버튼을 누른 순간부터(오른손/양손 선택 → 대기 → 연주) 12음 참고 돋보기 노출.
   setMagnifierVisible(true);
 }
@@ -920,7 +929,9 @@ function initExpFlow() {
     document.getElementById('exp-camera-btn')?.click(); // 카메라 다시 열기
   });
 
-  document.getElementById('exp-handmode-right')?.addEventListener('click', () => showExpWait('right'));
+  document.getElementById('exp-handmode-right')?.addEventListener('click', () => {
+    if (!state.expScoreData?.onlyBothHands) showExpWait('right');
+  });
   document.getElementById('exp-handmode-both')?.addEventListener('click', () => {
     if (state.expScoreData?.staves?.length >= 2) showExpWait('both');
   });
@@ -1834,7 +1845,7 @@ function initCameraCapture() {
 // 손으로 반복하다가 한 곳(연주하기 초기 자동 로드)에서 staves를 빠뜨렸던 적이 있어
 // (반주 모드가 항상 비활성으로 보이는 버그로 발견) 한 곳으로 모았다.
 function sampleToNotation(s, overrides = {}) {
-  const base = { title: s.title, tempo: s.tempo, timeSignature: s.timeSignature };
+  const base = { title: s.title, tempo: s.tempo, timeSignature: s.timeSignature, onlyBothHands: s.onlyBothHands };
   return s.staves
     ? { ...base, staves: s.staves, notes: s.staves[0].notes, ...overrides }
     : { ...base, notes: s.notes, ...overrides };
