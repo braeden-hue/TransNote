@@ -824,6 +824,15 @@ function startExpPerform(nickname) {
     const tStep  = stepPitches(t, p.tIdx);
     const bStep  = p.handMode === 'both' ? stepPitches(b, p.bIdx) : [];
 
+    // 태블릿 진단용 — 실제로 어떤 음이 들어왔고 지금 채보에서 요구하는 음과 맞는지 텍스트로
+    // 바로 보여준다(건반 플래시는 짧고 화면 밖으로 스크롤돼 있을 수 있어 놓치기 쉬움).
+    const debugEl = document.getElementById('exp-perform-debug');
+    if (debugEl) {
+      const expected = [...tStep, ...bStep];
+      const ok = expected.includes(pitch);
+      debugEl.textContent = `🎹 누른 음: ${pitch} · 지금 요구되는 음: ${expected.join('/') || '-'} → ${ok ? '✅ 일치' : '❌ 불일치'}`;
+    }
+
     if (synced) {
       const combined = [...tStep, ...bStep];
       const alreadyHit = n => p.tHit.has(n) || p.bHit.has(n);
