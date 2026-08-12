@@ -915,8 +915,14 @@ function startExpPerform(nickname) {
   // 다른 음을 눌렀거나 타이밍이 안 맞아 확인 테스트만 실패했을 뿐 신호 자체는 정상으로
   // 오는 경우가 있는데, 예전엔 이 조건 때문에 그런 경우 연주 화면에서 실물 건반 입력이
   // 통째로 무시됐었다(화면 건반 탭은 되는데 실물 건반은 씹히는 버그의 원인).
-  const midiInputs = midi.listInputs();
-  if (midiInputs.length) {
+  //
+  // requestAccess()를 여기서 다시 호출해서 기기 목록을 매번 새로 받아온다 — 대기 화면
+  // 확인 이후에 전자피아노를 바꿔 꽂았어도(다른 기기로 교체 등) 연주 시작 시점 기준
+  // 최신 상태로 다시 잡히게 하기 위함(권한이 이미 허용돼 있으면 재요청은 즉시 통과되고
+  // 팝업이 다시 뜨지 않아 비용이 없음).
+  midi.requestAccess().then(() => {
+    const midiInputs = midi.listInputs();
+    if (!midiInputs.length) return;
     // 실물 건반 입력도 화면 건반과 같은 press/release 경로를 태워서 시각 효과(눌림 표시,
     // 정답/오답 플래시)가 그대로 적용되게 한다 — silent:true라 화면 건반 자체의 신시사이저
     // 소리는 안 나고(실물 피아노가 이미 냄) 시각 피드백만 탄다.
@@ -924,7 +930,7 @@ function startExpPerform(nickname) {
       onNoteOn:  note => state.expPerform.pianoCtrl?.press(note, { silent: true }),
       onNoteOff: note => state.expPerform.pianoCtrl?.release(note),
     });
-  }
+  }).catch(() => {}); // 권한 거부 등 — 화면 건반으로는 계속 연주 가능하니 조용히 무시
   updateHighlight();
 }
 
