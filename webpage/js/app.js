@@ -654,29 +654,41 @@ function showExpWait(handMode) {
   state.expHandMode = handMode;
   hideExpScreens();
   document.getElementById('screen-exp-wait')?.classList.remove('hidden');
+  runMidiCheck();
+}
 
+// 전자 피아노 연결 확인 — showExpWait() 진입 시와 "다시 확인" 버튼 클릭 시 공통으로 쓴다.
+// 확인이 끝나기 전까지는 state.expMidiConfirmed가 아직 이전 값(또는 기본 false)이라 "시작"을
+// 눌러도 실제 연결 여부와 다르게 진행될 수 있어서, 확인 중엔 시작 버튼을 막아둔다.
+function runMidiCheck() {
   const statusEl = document.getElementById('exp-wait-midi-status');
+  const retryBtn = document.getElementById('exp-wait-midi-retry');
+  const startBtn = document.getElementById('exp-start-perform-btn');
   const data = state.expScoreData;
   const firstNote = firstMeasure(data?.staves?.[0]?.notes ?? data?.notes)?.[0]?.pitch;
 
   state.expMidiConfirmed = false;
+  retryBtn?.classList.add('hidden');
   if (!firstNote) {
     statusEl.textContent = '📱 화면 건반으로 연주해요';
-  } else {
-    statusEl.textContent = `🎹 전자 피아노에서 ${solfegeOf(firstNote)} 음을 눌러 연결을 확인해주세요`;
-    testMidiConnection(firstNote).then(ok => {
-      state.expMidiConfirmed = ok;
-      // 양손 모드는 전자 피아노 연결이 확인된 경우에만 실제로 진행된다(startExpPerform에서
-      // 최종 결정) — 연결이 안 됐으면 시작 버튼을 누르기 전에 미리 안내해서 놀라지 않게.
-      if (ok) {
-        statusEl.textContent = '🎹 전자 피아노 연결을 확인했어요 — 화면 건반 없이 연주해요';
-      } else if (handMode === 'both') {
-        statusEl.textContent = '📱 전자 피아노 연결이 확인되지 않아 오른손만 연주로 진행돼요';
-      } else {
-        statusEl.textContent = '📱 화면 건반으로 연주해요 (전자 피아노 신호를 못 받았어요)';
-      }
-    });
+    return;
   }
+  statusEl.textContent = `🎹 전자 피아노에서 ${solfegeOf(firstNote)} 음을 눌러 연결을 확인해주세요`;
+  if (startBtn) startBtn.disabled = true;
+  testMidiConnection(firstNote).then(ok => {
+    state.expMidiConfirmed = ok;
+    if (startBtn) startBtn.disabled = false;
+    // 양손 모드는 전자 피아노 연결이 확인된 경우에만 실제로 진행된다(startExpPerform에서
+    // 최종 결정) — 연결이 안 됐으면 시작 버튼을 누르기 전에 미리 안내해서 놀라지 않게.
+    if (ok) {
+      statusEl.textContent = '🎹 전자 피아노 연결을 확인했어요 — 화면 건반 없이 연주해요';
+    } else {
+      retryBtn?.classList.remove('hidden');
+      statusEl.textContent = state.expHandMode === 'both'
+        ? '📱 전자 피아노 연결이 확인되지 않아 오른손만 연주로 진행돼요'
+        : '📱 화면 건반으로 연주해요 (전자 피아노 신호를 못 받았어요)';
+    }
+  });
 }
 
 // ── 5/5: 연주 진행(곡 전체, 마디마다 자연스럽게 다음 마디로) + 점수 ─────────
@@ -759,11 +771,8 @@ function startExpPerform(nickname) {
   state.expPerform.refreshHighlight = updateHighlight;
   renderMeasure();
 
-  const pianoRow  = document.getElementById('exp-perform-piano-row');
   const pianoWrap = document.getElementById('exp-perform-piano');
   pianoWrap.innerHTML = '';
-  // 전자 피아노 연결이 확인됐으면 화면 건반(+힌트 버튼)은 띄우지 않음(실물로 연주).
-  pianoRow?.classList.toggle('hidden', state.expMidiConfirmed);
 
   // 오른손/왼손이 동시에 눌려야 하는 화음도 "어느 손이 지금 이 음을 낼 차례인가"를
   // 헷갈리지 않게 판단 — 오른손(트레블) 스텝에 아직 안 채워진 음이면 오른손으로,
@@ -850,20 +859,32 @@ function startExpPerform(nickname) {
     state.expPerform?.held.delete(pitch);
   }
 
+  // 화면 건반은 MIDI 연결 여부와 상관없이 항상 만든다 — 실물 피아노로 칠 때도 지금 누른
+  // 음이 화면에 그대로 반영돼야(정답/오답 플래시 포함) "같은 음이 눌렸는지" 눈으로 확인할
+  // 수 있다(전엔 MIDI 확인 시 건반을 아예 안 그려서 pianoCtrl이 null이라 어떤 시각 효과도
+  // 안 나갔음).
+  const wrap = document.createElement('div');
+  wrap.className = 'piano-wrapper mini-piano';
+  const pianoEl = document.createElement('div');
+  pianoEl.className = 'piano';
+  wrap.appendChild(pianoEl);
+  pianoWrap.appendChild(wrap);
+  state.expPerform.pianoCtrl = buildPiano(pianoEl, wrap, {
+    showLabels: true, onPress: handleExpNotePress, onRelease: handleExpNoteRelease,
+    pannable: true, centerOnNotes: ['C3', 'C4'], // 기본 뷰: 가온다·한옥타브 아래 도가 중앙에 오게, 드래그/스와이프로 좌우 이동 가능
+  });
+
   if (state.expMidiConfirmed) {
     const inputs = midi.listInputs();
-    if (inputs.length) midi.setInput(inputs[0].id, { onNoteOn: handleExpNotePress, onNoteOff: handleExpNoteRelease });
-  } else {
-    const wrap = document.createElement('div');
-    wrap.className = 'piano-wrapper mini-piano';
-    const pianoEl = document.createElement('div');
-    pianoEl.className = 'piano';
-    wrap.appendChild(pianoEl);
-    pianoWrap.appendChild(wrap);
-    state.expPerform.pianoCtrl = buildPiano(pianoEl, wrap, {
-      showLabels: true, onPress: handleExpNotePress, onRelease: handleExpNoteRelease,
-      pannable: true, centerOnNotes: ['C3', 'C4'], // 기본 뷰: 가온다·한옥타브 아래 도가 중앙에 오게, 드래그/스와이프로 좌우 이동 가능
-    });
+    // 실물 건반 입력도 화면 건반과 같은 press/release 경로를 태워서 시각 효과(눌림 표시,
+    // 정답/오답 플래시)가 그대로 적용되게 한다 — silent:true라 화면 건반 자체의 신시사이저
+    // 소리는 안 나고(실물 피아노가 이미 냄) 시각 피드백만 탄다.
+    if (inputs.length) {
+      midi.setInput(inputs[0].id, {
+        onNoteOn:  note => state.expPerform.pianoCtrl?.press(note, { silent: true }),
+        onNoteOff: note => state.expPerform.pianoCtrl?.release(note),
+      });
+    }
   }
   updateHighlight();
 }
@@ -1013,6 +1034,7 @@ function initExpFlow() {
   document.getElementById('exp-handmode-home')?.addEventListener('click', goHome);
   document.getElementById('exp-wait-home')?.addEventListener('click', goHome);
   document.getElementById('exp-perform-home')?.addEventListener('click', goHome);
+  document.getElementById('exp-wait-midi-retry')?.addEventListener('click', runMidiCheck);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
