@@ -1,4 +1,4 @@
-import { BEAT_COLORS, pitchToZone, formatNoteName, effectiveClef, hasMixedClef } from './samples.js';
+import { BEAT_COLORS, NOTE_INK, pitchToZone, formatNoteName, effectiveClef, hasMixedClef } from './samples.js';
 
 const UNIT_W      = 80;
 const CELL_H      = 46;
@@ -21,10 +21,33 @@ const CLEF_TINT = { treble: 'rgba(108,99,255,0.12)', bass: 'rgba(255,179,71,0.12
 // 기본 줄무늬가 그대로 담당) — 이건 그 위에 그려지는 음표 자체의 색만 결정한다. 값은
 // app.js의 TREBLE_ZONE_COLORS/BASS_ZONE_COLORS(HAND_ZONES 기반, 튜토리얼 규칙1과 동일
 // 팔레트)와 반드시 맞춰야 함 — 두 파일이 서로 import하지 않는 구조라 부득이 값만 복제.
+// 흰 카드 위 대비를 4.5:1 이상으로 맞춘 값. 이전 팔레트는 다섯 중 셋이 미달이었다
+// (treble z1 2.94:1, treble z2 2.85:1, bass z1 1.50:1). 밝은 색은 흰 배경에서
+// 구조적으로 대비가 안 나오므로, 존은 세로 위치로도 이미 구분된다는 점을 살려
+// 세 단계를 모두 읽히는 범위 안에 넣고 명도를 1.45배씩 벌렸다.
+//   z0 4.83:1  z1 6.98:1  z2 10.51:1  (낮은 음일수록 짙게)
 const NOTE_ZONE_COLORS = {
-  treble: ['#0076CE', '#3A9EE0', '#999999'], // z0=높음(6옥+) z1=중간(5옥) z2=낮음(4옥)
-  bass:   ['#999999', '#FFC98A', '#E8590C'], // z0=높음(4옥+, 겹침구간) z1=중간(3옥) z2=낮음(2옥 이하)
+  treble: ['#1576BC', '#105D93', '#0C4269'], // z0=높음(6옥+) z1=중간(5옥) z2=낮음(4옥)
+  bass:   ['#AB5F1C', '#864A16', '#5F350F'], // z0=높음(4옥+, 겹침구간) z1=중간(3옥) z2=낮음(2옥 이하)
 };
+
+// 박자 눈금 — 규칙 2의 "박자 위치"를 색 대신 형태로 나타낸다. 셀 좌상단에 박자
+// 수만큼 세로 눈금을 그린다. 개수를 세면 되므로 색약·흑백·저해상도에서 모두 통하고,
+// 다크 테마로 옮겨도 그대로 살아남는다.
+const TICK_W = 2, TICK_H = 6, TICK_GAP = 3, TICK_PAD = 5;
+
+function appendBeatTicks(svg, x, y, beat, color) {
+  const n = Math.min(4, Math.max(1, beat | 0));
+  for (let t = 0; t < n; t++) {
+    svg.appendChild(el('rect', {
+      x: x + TICK_PAD + t * (TICK_W + TICK_GAP),
+      y: y + TICK_PAD,
+      width: TICK_W, height: TICK_H, rx: 1,
+      fill: color, 'fill-opacity': '0.85',
+      'pointer-events': 'none',
+    }));
+  }
+}
 
 function el(tag, attrs = {}) {
   const e = document.createElementNS(NS, tag);
@@ -103,9 +126,10 @@ export function renderNotation(container, notes, {
     const zone    = note.isRest ? 1 : pitchToZone(note.pitch, effClef);
     const y       = CONTENT_Y + zone * ZONE_H + 5;
     const h       = CELL_H;
+    // 박자 모드에서도 색은 고정 잉크를 쓴다 — 박자는 아래 눈금이 담당한다
     const color   = noteColorMode === 'octave'
-      ? (NOTE_ZONE_COLORS[effClef] ?? NOTE_ZONE_COLORS.treble)[zone] ?? '#888'
-      : (BEAT_COLORS[note.beat] || '#888');
+      ? (NOTE_ZONE_COLORS[effClef] ?? NOTE_ZONE_COLORS.treble)[zone] ?? NOTE_INK
+      : NOTE_INK;
     const isHL    = i === highlightIdx;
     const isExp   = i === expectedIdx;
     const isChord = note.chordNotes?.length > 0;
@@ -270,6 +294,10 @@ export function renderNotation(container, notes, {
       tri.appendChild(anim2);
       svg.appendChild(tri);
     }
+
+    // 박자 눈금은 셀 위에 얹혀야 하므로 모든 분기가 끝난 뒤 마지막에 그린다.
+    // 하이라이트/예정 상태에서는 셀이 진하게 차므로 눈금도 밝은 색으로 뒤집는다.
+    appendBeatTicks(svg, x, y, note.beat, isHL ? '#fff' : isExp ? '#0076CE' : color);
 
     x += note.duration * UNIT_W;
   });

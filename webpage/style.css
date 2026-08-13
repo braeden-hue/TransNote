@@ -467,6 +467,15 @@ body.kiosk-mode .kiosk-only { display: inline; }
 .tut-zone-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .tut-zone-legend i { width: 16px; height: 16px; border-radius: 4px; display: inline-block; }
 
+/* 박자 범례 — 악보 셀에 그려지는 눈금과 같은 모양·비율(2×6px, 간격 3px).
+   색으로는 3박/4박이 1.26:1 이라 구별이 불가능해서 형태로 옮겼다. */
+.beat-ticks { display: inline-flex; align-items: flex-end; gap: 3px; height: 12px; }
+.beat-ticks .beat-tick {
+  width: 2px; height: 8px; border-radius: 1px;
+  background: #1B2430; opacity: .85;
+  display: inline-block;
+}
+
 .tut-practice-dock { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .tut-practice-head { display: flex; align-items: center; gap: 10px; }
 .tut-practice-head strong { font-size: 14px; color: var(--text-dim); font-weight: 700; }

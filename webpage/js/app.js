@@ -1443,9 +1443,13 @@ const TUT_PAGES = [
       // 존별 다른 색 + 음표 글자 숨김은 규칙1 전용 — 규칙2는 기본 반투명 존 배경 +
       // 음표 글자(G, C, E) 표시 그대로.
       renderNotation(document.getElementById('tut-r23-notation'), rule23Notes, {});
+      // 박자는 색이 아니라 눈금 개수로 읽는다 — 범례도 악보에 실제로 그려지는
+      // 눈금 모양 그대로 보여준다(예전 색 견본은 3박/4박이 1.26:1 이라 구별 불가였다)
       const legend = document.getElementById('tut-beat-legend');
       [1, 2, 3, 4].forEach(b => {
-        legend.insertAdjacentHTML('beforeend', `<span><i style="background:${BEAT_COLORS[b]}"></i>${b}박</span>`);
+        const ticks = Array.from({ length: b }, () => '<i class="beat-tick"></i>').join('');
+        legend.insertAdjacentHTML('beforeend',
+          `<span><span class="beat-ticks">${ticks}</span>${b}박</span>`);
       });
 
       bottom.innerHTML = '<div class="tut-practice-dock" id="tut-practice-dock"></div>';
