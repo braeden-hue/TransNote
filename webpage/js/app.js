@@ -1227,7 +1227,7 @@ function buildTutPiano(container, opts = {}) {
   });
   state.tutorialPianoCtrl = ctrl;
   ctrl.setArrows(REF_ARROWS);
-  ctrl.setDots([{ note: 'C4', color: '#FF4444' }]);
+  ctrl.setDots([{ note: 'C4', color: '#0076CE' }]); // 가온다 = 파랑
   return ctrl;
 }
 
@@ -1422,8 +1422,9 @@ const TUT_PAGES = [
       // 이 화면 한정: 존 배경을 하단 피아노 존 밴드와 같은 색으로 칠하고, 음표 자체(밑줄
       // 포함)는 아예 안 그려서 순수 존 색상만 보이게 함. 왼쪽=낮은음자리, 오른쪽=높은음자리로
       // 나란히 배치 — 가로로 눕힌 화면에서 세로 공간을 절반만 써서 스크롤 없이 들어오게.
-      // dotsByClef로 왼손 기준점(bassNotes[0]=C3, 진한 주황)·오른손 기준점(trebleNotes[2]=C4, 파랑)에
-      // 참조 동그라미를 찍어 하단 건반의 표시와 짝을 맞춘다.
+      // 왼손 보표는 마디 시작 기준점(자동, 왼쪽 끝)이 이미 C3 자리와 겹쳐서 주황으로 찍히므로
+      // (renderNotation의 clef별 기준점 색 참고) 별도 표시가 필요 없고, 오른손의 가온다(C4)는
+      // beat3(오른쪽)이라 기준점과 위치가 달라 dotsByClef로 따로 파란 동그라미를 찍어준다.
       renderGrandStaff(document.getElementById('tut-r1-grand'), [
         { clef: 'bass',   notes: bassNotes },
         { clef: 'treble', notes: trebleNotes },
@@ -1431,7 +1432,7 @@ const TUT_PAGES = [
         hideNotes: true,
         layout: 'row',
         zoneColorsByClef: { treble: TREBLE_ZONE_COLORS, bass: BASS_ZONE_COLORS },
-        dotsByClef: { bass: [{ idx: 0, color: '#E8590C' }], treble: [{ idx: 2, color: '#0076CE' }] },
+        dotsByClef: { treble: [{ idx: 2, color: '#0076CE' }] },
       });
 
       bottom.innerHTML = `

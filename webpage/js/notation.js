@@ -1,4 +1,11 @@
-import { BEAT_COLORS, NOTE_INK, pitchToZone, formatNoteName, effectiveClef, hasMixedClef } from './samples.js';
+import { BEAT_COLORS, NOTE_INK, NOTE_NAMES, pitchToZone, formatNoteName, effectiveClef, hasMixedClef } from './samples.js';
+
+// 화음 안 음표를 "높은 음이 위" 순서로 정렬하기 위한 절대 높이(옥타브*12 + 반음 인덱스).
+function pitchMidi(pitch) {
+  const name = pitch.slice(0, -1);
+  const oct  = parseInt(pitch.slice(-1));
+  return oct * 12 + Math.max(0, NOTE_NAMES.indexOf(name));
+}
 
 const UNIT_W      = 80;
 const CELL_H      = 46;
@@ -193,10 +200,12 @@ export function renderNotation(container, notes, {
       svg.appendChild(rfs);
     } else if (isChord) {
       // ── 화음: 박스 + 음표 이름 세로 스택 ─────────────────────────────────
+      // 화음 박스 색은 손 기준(오른손=파랑/왼손=주황) — 박자/옥타브 색과 별개로 항상 이 색.
+      const chordColor  = effClef === 'bass' ? '#E8590C' : '#0076CE';
       // mixedClef일 때는 기본 상태 fill을 반투명으로 낮춰 아래 클렙 틴트가 비쳐 보이게 한다
       // (mixedClef가 아니면 기존과 동일하게 불투명 흰색 — 단일 클렙 렌더링은 그대로 유지).
-      const fill        = isHL ? color + '44' : isExp ? '#0076CE18' : (mixedClef ? 'rgba(255,255,255,0.55)' : '#FFFFFF');
-      const strokeColor = isExp ? '#0076CE' : color;
+      const fill        = isHL ? chordColor + '44' : isExp ? '#0076CE18' : (mixedClef ? 'rgba(255,255,255,0.55)' : '#FFFFFF');
+      const strokeColor = isExp ? '#0076CE' : chordColor;
       const strokeW     = isHL ? '3' : isExp ? '2.5' : '2';
 
       const rect = el('rect', {
@@ -220,7 +229,7 @@ export function renderNotation(container, notes, {
       if (isHL) {
         const ring = el('rect', {
           x: x-3, y: y-3, width: w+6, height: h+6, rx: 8,
-          fill: 'none', stroke: color, 'stroke-width': '1.5',
+          fill: 'none', stroke: chordColor, 'stroke-width': '1.5',
         });
         const a = document.createElementNS(NS, 'animate');
         a.setAttribute('attributeName', 'opacity');
@@ -231,9 +240,13 @@ export function renderNotation(container, notes, {
         svg.appendChild(ring);
       }
 
-      // 모든 화음 음표 이름 세로 스택
+      // 모든 화음 음표 이름 세로 스택 — 커스텀 규칙: 높은 음이 위로 오도록 정렬하고,
+      // 박스 기준 옥타브(note.pitch의 옥타브, 박스 위치를 정하는 음)와 옥타브가 다른
+      // 음에만 옥타브 숫자를 같이 적는다.
       if (!hideNoteNames) {
-        const allNotes  = [note.pitch, ...(note.chordNotes || [])];
+        const refOct    = parseInt(note.pitch.slice(-1));
+        const allNotes  = [note.pitch, ...(note.chordNotes || [])]
+          .slice().sort((a, b) => pitchMidi(b) - pitchMidi(a));
         const lineH     = allNotes.length <= 2 ? 14 : 12;
         const fs        = allNotes.length <= 2 ? 11 : 9;
         const totalTxtH = allNotes.length * lineH;
@@ -242,11 +255,12 @@ export function renderNotation(container, notes, {
             x: x + w / 2,
             y: y + h / 2 - totalTxtH / 2 + lineH * (pi + 0.8),
             'text-anchor': 'middle',
-            fill: isHL ? '#fff' : isExp ? '#0076CE' : color,
+            fill: isHL ? '#fff' : isExp ? '#0076CE' : chordColor,
             'font-size': fs, 'font-weight': '700', 'font-family': 'system-ui',
             'pointer-events': 'none',
           });
-          t.textContent = formatNoteName(p);
+          const oct = parseInt(p.slice(-1));
+          t.textContent = formatNoteName(p) + (oct !== refOct ? oct : '');
           svg.appendChild(t);
         });
       }
@@ -314,11 +328,13 @@ export function renderNotation(container, notes, {
     x += note.duration * UNIT_W;
   });
 
-  // ── 마디 시작 기준점 표시 — clef에 따라 기준 존이 다름 ──────────────────────
-  const refCY = CONTENT_Y + REF_ZONE[clef] * ZONE_H + ZONE_H / 2;
+  // ── 마디 시작 기준점 표시 — clef에 따라 기준 존이 다르고, 손 기준으로 색도 다름
+  // (오른손/치=파랑, 왼손/베이스=주황) — 각 보표 맨 왼쪽에 찍히는 점.
+  const refCY    = CONTENT_Y + REF_ZONE[clef] * ZONE_H + ZONE_H / 2;
+  const refColor = clef === 'bass' ? '#E8590C' : '#0076CE';
 
   measureXs.forEach(mx => {
-    const rc = el('circle', { cx: mx, cy: refCY, r: '5', fill: '#0076CE' });
+    const rc = el('circle', { cx: mx, cy: refCY, r: '5', fill: refColor });
     const ra = document.createElementNS(NS, 'animate');
     ra.setAttribute('attributeName', 'fill-opacity');
     ra.setAttribute('values', '1;0.5;1');
@@ -383,7 +399,7 @@ export function renderGrandStaff(container, staves, options = {}) {
     const label = document.createElement('div');
     label.textContent = meta.label;
     label.style.cssText = `
-      font-size:11px; font-weight:700; color:${meta.color};
+      font-size:16px; font-weight:700; color:${meta.color};
       padding-left:${MARGIN_L}px; font-family:system-ui; letter-spacing:.04em;
     `;
     row.appendChild(label);
