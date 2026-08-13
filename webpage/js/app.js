@@ -1268,8 +1268,11 @@ function buildPracticeDock(container, pitchSeq) {
 // 무작위 테스트 문제 생성용 — 옥타브 범위(loOct~hiOct) 안에서 12음 중 하나를 무작위로 고른다.
 const CHROMATIC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 function randomNoteInOctRange(loOct, hiOct) {
-  const oct  = loOct + Math.floor(Math.random() * (hiOct - loOct + 1));
-  const name = CHROMATIC[Math.floor(Math.random() * CHROMATIC.length)];
+  const oct   = loOct + Math.floor(Math.random() * (hiOct - loOct + 1));
+  // 88건반은 0옥타브가 A0/A#0/B0 세 개뿐(피아노 최저음) — 그 밑(C0~G#0)은 건반 자체가
+  // 없어서 뽑히면 못 누르는 문제가 생긴다.
+  const names = oct === 0 ? ['A', 'A#', 'B'] : CHROMATIC;
+  const name  = names[Math.floor(Math.random() * names.length)];
   return `${name}${oct}`;
 }
 // 서로 다른 음 n개를 무작위로 고른다(화음이 같은 음 중복되지 않게, 순서 테스트도 자연스럽게).
@@ -1283,9 +1286,12 @@ function randomDistinctNotes(n, loOct, hiOct) {
 // 매번 다른 무작위 음(들)을 뽑는다 — note 타입도 배열로 통일해서 반환([note]).
 // 셋 다 공통으로: 정답을 맞히면 짧게 ✓를 보여준 뒤 자동으로 다음 테스트로 넘어간다
 // (규칙2 연습 도크와 달리 "테스트"라 정답 확인이 곧 다음 문제로 이어지는 게 자연스러움).
-function buildQuizPage(order, type, pickTargets) {
-  const isChord = type === 'chord';
-  const isSeq   = type === 'sequence';
+// clef: 'treble'(기본, 오른손) | 'bass'(왼손) — 왼손 문제는 악보 존 배경도 왼손 팔레트
+// (BASS_ZONE_COLORS, 주황 계열)로 칠해서 지금이 왼손 차례임을 악보 자체에서도 알 수 있게 한다.
+function buildQuizPage(order, type, pickTargets, clef = 'treble') {
+  const isChord     = type === 'chord';
+  const isSeq       = type === 'sequence';
+  const zoneColors  = clef === 'bass' ? BASS_ZONE_COLORS : undefined;
 
   return {
     chip: `테스트 ${order} / 5`,
@@ -1301,7 +1307,7 @@ function buildQuizPage(order, type, pickTargets) {
           ? targets.map((p, i) => ({ pitch: p, duration: 1, beat: i + 1 }))
           : [{ pitch: targets[0], duration: 2, beat: 1 }];
       renderNotation(document.getElementById('tut-quiz-notation'), noteData,
-        isSeq ? { expectedIdx: 0 } : {});
+        { clef, zoneColors, ...(isSeq ? { expectedIdx: 0 } : {}) });
 
       bottom.innerHTML = `
         <p class="tut-feedback-hint" id="tut-quiz-feedback">${isSeq ? '첫 음부터 순서대로 눌러보세요' : '건반을 눌러 확인해보세요'}</p>
@@ -1341,7 +1347,7 @@ function buildQuizPage(order, type, pickTargets) {
             if (note === targets[seqIdx]) {
               ctrl.flashCorrect(note);
               seqIdx++;
-              renderNotation(document.getElementById('tut-quiz-notation'), noteData, { expectedIdx: seqIdx });
+              renderNotation(document.getElementById('tut-quiz-notation'), noteData, { clef, zoneColors, expectedIdx: seqIdx });
               if (seqIdx >= targets.length) {
                 feedback.innerHTML = '<span class="tut-feedback-ok">✓ 정답이에요!</span>';
                 goNext();
@@ -1473,29 +1479,54 @@ const TUT_PAGES = [
     chip: '규칙 3',
     caption: '화음 = 박스 안 음표를 동시에 눌러요',
     render(top, bottom) {
-      const chordNotes = [
-        { pitch: 'C4', duration: 2, beat: 1, chordNotes: ['E4'] },
-        { pitch: 'F4', duration: 2, beat: 3, chordNotes: ['A#4', 'D5'] },
+      // 화음 2단계 연습 — 처음엔 도+미만 보여주고, 맞히면 다음 화음(레#4옥+도5옥)으로 넘어간다
+      // (규칙2 연습 도크처럼 두 화음을 계속 순환).
+      const chordSteps = [
+        { pitch: 'C4',  chordNotes: ['E4'] },  // 도(4옥) + 미(4옥)
+        { pitch: 'D#4', chordNotes: ['C5'] },  // 레#(4옥) + 도(5옥)
       ];
       top.innerHTML = '<div class="notation-container" id="tut-chord-notation"></div>';
-      renderNotation(document.getElementById('tut-chord-notation'), chordNotes, {});
-
       bottom.innerHTML = '<div id="tut-chord-piano"></div>';
+
+      let step = 0;
+      let targets = [];
+      const chordPressed = new Set();
+
       const ctrl = buildTutPiano(document.getElementById('tut-chord-piano'), {
-        onPress(note) { audio.unlock(); audio.playNote(note, 0.5); },
+        onPress(note) {
+          audio.unlock(); audio.playNote(note, 0.5);
+          if (!targets.includes(note)) { chordPressed.clear(); ctrl.flashWrong(note); return; }
+          chordPressed.add(note);
+          ctrl.flashCorrect(note);
+          if (targets.every(n => chordPressed.has(n))) {
+            chordPressed.clear();
+            step = (step + 1) % chordSteps.length;
+            showStep();
+          }
+        },
       });
-      // 가온다(C4)는 기존처럼 파란 동그라미로 유지하고, 나머지 화음 구성음은 건반 자체를
-      // 푸른색으로 칠한다.
-      const otherNotes = chordNotes.flatMap(n => [n.pitch, ...n.chordNotes]).filter(n => n !== 'C4');
-      ctrl.paintKeys(otherNotes.map(note => ({ note, color: '#3A9EE0' })));
-      ctrl.setDots([{ note: 'C4', color: '#0076CE' }]);
+
+      // 지금 차례인 화음 하나만 악보에 파란 기대 표시(expectedIdx)로 남겨두고, 건반은
+      // 화음의 첫 음(파란 동그라미) + 나머지 구성음(파란 칠)으로 같이 안내한다.
+      function showStep() {
+        const s = chordSteps[step];
+        targets = [s.pitch, ...s.chordNotes];
+        renderNotation(
+          document.getElementById('tut-chord-notation'),
+          [{ pitch: s.pitch, duration: 2, beat: 1, chordNotes: s.chordNotes }],
+          { expectedIdx: 0 },
+        );
+        ctrl.paintKeys(s.chordNotes.map(note => ({ note, color: '#3A9EE0' })));
+        ctrl.setDots([{ note: s.pitch, color: '#0076CE' }]);
+      }
+      showStep();
     },
   },
-  buildQuizPage(1, 'note',     () => [randomNoteInOctRange(4, 6)]),        // 오른손 무작위 한 음
-  buildQuizPage(2, 'note',     () => [randomNoteInOctRange(5, 5)]),        // 오른손 무작위 한 음 (5옥타브)
-  buildQuizPage(3, 'note',     () => [randomNoteInOctRange(1, 3)]),        // 왼손 무작위 한 음
-  buildQuizPage(4, 'chord',    () => randomDistinctNotes(2, 4, 4)),        // 오른손 4옥타브 내 무작위 화음(2음)
-  buildQuizPage(5, 'sequence', () => randomDistinctNotes(4, 4, 6)),        // 오른손 무작위 순서대로 4음
+  buildQuizPage(1, 'note',     () => [randomNoteInOctRange(3, 5)]),                  // 오른손 무작위 한 음
+  buildQuizPage(2, 'note',     () => [randomNoteInOctRange(4, 4)]),                  // 오른손 무작위 한 음 (4옥타브)
+  buildQuizPage(3, 'note',     () => [randomNoteInOctRange(0, 2)], 'bass'),          // 왼손 무작위 한 음 — 왼손 팔레트(주황 바탕)
+  buildQuizPage(4, 'chord',    () => randomDistinctNotes(2, 3, 3)),                  // 오른손 3옥타브 내 무작위 화음(2음)
+  buildQuizPage(5, 'sequence', () => randomDistinctNotes(4, 3, 5)),                  // 오른손 무작위 순서대로 4음
 ];
 
 let tutPageIdx = 0;

@@ -38,24 +38,6 @@ const NOTE_ZONE_COLORS = {
   bass:   ['#AB5F1C', '#864A16', '#5F350F'], // z0=높음(4옥+, 겹침구간) z1=중간(3옥) z2=낮음(2옥 이하)
 };
 
-// 박자 눈금 — 규칙 2의 "박자 위치"를 색 대신 형태로 나타낸다. 셀 좌상단에 박자
-// 수만큼 세로 눈금을 그린다. 개수를 세면 되므로 색약·흑백·저해상도에서 모두 통하고,
-// 다크 테마로 옮겨도 그대로 살아남는다.
-const TICK_W = 2, TICK_H = 6, TICK_GAP = 3, TICK_PAD = 5;
-
-function appendBeatTicks(svg, x, y, beat, color) {
-  const n = Math.min(4, Math.max(1, beat | 0));
-  for (let t = 0; t < n; t++) {
-    svg.appendChild(el('rect', {
-      x: x + TICK_PAD + t * (TICK_W + TICK_GAP),
-      y: y + TICK_PAD,
-      width: TICK_W, height: TICK_H, rx: 1,
-      fill: color, 'fill-opacity': '0.85',
-      'pointer-events': 'none',
-    }));
-  }
-}
-
 function el(tag, attrs = {}) {
   const e = document.createElementNS(NS, tag);
   Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
@@ -320,10 +302,6 @@ export function renderNotation(container, notes, {
       tri.appendChild(anim2);
       svg.appendChild(tri);
     }
-
-    // 박자 눈금은 셀 위에 얹혀야 하므로 모든 분기가 끝난 뒤 마지막에 그린다.
-    // 하이라이트/예정 상태에서는 셀이 진하게 차므로 눈금도 밝은 색으로 뒤집는다.
-    appendBeatTicks(svg, x, y, note.beat, isHL ? '#fff' : isExp ? '#0076CE' : color);
 
     x += note.duration * UNIT_W;
   });
