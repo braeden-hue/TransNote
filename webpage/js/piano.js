@@ -114,6 +114,7 @@ export function buildPiano(pianoEl, pianoWrapper, {
   const pressedSet   = new Set();
   const wrongSet     = new Set(); // 틀리게 누른 건반 (지속 깜빡임)
   const expectedState = { note: null };
+  const paintedNotes  = {}; // note -> color, 건반 자체를 통째로 칠할 때(규칙3 화음 등)
 
   function applyVisual(note) {
     const k = keyEls[note]; if (!k) return;
@@ -142,7 +143,8 @@ export function buildPiano(pianoEl, pianoWrapper, {
                                 : '0 0 10px 3px #0076CE, inset 0 -4px 0 rgba(0,118,206,0.3)';
       k.style.transform  = '';
     } else {
-      k.style.background = isB ? '#1c1c1c' : '#f4efe6';
+      const paint = paintedNotes[note];
+      k.style.background = paint ?? (isB ? '#1c1c1c' : '#f4efe6');
       k.style.transform  = '';
       k.style.boxShadow  = isB ? '' : 'inset 0 -4px 0 rgba(0,0,0,0.12)';
     }
@@ -422,6 +424,14 @@ export function buildPiano(pianoEl, pianoWrapper, {
         }
         k.appendChild(dot);
       });
+    },
+
+    // 건반 자체를 색으로 칠함 (동그라미 대신 건반 전체를 칠하고 싶을 때 — 규칙3 화음 등).
+    // specs: [{ note, color }]
+    paintKeys(specs) {
+      Object.keys(paintedNotes).forEach(n => delete paintedNotes[n]);
+      specs.forEach(({ note, color }) => { paintedNotes[note] = color; });
+      Object.keys(keyEls).forEach(n => applyVisual(n));
     },
 
     destroy() {

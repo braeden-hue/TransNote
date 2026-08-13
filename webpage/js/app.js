@@ -780,7 +780,8 @@ function startExpPerform(nickname) {
     autoFitExpScore('exp-perform-notation');
   }
   // 화면 건반의 기준점(가온다 C4·한 옥타브 아래 도 C3) — 힌트와 무관하게 항상 표시.
-  const REF_DOTS = [{ note: 'C4', color: '#E5383B' }, { note: 'C3', color: '#E5383B' }];
+  // 튜토리얼 규칙1과 같은 배색: 오른손 가온다=파란 동그라미, 왼손 3옥 도=진한 주황 동그라미.
+  const REF_DOTS = [{ note: 'C4', color: '#0076CE' }, { note: 'C3', color: '#E8590C' }];
   // 힌트를 켰을 때만 "아직 안 누른" 음들을 건반에 표시 — 기본은 스스로 악보를 보고
   // 찾게 하고(파란 하이라이트 없음), 힌트 버튼(💡)을 켰을 때만 다음 음을 보여준다.
   function updateHighlight() {
@@ -1221,6 +1222,7 @@ function buildTutPiano(container, opts = {}) {
     navPrevEl:  wrap.querySelector('[data-role="down"]'),
     navNextEl:  wrap.querySelector('[data-role="up"]'),
     navLabelEl: wrap.querySelector('[data-role="label"]'),
+    pannable: true, // 건반 바로 위 드래그 손잡이로 좌우 스크롤 — 태블릿에서 건반을 안 눌러도 옆으로 밀 수 있게
     ...opts,
   });
   state.tutorialPianoCtrl = ctrl;
@@ -1263,13 +1265,27 @@ function buildPracticeDock(container, pitchSeq) {
   ctrl.setExpected(pitchSeq[idx]);
 }
 
-// spec: { type: 'note', note } | { type: 'chord', notes:[n1,n2] } | { type: 'sequence', notes:[...] }
+// 무작위 테스트 문제 생성용 — 옥타브 범위(loOct~hiOct) 안에서 12음 중 하나를 무작위로 고른다.
+const CHROMATIC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+function randomNoteInOctRange(loOct, hiOct) {
+  const oct  = loOct + Math.floor(Math.random() * (hiOct - loOct + 1));
+  const name = CHROMATIC[Math.floor(Math.random() * CHROMATIC.length)];
+  return `${name}${oct}`;
+}
+// 서로 다른 음 n개를 무작위로 고른다(화음이 같은 음 중복되지 않게, 순서 테스트도 자연스럽게).
+function randomDistinctNotes(n, loOct, hiOct) {
+  const set = new Set();
+  while (set.size < n) set.add(randomNoteInOctRange(loOct, hiOct));
+  return [...set];
+}
+
+// type: 'note' | 'chord' | 'sequence'. pickTargets()는 페이지에 들어올 때마다 새로 호출되어
+// 매번 다른 무작위 음(들)을 뽑는다 — note 타입도 배열로 통일해서 반환([note]).
 // 셋 다 공통으로: 정답을 맞히면 짧게 ✓를 보여준 뒤 자동으로 다음 테스트로 넘어간다
 // (규칙2 연습 도크와 달리 "테스트"라 정답 확인이 곧 다음 문제로 이어지는 게 자연스러움).
-function buildQuizPage(order, spec) {
-  const isChord = spec.type === 'chord';
-  const isSeq   = spec.type === 'sequence';
-  const targets = spec.type === 'note' ? [spec.note] : spec.notes;
+function buildQuizPage(order, type, pickTargets) {
+  const isChord = type === 'chord';
+  const isSeq   = type === 'sequence';
 
   return {
     chip: `테스트 ${order} / 5`,
@@ -1277,6 +1293,7 @@ function buildQuizPage(order, spec) {
            : isSeq   ? '한 마디 — 순서대로 눌러보세요'
            : '어느 건반을 눌러야 할까요?',
     render(top, bottom) {
+      const targets = pickTargets();
       top.innerHTML = '<div class="notation-container" id="tut-quiz-notation"></div>';
       const noteData = isChord
         ? [{ pitch: targets[0], duration: 2, beat: 1, chordNotes: targets.slice(1) }]
@@ -1376,17 +1393,20 @@ const TUT_PAGES = [
     caption: '흰 건반 도~시, 검은 건반 1~5 — 눌러서 들어보세요',
     render(top, bottom) {
       top.innerHTML = `
-        <p class="tut-compare-label">방금 본 커스텀 악보의 높은음자리(오른손) 부분</p>
-        <img class="tut-compare-img" src="assets/rule0-treble.png" alt="커스텀 악보 높은음자리 부분 — 음 이름이 D, G, B 등으로 표시됨">
+        <div class="notation-container" id="tut-r0-notation"></div>
         <p style="font-size:16px;color:var(--text-dim);text-align:center;max-width:520px;line-height:1.6;margin-top:6px;">
           여기 쓰인 음 이름들은 한 옥타브 = 흰 건반 7개 + 검은 건반 5개, 총 12음에서 나와요
         </p>`;
+      // 4옥타브 미·레·도·레·미·미·미 — 밑줄 색은 noteColorMode:'octave'로 옥타브(존)에 맞춰 칠함.
+      const rule0Notes = ['E4', 'D4', 'C4', 'D4', 'E4', 'E4', 'E4']
+        .map((pitch, i) => ({ pitch, duration: 1, beat: (i % 4) + 1 }));
+      renderNotation(document.getElementById('tut-r0-notation'), rule0Notes, { noteColorMode: 'octave' });
       renderLabeledOctave(bottom, { oct: 4 });
     },
   },
   {
     chip: '규칙 1',
-    caption: '세로 위치 = 음 높이 (위 오른손 · 아래 왼손)',
+    caption: '세로 위치 = 음 높이',
     render(top, bottom) {
       const trebleNotes = [
         { pitch: 'C6', duration: 1, beat: 1 },
@@ -1402,6 +1422,8 @@ const TUT_PAGES = [
       // 이 화면 한정: 존 배경을 하단 피아노 존 밴드와 같은 색으로 칠하고, 음표 자체(밑줄
       // 포함)는 아예 안 그려서 순수 존 색상만 보이게 함. 왼쪽=낮은음자리, 오른쪽=높은음자리로
       // 나란히 배치 — 가로로 눕힌 화면에서 세로 공간을 절반만 써서 스크롤 없이 들어오게.
+      // dotsByClef로 왼손 기준점(bassNotes[0]=C3, 진한 주황)·오른손 기준점(trebleNotes[2]=C4, 파랑)에
+      // 참조 동그라미를 찍어 하단 건반의 표시와 짝을 맞춘다.
       renderGrandStaff(document.getElementById('tut-r1-grand'), [
         { clef: 'bass',   notes: bassNotes },
         { clef: 'treble', notes: trebleNotes },
@@ -1409,28 +1431,26 @@ const TUT_PAGES = [
         hideNotes: true,
         layout: 'row',
         zoneColorsByClef: { treble: TREBLE_ZONE_COLORS, bass: BASS_ZONE_COLORS },
+        dotsByClef: { bass: [{ idx: 0, color: '#E8590C' }], treble: [{ idx: 2, color: '#0076CE' }] },
       });
 
-      bottom.innerHTML = '<div class="tut-zone-legend" id="tut-r1-legend"></div><div id="tut-r1-piano"></div>';
-      const legend = document.getElementById('tut-r1-legend');
-      HAND_ZONES.forEach(z => {
-        legend.insertAdjacentHTML('beforeend',
-          `<span><i style="background:${z.hex}"></i>${z.hand} ${z.zone}</span>`);
-      });
+      bottom.innerHTML = `
+        <p class="tut-feedback-hint">건반 왼쪽의 낮은 음은 왼손이, 오른쪽의 높은 음은 오른손이 맡아요</p>
+        <div id="tut-r1-piano"></div>`;
       const ctrl = buildTutPiano(document.getElementById('tut-r1-piano'), {
         onPress(note) { audio.unlock(); audio.playNote(note, 0.4); },
       });
       ctrl.setZoneBands(HAND_ZONES.map(z => ({ fromNote: z.from, toNote: z.to, color: hexToRgba(z.hex, 0.4) })));
-      // 가온다(C4, 오른손 기준점)에 더해 한 옥타브 아래 도(C3, 왼손 기준점)에도 빨간 점.
+      // 왼손 3옥 도(C3)=진한 주황, 오른손 가온다(C4)=파랑.
       ctrl.setDots([
-        { note: 'C3', color: '#FF4444' },
-        { note: 'C4', color: '#FF4444' },
+        { note: 'C3', color: '#E8590C' },
+        { note: 'C4', color: '#0076CE' },
       ]);
     },
   },
   {
     chip: '규칙 2',
-    caption: '셀 너비 = 음 길이, 테두리 색 = 박자',
+    caption: '셀 너비 = 음 길이',
     render(top, bottom) {
       const rule23Notes = [
         { pitch: 'G4', duration: 0.5, beat: 1 },
@@ -1439,18 +1459,10 @@ const TUT_PAGES = [
       ];
       top.innerHTML = `
         <div class="notation-container" id="tut-r23-notation"></div>
-        <div class="tut-zone-legend" id="tut-beat-legend"></div>`;
+        <p class="tut-feedback-hint">셀이 넓을수록 길게, 좁을수록 짧게 — 그 길이만큼 건반을 눌러요</p>`;
       // 존별 다른 색 + 음표 글자 숨김은 규칙1 전용 — 규칙2는 기본 반투명 존 배경 +
       // 음표 글자(G, C, E) 표시 그대로.
       renderNotation(document.getElementById('tut-r23-notation'), rule23Notes, {});
-      // 박자는 색이 아니라 눈금 개수로 읽는다 — 범례도 악보에 실제로 그려지는
-      // 눈금 모양 그대로 보여준다(예전 색 견본은 3박/4박이 1.26:1 이라 구별 불가였다)
-      const legend = document.getElementById('tut-beat-legend');
-      [1, 2, 3, 4].forEach(b => {
-        const ticks = Array.from({ length: b }, () => '<i class="beat-tick"></i>').join('');
-        legend.insertAdjacentHTML('beforeend',
-          `<span><span class="beat-ticks">${ticks}</span>${b}박</span>`);
-      });
 
       bottom.innerHTML = '<div class="tut-practice-dock" id="tut-practice-dock"></div>';
       buildPracticeDock(document.getElementById('tut-practice-dock'), rule23Notes.map(n => n.pitch));
@@ -1458,25 +1470,31 @@ const TUT_PAGES = [
   },
   {
     chip: '규칙 3',
-    caption: '화음 = 두 음을 동시에 눌러요',
+    caption: '화음 = 박스 안 음표를 동시에 눌러요',
     render(top, bottom) {
-      const chordNote = { pitch: 'C4', duration: 2, beat: 1, chordNotes: ['E4'] };
+      const chordNotes = [
+        { pitch: 'C4', duration: 2, beat: 1, chordNotes: ['E4'] },
+        { pitch: 'F4', duration: 2, beat: 3, chordNotes: ['A#4', 'D5'] },
+      ];
       top.innerHTML = '<div class="notation-container" id="tut-chord-notation"></div>';
-      renderNotation(document.getElementById('tut-chord-notation'), [chordNote], {});
+      renderNotation(document.getElementById('tut-chord-notation'), chordNotes, {});
 
       bottom.innerHTML = '<div id="tut-chord-piano"></div>';
-      const target = [chordNote.pitch, ...chordNote.chordNotes];
       const ctrl = buildTutPiano(document.getElementById('tut-chord-piano'), {
         onPress(note) { audio.unlock(); audio.playNote(note, 0.5); },
       });
-      ctrl.setDots(target.map(n => ({ note: n, color: '#0076CE' })));
+      // 가온다(C4)는 기존처럼 파란 동그라미로 유지하고, 나머지 화음 구성음은 건반 자체를
+      // 푸른색으로 칠한다.
+      const otherNotes = chordNotes.flatMap(n => [n.pitch, ...n.chordNotes]).filter(n => n !== 'C4');
+      ctrl.paintKeys(otherNotes.map(note => ({ note, color: '#3A9EE0' })));
+      ctrl.setDots([{ note: 'C4', color: '#0076CE' }]);
     },
   },
-  buildQuizPage(1, { type: 'note', note: 'E4' }),
-  buildQuizPage(2, { type: 'note', note: 'G#4' }),
-  buildQuizPage(3, { type: 'note', note: 'C5' }),
-  buildQuizPage(4, { type: 'chord', notes: ['C4', 'E4'] }),
-  buildQuizPage(5, { type: 'sequence', notes: ['C4', 'D4', 'E4', 'F4'] }),
+  buildQuizPage(1, 'note',     () => [randomNoteInOctRange(4, 6)]),        // 오른손 무작위 한 음
+  buildQuizPage(2, 'note',     () => [randomNoteInOctRange(5, 5)]),        // 오른손 무작위 한 음 (5옥타브)
+  buildQuizPage(3, 'note',     () => [randomNoteInOctRange(1, 3)]),        // 왼손 무작위 한 음
+  buildQuizPage(4, 'chord',    () => randomDistinctNotes(2, 4, 4)),        // 오른손 4옥타브 내 무작위 화음(2음)
+  buildQuizPage(5, 'sequence', () => randomDistinctNotes(4, 4, 6)),        // 오른손 무작위 순서대로 4음
 ];
 
 let tutPageIdx = 0;

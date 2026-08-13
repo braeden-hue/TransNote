@@ -63,6 +63,8 @@ export function renderNotation(container, notes, {
   zoneColors,     // 옵션: [z0색, z1색, z2색] — 지정 시 기본 회청색 줄무늬 대신 이 3색으로 존 배경을 칠함 (튜토리얼 규칙2 전용)
   hideNoteNames = false, // 옵션: 음표 위 C/G 등 글자 라벨을 숨김 (튜토리얼 규칙2 전용 — 색/위치만으로 읽게 유도)
   hideNotes = false, // 옵션: 음표 표시(밑줄·박스·글자) 자체를 아예 안 그리고 존 배경만 남김 (튜토리얼 규칙1 전용)
+  dots = [], // 옵션: [{idx, color}] — 해당 인덱스 음표 위치에 참조용 동그라미를 표시. hideNotes와
+             // 무관하게(그 위에 덧그려) 항상 그려짐 (튜토리얼 규칙1 전용 — 가온다/3옥 도 표시)
   // 옵션: 음표(밑줄·박스·글자)·쉼표 색의 기준 — 'beat'(기본, 박자 위치별 파랑 농담,
   // README에 정의된 커스텀 표기 원칙) | 'octave'(존 위치별 고정 팔레트, 체험하기 전용 —
   // 존 배경색은 그대로 두고 음표 자체 색만 옥타브를 나타내도록 바꿈).
@@ -135,6 +137,16 @@ export function renderNotation(container, notes, {
     const isChord = note.chordNotes?.length > 0;
 
     noteXMap.push(x);
+
+    // 참조 동그라미(예: 가온다·3옥 도) — hideNotes로 음표 자체가 안 그려지는 페이지에서도
+    // 반드시 보여야 하므로 hideNotes 분기보다 먼저 그린다.
+    const dotSpec = dots.find(d => d.idx === i);
+    if (dotSpec) {
+      svg.appendChild(el('circle', {
+        cx: x + w / 2, cy: y + h / 2, r: 9,
+        fill: dotSpec.color, stroke: '#fff', 'stroke-width': '2',
+      }));
+    }
 
     // 규칙1처럼 존 배경만 보여주고 싶을 땐 음표 자체(밑줄/박스/글자/화살표)를 아예 안
     // 그림 — x 진행(너비 계산)은 그대로 유지해야 다른 옵션과 조합해도 스크롤 폭이 맞음.
@@ -340,8 +352,8 @@ export function renderNotation(container, notes, {
 // 오선 번호(0부터) → 표시 레이블 + 색상. si가 아니라 실제 clef를 기준으로 판단해야
 // 순서가 바뀌어도(예: 규칙1의 왼쪽=베이스 배치) 라벨이 안 어긋난다.
 function staffLabel(si, clef) {
-  if (clef === 'treble') return { label: '🎵 높은음자리 (Treble)', color: '#0076CE' };
-  if (clef === 'bass')   return { label: '🎻 낮은음자리 (Bass)', color: '#5BB8F5' };
+  if (clef === 'treble') return { label: '오른손', color: '#0076CE' };
+  if (clef === 'bass')   return { label: '왼손', color: '#5BB8F5' };
   const clefName = clef === 'alto' ? '알토' : '높은음자리';
   return { label: `Staff ${si + 1} (${clefName})`, color: '#7BB8A0' };
 }
@@ -402,6 +414,8 @@ export function renderGrandStaff(container, staves, options = {}) {
       // 양손 연주 모드처럼 보표마다 "다음 기대 음" 인덱스가 서로 다를 때 사용
       // (없으면 공용 expectedIdx로 폴백 — 기존 호출부는 그대로 동작).
       expectedIdx: options.expectedIdxByClef?.[clef] ?? options.expectedIdx,
+      // 보표마다 다른 참조 동그라미를 찍고 싶을 때(튜토리얼 규칙1 — 왼손 3옥 도/오른손 가온다).
+      dots: options.dotsByClef?.[clef] ?? options.dots,
     });
     setTimeout(updateGsNav, 50);
   });
