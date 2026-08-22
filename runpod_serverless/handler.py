@@ -30,7 +30,7 @@ sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "train"))
 
 from model import OmrSeq2Seq, infer_arch_from_state_dict  # noqa: E402
-from dataset import load_tokenizer  # noqa: E402
+from dataset import load_tokenizer, CANVAS_H, CANVAS_W, SYSTEM_CANVAS_H, SOS_ID  # noqa: E402
 from inference import run_image  # noqa: E402
 from token_to_notes import tokens_to_score  # noqa: E402
 
@@ -38,6 +38,8 @@ CHECKPOINT = _ROOT / "train" / "checkpoints" / "r15_cropfix_coordconv" / "seq2se
 TOKENIZER = _ROOT / "train" / "tokenizer258.json"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if DEVICE.type == "cuda":
+    torch.backends.cudnn.benchmark = True  # 캔버스 크기가 고정(2종류)이라 알고리즘 캐싱 효과가 확실함
 
 _tok2id, _id2tok = load_tokenizer(str(TOKENIZER))
 _ckpt = torch.load(str(CHECKPOINT), map_location="cpu", weights_only=False)
@@ -46,6 +48,29 @@ _model = OmrSeq2Seq(vocab_size=len(_tok2id), **_arch).to(DEVICE)
 _model.load_state_dict(_ckpt["model"])
 _model.eval()
 print(f"[runpod handler] 체크포인트 로드 완료: {CHECKPOINT.name} (device={DEVICE}, arch={_arch})")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GPU 워밍업 — 가중치 로드와 별개로, 그 프로세스의 "첫 실제 forward pass"에서만
+# cuDNN이 각 conv shape에 맞는 최적 알고리즘을 벤치마킹하고 CUDA 커널을 지연 로딩한다.
+# 워밍업 없이는 이 비용이 워커가 받는 첫 실사용자 요청에 그대로 드러나 "첫 인식만
+# 눈에 띄게 느림" 증상으로 나타난다. workersMin>=1로 워커가 warm 상태를 유지하는
+# 동안은 이 비용을 워커 시작 시 1회만 내면 되므로 여기서 미리 흘려보낸다. 실제
+# 추론에서 쓰는 두 캔버스 크기(단일 오선 CANVAS_H×CANVAS_W, 대보표
+# SYSTEM_CANVAS_H×CANVAS_W) 모두 워밍업해야 두 경로 다 효과가 있다.
+# ─────────────────────────────────────────────────────────────────────────────
+if DEVICE.type == "cuda":
+    with torch.no_grad():
+        for h in (CANVAS_H, SYSTEM_CANVAS_H):
+            dummy = torch.zeros(1, _arch["in_ch"], h, CANVAS_W, device=DEVICE)
+            memory = _model.encode(dummy)
+            kv_cache = _model.precompute_memory_kv(memory)
+            past = torch.tensor([[SOS_ID]], dtype=torch.long, device=DEVICE)
+            for _ in range(5):
+                logits = _model.decode_step_cached(kv_cache, past)
+                nxt = logits.argmax(-1, keepdim=True)
+                past = torch.cat([past, nxt], dim=1)
+    torch.cuda.synchronize()
+    print("[runpod handler] GPU 워밍업 완료")
 
 
 def handler(event):

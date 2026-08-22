@@ -1817,6 +1817,32 @@ function drawCameraGuideOverlay(canvas, wrap, video, grandStaff, wFrac) {
     });
 }
 
+// 갤러리에서 고른 이미지를 라이브 카메라 촬영과 동일한 상한(긴 변 기준 maxDim)으로 축소한다.
+// 폰 갤러리 사진/스크린샷은 보통 3000px+ 해상도라 원본 그대로 업로드하면 base64 인코딩·전송·
+// 서버 쪽 오선 검출(픽셀 수에 비례해 느려짐)이 다 불필요하게 무거워진다 — 인식 정확도에는
+// 이 정도 해상도로 충분하다는 게 카메라 경로(CAPTURE_MAX_DIM)에서 이미 검증된 전제.
+// 이미 상한 이하인 이미지는 scale=1이라 사실상 재인코딩만 하고 크기는 그대로 유지된다.
+function resizeImageToFile(file, maxDim, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => {
+        URL.revokeObjectURL(url);
+        if (!blob) { reject(new Error('이미지 처리 실패')); return; }
+        resolve(new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }));
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('이미지를 열 수 없습니다')); };
+    img.src = url;
+  });
+}
+
 // 가이드 오버레이 촬영 UI 조립 — 기존 변환 화면과 체험하기 화면 둘 다 이 함수로 만든다
 // (ids만 다르게, 촬영 완료 시 onCaptured(file)로 각자 원하는 곳으로 라우팅).
 function setupCameraCapture(ids, onCaptured) {
@@ -1908,17 +1934,25 @@ function setupCameraCapture(ids, onCaptured) {
 
   // 갤러리에서 사진 선택 — 스크린샷했거나 예전에 찍어둔 악보 이미지를 그대로 인식시킨다.
   // 라이브 카메라 가이드로 잘라내는 크롭 단계가 필요 없어(이미 완성된 이미지라) 원본
-  // 파일을 그대로 onCaptured에 넘긴다(크롭/풀프레임 둘 다 같은 파일).
+  // 파일을 그대로 쓰되, 카메라 경로와 동일하게 CAPTURE_MAX_DIM으로 축소는 거친다
+  // (축소 전/후 둘 다 onCaptured에는 같은 파일로 넘김 — 크롭/풀프레임 구분이 없어서).
   if (galleryBtn && galleryInput) {
     galleryBtn.addEventListener('click', () => galleryInput.click());
-    galleryInput.addEventListener('change', e => {
+    galleryInput.addEventListener('change', async e => {
       const file = e.target.files[0];
       galleryInput.value = ''; // 같은 파일을 다시 골라도 change가 또 발생하게
       if (!file) return;
       if (!file.type.startsWith('image/')) { toast('이미지 파일을 선택해주세요'); return; }
       if (file.size > 10 * 1024 * 1024) { toast('파일 크기가 10MB를 초과합니다'); return; }
       state.activeCameraStop?.(); // 라이브 카메라가 켜져 있었으면 정리
-      onCaptured(file, file);
+      let resized;
+      try {
+        resized = await resizeImageToFile(file, CAPTURE_MAX_DIM);
+      } catch (err) {
+        toast('❌ ' + err.message);
+        return;
+      }
+      onCaptured(resized, resized);
     });
   }
 
