@@ -60,9 +60,9 @@ import torch
 import torch.nn as nn
 
 sys.path.insert(0, os.path.dirname(__file__))
-from model import SegNet, OmrSeq2Seq, CANVAS_W, SEQ_LEN, NUM_CLASSES, SOS_ID
+from model import SegNet, OmrSeq2Seq, CANVAS_W, SEQ_LEN, NUM_CLASSES, SOS_ID, infer_arch_from_state_dict
 from dataset import (load_preprocessed, detect_staffs, extract_system_canvas,
-                     IMG_MEAN, IMG_STD, SYSTEM_CANVAS_H, load_tokenizer)
+                     IMG_MEAN, IMG_STD, SYSTEM_CANVAS_H, load_tokenizer, make_model_input)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,8 +81,14 @@ def load_segnet(ckpt_path: str, device: torch.device) -> SegNet:
 
 
 def load_seq2seq(ckpt_path: str, vocab_size: int, device: torch.device) -> OmrSeq2Seq:
-    model = OmrSeq2Seq(vocab_size=vocab_size)
-    model.load_state_dict(_load_state(ckpt_path, device))
+    # 체크포인트마다 아키텍처(in_ch/extra_height_stages/pool_h)가 다를 수 있어(예: CoordConv
+    # 실험용 in_ch=2) 생성자 기본값으로 만들면 r15처럼 논디폴트 아키텍처인 체크포인트에서
+    # shape mismatch가 난다 — handler.py와 동일하게 state_dict에서 실제 아키텍처를 역산해서 쓴다.
+    state = _load_state(ckpt_path, device)
+    arch = infer_arch_from_state_dict(state)
+    print(f"    Detected arch: {arch}")
+    model = OmrSeq2Seq(vocab_size=vocab_size, **arch)
+    model.load_state_dict(state)
     return model.eval().to(device)
 
 
@@ -116,10 +122,12 @@ def _build_segnet_calib(paths: list, out_npy: str, n: int = 100) -> str:
     return out_npy
 
 
-def _build_encoder_calib(paths: list, out_npy: str, n: int = 50) -> str:
+def _build_encoder_calib(paths: list, out_npy: str, n: int = 50, in_ch: int = 1) -> str:
     """실제 grand-staff 학습 전처리(load_preprocessed → detect_staffs → extract_system_canvas)를
-    그대로 통과시켜 [N, 1, SYSTEM_CANVAS_H, CANVAS_W] 캘리브레이션 셋을 만든다.
-    detect_staffs가 2개 오선(treble+bass)을 못 찾는 이미지는 건너뛴다."""
+    그대로 통과시켜 [N, in_ch, SYSTEM_CANVAS_H, CANVAS_W] 캘리브레이션 셋을 만든다.
+    detect_staffs가 2개 오선(treble+bass)을 못 찾는 이미지는 건너뛴다. in_ch=2(CoordConv)면
+    make_model_input()이 학습/추론과 동일하게 좌표 채널을 붙여준다 — 여기서 채널 수를 안 맞추면
+    캘리브레이션 입력 shape이 실제 모델 입력과 달라져 양자화 스케일이 잘못 잡힌다."""
     arrays = []
     for p in paths:
         if len(arrays) >= n:
@@ -130,7 +138,8 @@ def _build_encoder_calib(paths: list, out_npy: str, n: int = 50) -> str:
             continue
         tile = extract_system_canvas(gray, staffs[:2])
         canvas = (tile.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
-        arrays.append(canvas[np.newaxis, np.newaxis])
+        inp = make_model_input(canvas, in_ch).numpy()  # [in_ch, H, W]
+        arrays.append(inp[np.newaxis])  # [1, in_ch, H, W]
     if not arrays:
         raise RuntimeError("대보표(2개 오선) 인식 가능한 캘리브레이션 이미지가 없음")
     data = np.concatenate(arrays, axis=0)
@@ -155,8 +164,8 @@ def _export_onnx_segnet(model: SegNet, out: str):
     print(f"    ONNX -> {out}")
 
 
-def _export_onnx_encoder(encoder: nn.Module, out: str):
-    dummy = torch.zeros(1, 1, SYSTEM_CANVAS_H, CANVAS_W)
+def _export_onnx_encoder(encoder: nn.Module, out: str, in_ch: int = 1):
+    dummy = torch.zeros(1, in_ch, SYSTEM_CANVAS_H, CANVAS_W)
     torch.onnx.export(
         encoder, dummy, out,
         input_names=['canvas'], output_names=['memory'],
@@ -375,14 +384,15 @@ def main():
     # ── 2. Encoder ────────────────────────────────────────
     print("--- [2/3] Encoder --------------------------------------")
     seq2seq  = load_seq2seq(args.seq2seq, vocab_size, device)
+    in_ch    = seq2seq.encoder.backbone[0].block[0].weight.shape[1]  # 체크포인트 실제 입력 채널(1 또는 CoordConv 2)
     onnx_enc = os.path.join(tmp, 'encoder.onnx')
-    _export_onnx_encoder(seq2seq.encoder, onnx_enc)
+    _export_onnx_encoder(seq2seq.encoder, onnx_enc, in_ch=in_ch)
     _simplify(onnx_enc)
 
     calib_enc = None
     if quantize:
         calib_enc = os.path.join(tmp, 'calib_encoder.npy')
-        _build_encoder_calib(image_paths, calib_enc, n=min(50, len(image_paths)))
+        _build_encoder_calib(image_paths, calib_enc, n=min(50, len(image_paths)), in_ch=in_ch)
 
     tflite_enc = os.path.join(tmp, 'encoder_INT8.tflite')
     if _convert_tflite(onnx_enc, tflite_enc, calib_enc, quantize, input_op_name='canvas'):
