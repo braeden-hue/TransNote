@@ -72,8 +72,18 @@ def tokens_to_score(tokens: List[str]) -> Dict:
     clefs = ['treble', 'bass']  # [위 보표, 아래 보표] — clef- 토큰을 못 만나면 기존 기본값 유지
 
     on_bass = False
-    treble_beat = 1
-    bass_beat = 1
+    # 마디 시작(barline)부터 지금까지 실제로 지난 길이(4분음표=1.0 단위) 누적값.
+    # 예전엔 정수 "beat 슬롯" 카운터(treble_beat/bass_beat, 1~4)를 썼는데, 한 음표가
+    # 몇 분음표든 상관없이 최소 1슬롯을 소비하는 것으로 반올림해서(아래 옛 advance
+    # 계산 참고) 8분음표보다 빠른 음이 여러 개 나오면 실제 마디 길이보다 훨씬 빨리
+    # 마디가 끝난 것처럼 잘못 셌다(예: 2/4 박자에서 16분음표 8개=진짜 한 마디인데
+    # beat이 4개마다 한 번씩 1로 리셋돼 마디가 2개가 아니라 4개로 보임, 2026-08-17
+    # 발견). 실제 duration을 그대로 누적하고, 표시용 beat는 그 누적값에서 정수부만
+    # 뽑아 time_sig[0]로 나눈 나머지로 계산한다.
+    treble_pos = 0.0
+    bass_pos = 0.0
+    treble_measure_start = 0  # 이번 마디 들어서 treble에 처음 push된 인덱스(마디 경계 보정용)
+    bass_measure_start = 0
     start_repeat_pending: Optional[str] = None
 
     pending_pitch: Optional[str] = None
@@ -92,11 +102,14 @@ def tokens_to_score(tokens: List[str]) -> Dict:
 
     def push(pitch: str, duration: float, chord: Optional[List[str]] = None,
              is_rest: bool = False, dynamic_mark: Optional[str] = None) -> None:
-        nonlocal start_repeat_pending, treble_beat, bass_beat
+        nonlocal start_repeat_pending, treble_pos, bass_pos
         target = bass if on_bass else treble
-        beat = bass_beat if on_bass else treble_beat
+        pos = bass_pos if on_bass else treble_pos
         if tuplet_active:
             duration = duration * 2 / 3
+        # 1e-9 여유: 0.25를 네 번 더하면 부동소수점 오차로 0.9999999...가 되는 경우가
+        # 있어, 그 상태로 int()를 취하면 마디 경계에서 beat이 한 박 밀린다.
+        beat = int(pos + 1e-9) % max(1, time_sig[0]) + 1
         note: ScoreNote = {
             'pitch': _normalize_pitch(pitch),
             'duration': duration,
@@ -114,11 +127,10 @@ def tokens_to_score(tokens: List[str]) -> Dict:
             note['repeatMark'] = start_repeat_pending
         target.append(note)
         start_repeat_pending = None
-        advance = min(4, max(1, round(duration)))
         if on_bass:
-            bass_beat = (bass_beat - 1 + advance) % 4 + 1
+            bass_pos += duration
         else:
-            treble_beat = (treble_beat - 1 + advance) % 4 + 1
+            treble_pos += duration
 
     def finalize_pending() -> None:
         nonlocal pending_pitch, pending_duration, pending_carry_duration, pending_chord, pending_dynamic, has_pending, tie_active
@@ -139,6 +151,32 @@ def tokens_to_score(tokens: List[str]) -> Dict:
         if not target:
             return
         target[-1]['repeatMark'] = 'end-repeat'
+
+    def snap_measure_to_time_sig() -> None:
+        """barline에서 마디를 넘기기 직전, 치/베이스 각각 이번 마디에 쌓인 실제 길이(pos)가
+        확정된 박자표 기대 총합과 다르면 그 마디 안의 모든 음표 duration을 (기대값/실제합)
+        비율로 비례 축소·확대해서 정확히 맞춘다(모델 재디코딩 없이, 이미 나온 토큰들의 길이만
+        사후 정렬 -- 2026-08-24, 두 손 타이밍이 마디를 넘어가며 계속 어긋나던 문제 대응).
+        한 마디의 오차가 다음 마디로 전파되지 않게 막는 게 목적.
+
+        처음엔 "마지막 음표 하나만 조정"하는 방식으로 시작했는데, 실사 10곡(newage21~30)
+        검증에서 초과분이 마지막 음표 자체 길이보다 큰 경우(예: 4/4박 마디에 4.5박어치가
+        나온 경우, 마지막 16분음표 하나로는 0.5박을 다 못 줄임) 절반 가까이(4/10곡)
+        완전히 안 맞고 남는 걸 확인 -- 비례 축소는 초과분 크기와 무관하게 항상 정확히
+        맞춰지므로(단, 그 마디의 모든 음표 길이가 조금씩 달라짐) 이 방식으로 교체.
+
+        빈 마디(그 성부에 음표가 하나도 없음)는 보정할 대상이 없어 건너뛴다."""
+        expected = time_sig[0] * 4.0 / max(1, time_sig[1])
+        for notes, pos, start in (
+            (treble, treble_pos, treble_measure_start),
+            (bass, bass_pos, bass_measure_start),
+        ):
+            measure_notes = notes[start:]
+            if not measure_notes or pos <= 0 or abs(pos - expected) < 1e-6:
+                continue
+            scale = expected / pos
+            for note in measure_notes:
+                note['duration'] *= scale
 
     for tok in tokens:
         if tok.startswith('time-'):
@@ -191,8 +229,11 @@ def tokens_to_score(tokens: List[str]) -> Dict:
             finalize_pending()
             if tok == 'barline-end-repeat':
                 mark_end_repeat()
-            treble_beat = 1
-            bass_beat = 1
+            snap_measure_to_time_sig()
+            treble_pos = 0.0
+            bass_pos = 0.0
+            treble_measure_start = len(treble)
+            bass_measure_start = len(bass)
             on_bass = False
         elif tok == 'tie':
             tie_active = True
