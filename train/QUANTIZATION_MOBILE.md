@@ -95,6 +95,23 @@ python train/inference.py --seq2seq train/checkpoints/r15_cropfix_coordconv/seq2
 리포트가 이미 존재하지만, 어느 체크포인트로 만들어졌는지 기록이 없어 지금은 신뢰 안 함 —
 필요하면 나중에 같은 방식으로 재현.
 
+**더 큰 held-out 후보 발견**: `train/data/local_pools/exactpicture_test_full/`에 135개
+실제 곡 기반(Chopin/Czerny/뉴에이지 등, PPT 27p의 장르 목록과 일치) ground-truth JSON이
+있음 — 다만 **매칭되는 렌더링 이미지(.png)가 없어서** 지금 바로는 못 씀. MuseScore 렌더링
+파이프라인(`render_custom_notation.py` 등)으로 이미지부터 만들어야 함 — 다음 세션 후보
+작업.
+
+### B단계 — CPU 속도 1차 실측
+
+같은 체크포인트로 타이밍 측정(개발 PC CPU, 실제 모바일 기기 아님 — GPU 없는 하한 기준점
+용도):
+- 20개 배치 전체: 104.0초
+- 단일 이미지(모델 로드 포함): 11.0초
+- → 역산: **모델 로드 ~6.1초(1회) + 이미지당 ~4.9초**(대보표, greedy decode, CPU)
+
+4.9초/장은 실사용 목표로는 느린 수준 — GPU 없이 FP32로 도는 하한선이라는 의미가 크고,
+양자화·모바일 하드웨어 가속(NPU 등) 없이는 목표 속도 달성이 어렵다는 근거가 됨.
+
 ## 다음 단계 (TODO)
 
 - [x] ~~export_tflite.py 아키텍처 버그 수정~~ (2026-08-24, `a3e961c`)
@@ -102,14 +119,16 @@ python train/inference.py --seq2seq train/checkpoints/r15_cropfix_coordconv/seq2
 - [x] ~~저장소 결정~~ — TransNote에서 계속
 - [x] ~~FP32 베이스라인 1차 측정~~ — test/data 20개, Acc 81.7%(음표 기준). 더 크고 대표성
       있는 held-out 셋으로 재측정 필요(아래)
+- [x] ~~CPU 속도 1차 실측~~ — 개발 PC CPU 기준 이미지당 ~4.9초(대보표) + 모델 로드 ~6.1초.
+      실제 모바일 기기 아님, 하한 기준점일 뿐 — 실기 측정은 여전히 TODO
 - [ ] export_tflite.py 전체 파이프라인(인코더+디코더) 끝까지 실행 테스트 — 지금은 인코더
       export만 개별 검증함
 - [ ] 목표 스택 결정: Android(TFLite)만 vs iOS(Core ML)까지
 - [ ] **디코더 KV캐시 결정**: 상태유지형 온디바이스 구현 vs O(T²) 재계산 감수
-- [ ] 더 크고 대표성 있는 held-out 셋 확보 + 정확도 재측정 (20개는 표본 너무 작음, 실사
-      이미지도 포함 필요)
-- [ ] 모바일 CPU 기준 속도 베이스라인 측정 (지금까지는 RunPod GPU 수치뿐, 이번 CPU 실행도
-      정확한 시간을 안 쟀음 — 재실행 시 시간 기록할 것)
+- [ ] 더 크고 대표성 있는 held-out 셋 확보 + 정확도 재측정 — `train/data/local_pools/
+      exactpicture_test_full/`(135개, 실제 곡 기반) 후보 발견했으나 렌더링 이미지가 없어
+      MuseScore 파이프라인으로 먼저 만들어야 함
+- [ ] 실제 모바일 기기 기준 속도 베이스라인 측정 (지금 있는 건 개발 PC CPU 수치뿐)
 - [ ] INT8 캘리브레이션용 대표 이미지셋 확보(장르 다양, 대보표 검출 가능한 것)
 - [ ] 정량 목표치(정확도 허용폭, 속도 목표) 숫자로 확정
 - [ ] 실제 타깃 기기 확보 + 프로파일링 도구 준비
@@ -117,9 +136,9 @@ python train/inference.py --seq2seq train/checkpoints/r15_cropfix_coordconv/seq2
 
 ## 실험 기록 (진행되면 추가)
 
-| 날짜 | 정밀도 방식 | 크기 | held-out 정확도 (test/data 20개, 음표 기준) | 실기 속도 | 메모 |
+| 날짜 | 정밀도 방식 | 크기 | held-out 정확도 (test/data 20개, 음표 기준) | 속도 | 메모 |
 |---|---|---|---|---|---|
-| 2026-08-24 | FP32 (r15, 베이스라인) | 185MB | 81.7% (Treble 85.9%/Bass 88.0%) | 미측정 (CPU, 시간 미기록) | 표본 20개뿐, 재측정 필요 |
+| 2026-08-24 | FP32 (r15, 베이스라인) | 185MB | 81.7% (Treble 85.9%/Bass 88.0%) | 개발 PC CPU ~4.9초/장(+로드 ~6.1초, 1회) | 표본 20개뿐·CPU 수치. 실기/실사 재측정 필요 |
 
 ## 포트폴리오용 캡처 포인트 (계획)
 
