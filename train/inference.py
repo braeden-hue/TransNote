@@ -287,31 +287,96 @@ def greedy_decode_kv(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
                      device: torch.device,
                      max_len: int = INFER_MAX_LEN,
                      markov: Optional[MarkovDecodeConfig] = None,
-                     stop_token_id: Optional[int] = None) -> List[int]:
+                     stop_token_id: Optional[int] = None,
+                     time_correct: Optional['InlineTimeCorrector'] = None,
+                     id2tok: Optional[Dict[int, str]] = None) -> List[int]:
     """greedy_decode()와 (부동소수점 오차 범위 내) 동일한 결과를 내면서, self-attention도
     캐싱해서 스텝당 O(t)가 아니라 O(1)로 줄인 버전 -- 전체 O(T^3)->O(T^2)(2026-08-24,
-    model.py의 decode_step_kv_cached() 참고). 검증/속도 비교용으로 greedy_decode와 별도
-    함수로 둠 -- 검증 끝나고 방향이 맞으면 run_image()가 이쪽을 쓰도록 교체 예정.
+    model.py의 decode_step_kv_cached() 참고).
 
-    ⚠️ time_correct(InlineTimeCorrector) 미지원: 그 기능은 이미 캐시에 반영된 과거
-    위치의 토큰을 되돌려 고쳐야 하는데, 진짜 KV캐시에서는 그 위치 이후 전부의 캐시가
-    이미 그 토큰을 반영해 계산돼 있어서 단순히 값만 바꿔치기하면 캐시와 실제 값이
-    어긋난다(재계산이 필요해서 캐싱의 이점이 없어짐) -- 이번 검증 범위 밖으로 뺌."""
+    time_correct(InlineTimeCorrector)와의 호환 — 하이브리드 방식(2026-08-24):
+    진짜 KV캐시는 이미 지나간 위치의 토큰을 되돌려 고치는 것과 구조적으로 안 맞는다(그
+    위치 이후 캐시가 전부 이미 그 토큰을 반영해 계산돼 있어서). 처음엔 이 기능을 아예
+    빼고 production에 적용했다가, newage21~30 검증에서 정확도가 94.2%->90.9%로 떨어지고
+    특히 6/8박자 곡 하나가 32%p 급락하는 걸 확인(3/4·6/8 혼동은 InlineTimeCorrector가
+    원래 다루던 케이스) -- 그래서 다음 절충안으로 교체:
+      1) 첫 마디(보통 몇 토큰 안 됨)는 기존 decode_step_cached(캐시 없음, 느리지만 짧아서
+         비용이 작음)로 돌려서 InlineTimeCorrector 교정을 그대로 받는다.
+      2) 첫 마디가 끝나(barline류 토큰) 박자표가 확정되면, forward_bulk_capture()를 한
+         번만 호출해 그 구간 전체의 self-attention K,V를 캐시에 채운다("캐시 워밍").
+      3) 이후 나머지(대부분의) 토큰은 decode_step_kv_cached로 빠르게 이어간다.
+    첫 마디 안에서 EOS/stop 토큰이 나오면(아주 짧은 곡) 2)/3) 없이 그대로 반환한다.
+    """
     tile_f = (canvas.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
     inp    = make_model_input(tile_f, _encoder_in_ch(seq2seq)).unsqueeze(0).to(device)
     seq2seq.eval()
-    memory        = seq2seq.encode(inp)
-    kv_cache      = seq2seq.precompute_memory_kv(memory)
-    self_kv_cache = seq2seq.precompute_self_attn_cache(1, max_len + 2, device, memory.dtype)
-    pos, cur_id = 0, SOS_ID
+    memory   = seq2seq.encode(inp)
+    kv_cache = seq2seq.precompute_memory_kv(memory)
     result = []
     voice, prev_treble, prev_bass = 'treble', None, None
+
+    # 마디 경계(barline류) 토큰 id 집합 -- 1단계->2단계 전환 시점을 판정하는 데만 씀.
+    # id2tok을 명시적으로 안 넘겼으면 time_correct/markov가 들고 있는 걸 재사용(있으면),
+    # 그것도 없으면 빈 집합(1단계가 끝까지 도는 안전한 폴백 -- 속도 이득만 없어짐).
+    _id2tok = id2tok or (time_correct.id2tok if time_correct is not None else None) \
+              or (markov.id2tok if markov is not None else None)
+    barline_ids = ({tid for tid, s in _id2tok.items() if s in _BARLINE_TOKEN_STRS}
+                   if _id2tok else set())
+
+    # ── 1단계: 첫 마디까지는 기존 캐시없는 방식(InlineTimeCorrector 완전 호환) ──
+    past = torch.tensor([[SOS_ID]], dtype=torch.long, device=device)
+    first_measure_done = False
+    step = 0
     for step in range(max_len):
-        token_tensor = torch.tensor([[cur_id]], dtype=torch.long, device=device)
-        logits = seq2seq.decode_step_kv_cached(token_tensor, pos, kv_cache, self_kv_cache)
+        logits = seq2seq.decode_step_cached(kv_cache, past)
         logits[0, EOS_ID] *= EOS_BOOST
         if step > LONG_DECODE_THRESHOLD:
             long_boost = 1.0 + (step - LONG_DECODE_THRESHOLD) * LONG_DECODE_RAMP
+            logits[0, EOS_ID] *= long_boost
+            if stop_token_id is not None:
+                logits[0, stop_token_id] *= long_boost
+        if markov is not None:
+            prev_pitch = prev_bass if voice == 'bass' else prev_treble
+            bias = _markov_bias(logits.shape[-1], prev_pitch, markov.note_ids, markov.note_steps,
+                                 markov.log_prob_table, markov.max_interval, markov.weight, device)
+            if bias is not None:
+                logits = logits + bias.unsqueeze(0)
+        nxt = int(logits.argmax(-1).item())
+        if nxt == EOS_ID: break
+        if nxt != PAD_ID:
+            result.append(nxt)
+            if markov is not None:
+                voice, prev_treble, prev_bass = _update_voice_state(
+                    voice, prev_treble, prev_bass, markov.id2tok.get(nxt, ''))
+            if time_correct is not None:
+                tok_str = time_correct.id2tok.get(nxt, '')
+                new_time_id = time_correct.observe(tok_str, len(result) - 1)
+                if new_time_id is not None and result[time_correct.time_idx] != new_time_id:
+                    result[time_correct.time_idx] = new_time_id
+                    past[0, time_correct.time_idx + 1] = new_time_id
+            if stop_token_id is not None and nxt == stop_token_id:
+                break
+        past = torch.cat([past, torch.tensor([[nxt]], dtype=torch.long, device=device)], dim=1)
+        if nxt != PAD_ID and nxt in barline_ids:
+            first_measure_done = True
+            break
+
+    if not first_measure_done or past.shape[1] <= 1:
+        return result  # 아주 짧은 곡 -- 2단계로 넘어갈 것도 없음
+
+    # ── 2단계: 캐시 워밍 — 지금까지의(교정 반영된) 구간을 한 번에 캐시에 채운다 ──
+    self_kv_cache = seq2seq.precompute_self_attn_cache(1, max_len + 2, device, memory.dtype)
+    seq2seq.forward_bulk_capture(past, kv_cache, self_kv_cache)
+    pos = past.shape[1] - 1
+    cur_id = int(past[0, -1].item())
+
+    # ── 3단계: 나머지는 빠른 경로로 ──
+    for step2 in range(step + 1, max_len):
+        token_tensor = torch.tensor([[cur_id]], dtype=torch.long, device=device)
+        logits = seq2seq.decode_step_kv_cached(token_tensor, pos, kv_cache, self_kv_cache)
+        logits[0, EOS_ID] *= EOS_BOOST
+        if step2 > LONG_DECODE_THRESHOLD:
+            long_boost = 1.0 + (step2 - LONG_DECODE_THRESHOLD) * LONG_DECODE_RAMP
             logits[0, EOS_ID] *= long_boost
             if stop_token_id is not None:
                 logits[0, stop_token_id] *= long_boost
@@ -357,7 +422,8 @@ def beam_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
                 max_len: int = INFER_MAX_LEN,
                 markov: Optional[MarkovDecodeConfig] = None,
                 stop_token_id: Optional[int] = None,
-                time_correct: Optional['InlineTimeCorrector'] = None) -> List[int]:
+                time_correct: Optional['InlineTimeCorrector'] = None,
+                id2tok: Optional[Dict[int, str]] = None) -> List[int]:
     """
     ml/omr/engine의 DecoderRunner::decode_beam()과 동일한 알고리즘의 파이썬/PyTorch
     버전. C++ 쪽은 TFLite KV-cache라 빔마다 캐시를 복제해야 하지만, 이 PyTorch
@@ -367,15 +433,24 @@ def beam_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
       2. 이미 끝난(EOS) 빔은 점수 고정한 채 그대로 다음 라운드 후보로 넘긴다.
       3. 전체 후보 중 top beam_width만 남긴다.
       4. 마지막에 길이 정규화 점수로 최선의 빔을 고른다.
-    beam_width=1이면 greedy_decode와 동일해야 한다(검증용).
+    beam_width=1이면 greedy_decode_kv와 동일해야 한다(검증용).
 
     markov가 주어지면 빔마다 자기 성부(치/베이스) 상태를 따로 들고 다니며(_Beam.voice/
     prev_treble/prev_bass) 토큰 분포에 PDMX 음정 전이 편향을 더한다 -- greedy_decode와
     동일한 shallow fusion, 빔 하나하나가 독립된 시퀀스라 상태도 빔마다 독립.
+
+    2026-08-24: beam_width<=1(production 기본값) 경로를 self-attention KV캐시가 있는
+    greedy_decode_kv로 교체 -- newage21~30 10곡 검증에서 토큰 시퀀스 완전 일치, 속도
+    평균 2배 개선 확인. 처음엔 time_correct(InlineTimeCorrector)를 완전히 뺐다가 정확도가
+    94.2%->90.9%로 떨어지는 걸 확인(6/8박자 곡에서 특히 크게, -32%p) -- 첫 마디는
+    캐시없는 방식으로 돌려 InlineTimeCorrector를 그대로 받고, 그 이후만 캐시로 가속하는
+    하이브리드 방식으로 다시 교체(greedy_decode_kv 자체가 time_correct를 지원하게 됨).
+    id2tok은 몇 번째 토큰이 마디 경계인지 판정하는 데만 씀(1단계->2단계 전환 시점).
     """
     if beam_width <= 1:
-        return greedy_decode(seq2seq, canvas, device, max_len, markov=markov,
-                              stop_token_id=stop_token_id, time_correct=time_correct)
+        return greedy_decode_kv(seq2seq, canvas, device, max_len, markov=markov,
+                                stop_token_id=stop_token_id, time_correct=time_correct,
+                                id2tok=id2tok)
 
     tile_f = (canvas.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
     inp    = make_model_input(tile_f, _encoder_in_ch(seq2seq)).unsqueeze(0).to(device)
@@ -498,7 +573,8 @@ def run_image(image_path: str, seq2seq: OmrSeq2Seq,
             sys_canvas    = extract_system_canvas(gray, [treble_staff, bass_staff])
             sys_ids       = beam_decode(seq2seq, sys_canvas, device, beam_width=beam_width, markov=markov,
                                          stop_token_id=stop_id,
-                                         time_correct=InlineTimeCorrector(tok2id, id2tok, is_grand=True))
+                                         time_correct=InlineTimeCorrector(tok2id, id2tok, is_grand=True),
+                                         id2tok=id2tok)
             sys_ids       = fix_span_tokens(fix_chord_tokens(sys_ids, id2tok), id2tok)
             sys_ids       = correct_time_signature(sys_ids, id2tok, tok2id, is_grand=True)
             sys_ids       = correct_accidentals_by_key(sys_ids, id2tok, tok2id)
@@ -515,7 +591,8 @@ def run_image(image_path: str, seq2seq: OmrSeq2Seq,
             canvas = extract_staff_canvas(gray, staff)
             ids    = beam_decode(seq2seq, canvas, device, beam_width=beam_width, markov=markov,
                                   stop_token_id=stop_id,
-                                  time_correct=InlineTimeCorrector(tok2id, id2tok, is_grand=False))
+                                  time_correct=InlineTimeCorrector(tok2id, id2tok, is_grand=False),
+                                  id2tok=id2tok)
             ids    = fix_span_tokens(fix_chord_tokens(ids, id2tok), id2tok)
             ids    = correct_time_signature(ids, id2tok, tok2id, is_grand=False)
             ids    = correct_accidentals_by_key(ids, id2tok, tok2id)

@@ -521,6 +521,57 @@ class Decoder(nn.Module):
         x = self.transformer.norm(x)
         return self.head(x)                                      # [B,1,vocab_size]
 
+    def forward_bulk_capture(self, tgt: torch.Tensor, memory_kv_cache, self_kv_cache) -> torch.Tensor:
+        """forward()와 (부동소수점 오차 범위 내) 동일한 결과를 내는 일반 teacher-forcing
+        스타일 계산이면서, 그 과정에서 나오는 self-attention K,V를 self_kv_cache의
+        0..T-1 위치에 한 번에 채워 넣는다(in-place).
+
+        용도 — "캐시 워밍": InlineTimeCorrector처럼 이미 지나간 위치의 토큰을 되돌려
+        고쳐야 하는 로직은 decode_step_kv_cached()(진짜 캐시)와 구조적으로 안 맞아서,
+        그 구간(보통 첫 마디, 몇 토큰 안 됨)은 이 함수 대신 기존 forward_cached()로
+        평범하게(재계산 방식으로) 디코딩해 교정을 그대로 받고, 첫 마디가 끝나 박자표가
+        확정된 뒤 이 함수를 **한 번** 호출해서 그 구간 전체의 self-attention K,V를 캐시에
+        채워 넣는다. 그 다음부터는 decode_step_kv_cached()로 빠르게 이어간다 — 교정
+        기능과 속도 이득을 둘 다 가져가는 절충안(2026-08-24)."""
+        T = tgt.size(1)
+        D = self.embed_dim
+        emb = self.token_emb(tgt) * self.emb_scale
+        x   = self.dropout(emb + self.pos_enc[:, :T, :])
+
+        for layer, (k_mem, v_mem), (k_cache, v_cache) in zip(
+                self.transformer.layers, memory_kv_cache, self_kv_cache):
+            x1  = layer.norm1(x)
+            sa  = layer.self_attn
+            H   = sa.num_heads
+            Dh  = D // H
+            B   = x1.shape[0]
+            in_b = sa.in_proj_bias
+            q = F.linear(x1, sa.in_proj_weight[:D],    in_b[:D]    if in_b is not None else None)
+            k = F.linear(x1, sa.in_proj_weight[D:2*D], in_b[D:2*D] if in_b is not None else None)
+            v = F.linear(x1, sa.in_proj_weight[2*D:],  in_b[2*D:]  if in_b is not None else None)
+            q = q.view(B, T, H, Dh).transpose(1, 2)              # [B,H,T,Dh]
+            k = k.view(B, T, H, Dh).transpose(1, 2)
+            v = v.view(B, T, H, Dh).transpose(1, 2)
+            k_cache[:, :, :T, :] = k
+            v_cache[:, :, :T, :] = v
+            attn = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+            attn = attn.transpose(1, 2).reshape(B, T, D)
+            x = x + layer.dropout1(sa.out_proj(attn))
+
+            x2   = layer.norm2(x)
+            mha  = layer.multihead_attn
+            in_bc = mha.in_proj_bias
+            qc = F.linear(x2, mha.in_proj_weight[:D], in_bc[:D] if in_bc is not None else None)
+            qc = qc.view(B, T, H, Dh).transpose(1, 2)
+            attn2 = F.scaled_dot_product_attention(qc, k_mem, v_mem)
+            attn2 = attn2.transpose(1, 2).reshape(B, T, D)
+            x = x + layer.dropout2(mha.out_proj(attn2))
+
+            x = x + layer._ff_block(layer.norm3(x))
+
+        x = self.transformer.norm(x)
+        return self.head(x)                                      # [B,T,vocab_size]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  4. Combined Seq2Seq model
@@ -599,6 +650,12 @@ class OmrSeq2Seq(nn.Module):
         past_ids 전체가 아니라 이번에 새로 넣는 토큰 1개만 [B,1]로 넘긴다."""
         logits = self.decoder.decode_step_kv_cached(token_id, pos, memory_kv_cache, self_kv_cache)
         return logits[:, -1, :]
+
+    def forward_bulk_capture(self, tgt: torch.Tensor, memory_kv_cache, self_kv_cache) -> torch.Tensor:
+        """decode_step_kv_cached로 넘어가기 전, 이미 결정된 앞부분 시퀀스(tgt)를 한 번에
+        넣어서 self_kv_cache를 채우는 '캐시 워밍' — InlineTimeCorrector로 교정된 첫 마디
+        구간을 이걸로 캐시에 반영한 뒤, 그 다음 토큰부터는 decode_step_kv_cached로 이어간다."""
+        return self.decoder.forward_bulk_capture(tgt, memory_kv_cache, self_kv_cache)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
