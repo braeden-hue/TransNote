@@ -282,6 +282,59 @@ def greedy_decode(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
     return result
 
 
+@torch.no_grad()
+def greedy_decode_kv(seq2seq: OmrSeq2Seq, canvas: np.ndarray,
+                     device: torch.device,
+                     max_len: int = INFER_MAX_LEN,
+                     markov: Optional[MarkovDecodeConfig] = None,
+                     stop_token_id: Optional[int] = None) -> List[int]:
+    """greedy_decode()와 (부동소수점 오차 범위 내) 동일한 결과를 내면서, self-attention도
+    캐싱해서 스텝당 O(t)가 아니라 O(1)로 줄인 버전 -- 전체 O(T^3)->O(T^2)(2026-08-24,
+    model.py의 decode_step_kv_cached() 참고). 검증/속도 비교용으로 greedy_decode와 별도
+    함수로 둠 -- 검증 끝나고 방향이 맞으면 run_image()가 이쪽을 쓰도록 교체 예정.
+
+    ⚠️ time_correct(InlineTimeCorrector) 미지원: 그 기능은 이미 캐시에 반영된 과거
+    위치의 토큰을 되돌려 고쳐야 하는데, 진짜 KV캐시에서는 그 위치 이후 전부의 캐시가
+    이미 그 토큰을 반영해 계산돼 있어서 단순히 값만 바꿔치기하면 캐시와 실제 값이
+    어긋난다(재계산이 필요해서 캐싱의 이점이 없어짐) -- 이번 검증 범위 밖으로 뺌."""
+    tile_f = (canvas.astype(np.float32) / 255.0 - IMG_MEAN) / IMG_STD
+    inp    = make_model_input(tile_f, _encoder_in_ch(seq2seq)).unsqueeze(0).to(device)
+    seq2seq.eval()
+    memory        = seq2seq.encode(inp)
+    kv_cache      = seq2seq.precompute_memory_kv(memory)
+    self_kv_cache = seq2seq.precompute_self_attn_cache(1, max_len + 2, device, memory.dtype)
+    pos, cur_id = 0, SOS_ID
+    result = []
+    voice, prev_treble, prev_bass = 'treble', None, None
+    for step in range(max_len):
+        token_tensor = torch.tensor([[cur_id]], dtype=torch.long, device=device)
+        logits = seq2seq.decode_step_kv_cached(token_tensor, pos, kv_cache, self_kv_cache)
+        logits[0, EOS_ID] *= EOS_BOOST
+        if step > LONG_DECODE_THRESHOLD:
+            long_boost = 1.0 + (step - LONG_DECODE_THRESHOLD) * LONG_DECODE_RAMP
+            logits[0, EOS_ID] *= long_boost
+            if stop_token_id is not None:
+                logits[0, stop_token_id] *= long_boost
+        if markov is not None:
+            prev_pitch = prev_bass if voice == 'bass' else prev_treble
+            bias = _markov_bias(logits.shape[-1], prev_pitch, markov.note_ids, markov.note_steps,
+                                 markov.log_prob_table, markov.max_interval, markov.weight, device)
+            if bias is not None:
+                logits = logits + bias.unsqueeze(0)
+        nxt = int(logits.argmax(-1).item())
+        if nxt == EOS_ID: break
+        if nxt != PAD_ID:
+            result.append(nxt)
+            if markov is not None:
+                voice, prev_treble, prev_bass = _update_voice_state(
+                    voice, prev_treble, prev_bass, markov.id2tok.get(nxt, ''))
+            if stop_token_id is not None and nxt == stop_token_id:
+                break
+        pos += 1
+        cur_id = nxt
+    return result
+
+
 class _Beam:
     __slots__ = ('seq', 'tokens', 'score', 'finished', 'voice', 'prev_treble', 'prev_bass')
 

@@ -436,6 +436,91 @@ class Decoder(nn.Module):
         x = self.transformer.norm(x)
         return self.head(x)
 
+    # ─────────────────────────────────────────────────────────────────────
+    #  Self-attention KV캐시 디코딩 (2026-08-24)
+    #
+    #  forward_cached()는 cross-attention(memory) K,V만 캐싱하고 self-attention은
+    #  매 스텝 지금까지의 전체 past를 다시 계산한다 — 스텝 t에서 O(t²), 전체 O(T³).
+    #  RunPod GPU 서빙도 이 경로를 쓰므로 모바일뿐 아니라 지금 서빙 속도에도 영향을 준다.
+    #
+    #  아래 두 메서드는 self-attention도 진짜로 캐싱한다: 매 스텝 새 토큰 1개의 Q만
+    #  계산하고, 고정 크기 버퍼에 미리 할당해둔 K,V 캐시에서 지금까지 쓰인 부분만 읽어
+    #  attention을 계산한다 — 스텝당 O(t)가 아니라 O(1)(신규 토큰 1개 처리),
+    #  전체 O(T²)로 줄어든다. 고정 크기 버퍼를 쓰므로 매 스텝 텐서 shape이 그대로라
+    #  TFLite/ONNX처럼 동적 shape을 싫어하는 런타임에도 적합하다.
+    # ─────────────────────────────────────────────────────────────────────
+
+    def precompute_self_attn_cache(self, batch_size: int, max_len: int,
+                                    device: torch.device, dtype: torch.dtype = torch.float32):
+        """self-attention K,V 캐시용 고정 크기 버퍼를 레이어 수만큼 미리 할당한다.
+        decode_step_kv_cached()가 매 스텝 pos 위치에 직접 써넣는다 — pos보다 뒤쪽은
+        아직 안 읽으므로 초기값은 의미 없음(0으로 채움). max_len은 이 시퀀스에서 나올
+        수 있는 최대 토큰 수(예: INFER_MAX_LEN)로 잡으면 된다."""
+        D  = self.embed_dim
+        H  = self.transformer.layers[0].self_attn.num_heads
+        Dh = D // H
+        return [
+            (torch.zeros(batch_size, H, max_len, Dh, device=device, dtype=dtype),
+             torch.zeros(batch_size, H, max_len, Dh, device=device, dtype=dtype))
+            for _ in self.transformer.layers
+        ]
+
+    def decode_step_kv_cached(self, token_id: torch.Tensor, pos: int,
+                              memory_kv_cache, self_kv_cache) -> torch.Tensor:
+        """forward()/forward_cached()와 (부동소수점 오차 범위 내) 동일한 결과를 내면서
+        self-attention도 캐싱하는 버전.
+
+        token_id : [B, 1] — 이번에 새로 넣는 토큰 하나만(과거 전체를 다시 안 넣음).
+        pos      : 이 토큰의 0-index 위치(SOS=0). 호출부가 스텝마다 1씩 늘려서 넘긴다.
+        self_kv_cache : precompute_self_attn_cache()로 미리 할당해둔 [B,H,max_len,Dh]
+                        버퍼(레이어별) — 이 함수가 pos 위치에 새 K,V를 직접 써넣는다
+                        (in-place). 그래서 다음 스텝에도 이전에 쓴 값이 그대로 남아있다.
+
+        Returns: [B, 1, vocab_size] — 다음 토큰 logits.
+        """
+        D = self.embed_dim
+        emb = self.token_emb(token_id) * self.emb_scale         # [B,1,D]
+        x   = self.dropout(emb + self.pos_enc[:, pos:pos + 1, :])
+
+        for layer, (k_mem, v_mem), (k_cache, v_cache) in zip(
+                self.transformer.layers, memory_kv_cache, self_kv_cache):
+            # ── self-attention: 새 토큰의 Q,K,V만 계산, K/V는 캐시에 기록 후 캐시
+            #    전체(0..pos)에 대해 attention — 이게 forward_cached와 다른 부분 ──
+            x1  = layer.norm1(x)
+            sa  = layer.self_attn
+            H   = sa.num_heads
+            Dh  = D // H
+            B   = x1.shape[0]
+            in_b = sa.in_proj_bias
+            q = F.linear(x1, sa.in_proj_weight[:D],    in_b[:D]    if in_b is not None else None)
+            k = F.linear(x1, sa.in_proj_weight[D:2*D], in_b[D:2*D] if in_b is not None else None)
+            v = F.linear(x1, sa.in_proj_weight[2*D:],  in_b[2*D:]  if in_b is not None else None)
+            q = q.view(B, 1, H, Dh).transpose(1, 2)              # [B,H,1,Dh]
+            k = k.view(B, 1, H, Dh).transpose(1, 2)
+            v = v.view(B, 1, H, Dh).transpose(1, 2)
+            k_cache[:, :, pos:pos + 1, :] = k
+            v_cache[:, :, pos:pos + 1, :] = v
+            attn = F.scaled_dot_product_attention(
+                q, k_cache[:, :, :pos + 1, :], v_cache[:, :, :pos + 1, :])
+            attn = attn.transpose(1, 2).reshape(B, 1, D)
+            x = x + layer.dropout1(sa.out_proj(attn))
+
+            # ── cross-attention: 기존 memory 캐시 그대로 재사용(forward_cached와 동일) ──
+            x2   = layer.norm2(x)
+            mha  = layer.multihead_attn
+            in_bc = mha.in_proj_bias
+            qc = F.linear(x2, mha.in_proj_weight[:D], in_bc[:D] if in_bc is not None else None)
+            qc = qc.view(B, 1, H, Dh).transpose(1, 2)
+            attn2 = F.scaled_dot_product_attention(qc, k_mem, v_mem)
+            attn2 = attn2.transpose(1, 2).reshape(B, 1, D)
+            x = x + layer.dropout2(mha.out_proj(attn2))
+
+            # ── FFN ──
+            x = x + layer._ff_block(layer.norm3(x))
+
+        x = self.transformer.norm(x)
+        return self.head(x)                                      # [B,1,vocab_size]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  4. Combined Seq2Seq model
@@ -499,6 +584,20 @@ class OmrSeq2Seq(nn.Module):
         K,V를 매 스텝 재계산하지 않고 precompute_memory_kv() 캐시를 재사용한다
         (self-attention/FFN은 원본과 동일하게 매 스텝 전체 재계산 — Step1 범위)."""
         logits = self.decoder.forward_cached(past_ids, memory_kv_cache)
+        return logits[:, -1, :]
+
+    def precompute_self_attn_cache(self, batch_size: int, max_len: int,
+                                    device: torch.device, dtype: torch.dtype = torch.float32):
+        """decode_step_kv_cached에서 쓸 self-attention K,V 캐시 버퍼를 준비한다
+        (encode() 직후, precompute_memory_kv()와 함께 1회 호출)."""
+        return self.decoder.precompute_self_attn_cache(batch_size, max_len, device, dtype)
+
+    def decode_step_kv_cached(self, token_id: torch.Tensor, pos: int,
+                              memory_kv_cache, self_kv_cache) -> torch.Tensor:
+        """decode_step_cached보다 더 가속된 버전 -- self-attention도 캐싱해서 스텝당
+        O(t)가 아니라 O(1)(신규 토큰 1개 처리)로 줄인다(전체 O(T^3)->O(T^2)). token_id는
+        past_ids 전체가 아니라 이번에 새로 넣는 토큰 1개만 [B,1]로 넘긴다."""
+        logits = self.decoder.decode_step_kv_cached(token_id, pos, memory_kv_cache, self_kv_cache)
         return logits[:, -1, :]
 
 
