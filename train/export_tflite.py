@@ -318,7 +318,9 @@ def main():
     p = argparse.ArgumentParser(
         description="Export round3train (grand-staff) OMR models to TFLite."
     )
-    p.add_argument('--segnet',           required=True, help='segnet_best.pt')
+    p.add_argument('--segnet',           default=None,
+                   help='segnet_best.pt (선택 -- 현재 추론 경로는 오선 검출에 SegNet을 안 쓰고 '
+                        '순수 OpenCV(detect_staffs())만 쓰므로, 안 주면 SegNet export는 건너뜀)')
     p.add_argument('--seq2seq',          required=True, help='seq2seq_best.pt (encoder+decoder)')
     p.add_argument('--tokenizer',        default=os.path.join(os.path.dirname(__file__), 'tokenizer258.json'))
     p.add_argument('--data_dir',         default=None,
@@ -366,20 +368,23 @@ def main():
 
     # ── 1. SegNet ─────────────────────────────────────────
     print("--- [1/3] SegNet ---------------------------------------")
-    segnet   = load_segnet(args.segnet, device)
-    onnx_seg = os.path.join(tmp, 'segnet.onnx')
-    _export_onnx_segnet(segnet, onnx_seg)
-    _simplify(onnx_seg)
+    if not args.segnet:
+        print("    --segnet 안 줌 -- 건너뜀 (현재 오선 검출은 OpenCV detect_staffs()만 씀)\n")
+    else:
+        segnet   = load_segnet(args.segnet, device)
+        onnx_seg = os.path.join(tmp, 'segnet.onnx')
+        _export_onnx_segnet(segnet, onnx_seg)
+        _simplify(onnx_seg)
 
-    calib_seg = None
-    if quantize:
-        calib_seg = os.path.join(tmp, 'calib_segnet.npy')
-        _build_segnet_calib(image_paths, calib_seg, n=args.calib_n)
+        calib_seg = None
+        if quantize:
+            calib_seg = os.path.join(tmp, 'calib_segnet.npy')
+            _build_segnet_calib(image_paths, calib_seg, n=args.calib_n)
 
-    tflite_seg = os.path.join(tmp, 'segnet_INT8.tflite')
-    if _convert_tflite(onnx_seg, tflite_seg, calib_seg, quantize, input_op_name='input'):
-        _save_versioned(tflite_seg, args.out_dir, 'segnet_INT8', args.version)
-    print()
+        tflite_seg = os.path.join(tmp, 'segnet_INT8.tflite')
+        if _convert_tflite(onnx_seg, tflite_seg, calib_seg, quantize, input_op_name='input'):
+            _save_versioned(tflite_seg, args.out_dir, 'segnet_INT8', args.version)
+        print()
 
     # ── 2. Encoder ────────────────────────────────────────
     print("--- [2/3] Encoder --------------------------------------")
