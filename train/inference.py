@@ -39,7 +39,7 @@ sys.path.insert(0, str(_HERE))
 
 from music21.pitch import Pitch
 
-from model import OmrSeq2Seq, SOS_ID, EOS_ID, PAD_ID, MAX_SEQ
+from model import OmrSeq2Seq, SOS_ID, EOS_ID, PAD_ID, MAX_SEQ, infer_arch_from_state_dict
 from dataset import (load_preprocessed, extract_staff_canvas,
                      extract_system_canvas, best_effort_staff_detection,
                      IMG_MEAN, IMG_STD, load_tokenizer, make_model_input)
@@ -1292,8 +1292,14 @@ def main():
     print(f"Device: {device}")
 
     tok2id, id2tok = load_tokenizer(args.tokenizer)
-    seq2seq = OmrSeq2Seq(vocab_size=len(tok2id)).to(device)
-    ckpt    = torch.load(args.seq2seq, map_location='cpu', weights_only=False)
+    ckpt = torch.load(args.seq2seq, map_location='cpu', weights_only=False)
+    # 체크포인트마다 아키텍처(in_ch/extra_height_stages/pool_h)가 다를 수 있어(예: r15의
+    # CoordConv in_ch=2) 생성자 기본값으로 만들면 shape mismatch가 난다 — handler.py와
+    # 동일하게 state_dict에서 실제 아키텍처를 역산해서 쓴다(2026-08-24, export_tflite.py에서
+    # 겪은 것과 같은 버그가 여기 CLI 진입점에도 있었음).
+    arch = infer_arch_from_state_dict(ckpt['model'])
+    print(f"Detected arch: {arch}")
+    seq2seq = OmrSeq2Seq(vocab_size=len(tok2id), **arch).to(device)
     seq2seq.load_state_dict(ckpt['model'])
     seq2seq.eval()
     print(f"모델 로드: {args.seq2seq}")

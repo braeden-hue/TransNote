@@ -50,14 +50,66 @@ ONNX→TFLite export 스크립트로 저장소에 남아있었다. 처음부터 
 값, 수정 불필요. (`CANVAS_W=1280`에서 유도된 폭 기준 다운샘플링 값이라 캔버스 높이와
 무관하게 고정되는 구조.)
 
+### A단계 마무리 — 같은 버그가 `inference.py`의 CLI 진입점(`main()`)에도 있었음
+
+CLAUDE.md가 공식 안내하는 명령(`python train/inference.py --seq2seq ... --analyze ...`)의
+`main()`도 `export_tflite.py`와 똑같이 `OmrSeq2Seq(vocab_size=len(tok2id))`를 기본값으로
+생성하고 있었음 — r15로 이 명령을 실행하면 그대로 shape mismatch. 동일 패턴으로
+`infer_arch_from_state_dict()` 적용해 수정. 즉 이 버그가 **세 곳**(handler.py는 원래부터
+정상, export_tflite.py, inference.py main())에서 반복됐던 것 — r15로의 전환(CoordConv 도입)
+당시 handler.py만 고쳐지고 나머지 두 스크립트는 안 고쳐진 채로 방치됐던 것으로 보임.
+
+### 저장소 결정 확정
+
+TransNote 저장소가 이번에 "웹앱 제거 + RunPod/모바일 중심"으로 재편되면서 자연히 해결됨 —
+`export_tflite.py`/양자화 작업은 TransNote에 그대로 두고 계속 진행. 표기법 규칙 문서만
+Model_TransNote로 이전(학습 코드가 거기 있으므로).
+
+**A단계 완료.**
+
+### B단계 착수 — FP32 베이스라인 실측
+
+`inference.py` 수정 직후 바로 실행 가능해져서 로컬에 남아있던 `test/data`(20개 합성 샘플,
+.png+.json 쌍)로 첫 베이스라인을 재봤다:
+
+```bash
+python train/inference.py --seq2seq train/checkpoints/r15_cropfix_coordconv/seq2seq_best.pt \
+    --tokenizer train/tokenizer258.json --analyze test/data --n_analyze 20
+```
+
+결과 (2026-08-24, CPU, greedy decode):
+- 전체 TER 기준 Acc **67.9%**, 음표 단위 Acc **81.7%** (Treble 85.9% / Bass 88.0%)
+- header 90.3%, note/rest 87.8%, barline 92.5%, dynamic 89.3%
+
+**⚠️ 주의 — 포스터의 91%/96%와 직접 비교 불가**: 이 20개는 `test/data`에 남아있던 합성
+데이터이고, 포스터의 91%(전체)/96%(캡처 이미지) 수치가 어떤 held-out 셋을 썼는지는 여기
+기록에 없다(Model_TransNote 쪽 `TRAINING_REPORT.md`에 근거가 있을 것 — 아직 확인 안 함).
+지금 숫자는 **"양자화 전/후 비교용 내부 기준점"**으로만 쓴다 — 같은 20개 샘플, 같은 명령으로
+재실행하면 항상 비교 가능하다는 게 핵심이지, 포스터 수치를 재현한 게 아니다.
+
+한 가지 구체적 오류 패턴도 확인됨: 3/4 vs 6/8 박자표 혼동(`correct_time_signature`가
+휴리스틱으로 처리하는 바로 그 케이스, 길이 합이 같아서 구분이 원래 어려움) — 포트폴리오용
+"실패 사례" 후보로 기록해둠.
+
+**참고**: `realImage/scoped_test_kakao/compare_report.txt`에 실사(카카오톡) 사진 비교
+리포트가 이미 존재하지만, 어느 체크포인트로 만들어졌는지 기록이 없어 지금은 신뢰 안 함 —
+필요하면 나중에 같은 방식으로 재현.
+
 ## 다음 단계 (TODO)
 
+- [x] ~~export_tflite.py 아키텍처 버그 수정~~ (2026-08-24, `a3e961c`)
+- [x] ~~inference.py main() 같은 버그 수정~~ (2026-08-24)
+- [x] ~~저장소 결정~~ — TransNote에서 계속
+- [x] ~~FP32 베이스라인 1차 측정~~ — test/data 20개, Acc 81.7%(음표 기준). 더 크고 대표성
+      있는 held-out 셋으로 재측정 필요(아래)
 - [ ] export_tflite.py 전체 파이프라인(인코더+디코더) 끝까지 실행 테스트 — 지금은 인코더
       export만 개별 검증함
 - [ ] 목표 스택 결정: Android(TFLite)만 vs iOS(Core ML)까지
 - [ ] **디코더 KV캐시 결정**: 상태유지형 온디바이스 구현 vs O(T²) 재계산 감수
-- [ ] FP32 held-out 정확도 재측정 + 재현 조건 기록 (베이스라인)
-- [ ] 모바일 CPU 기준 속도 베이스라인 측정 (지금까지는 RunPod GPU 수치뿐)
+- [ ] 더 크고 대표성 있는 held-out 셋 확보 + 정확도 재측정 (20개는 표본 너무 작음, 실사
+      이미지도 포함 필요)
+- [ ] 모바일 CPU 기준 속도 베이스라인 측정 (지금까지는 RunPod GPU 수치뿐, 이번 CPU 실행도
+      정확한 시간을 안 쟀음 — 재실행 시 시간 기록할 것)
 - [ ] INT8 캘리브레이션용 대표 이미지셋 확보(장르 다양, 대보표 검출 가능한 것)
 - [ ] 정량 목표치(정확도 허용폭, 속도 목표) 숫자로 확정
 - [ ] 실제 타깃 기기 확보 + 프로파일링 도구 준비
@@ -65,9 +117,9 @@ ONNX→TFLite export 스크립트로 저장소에 남아있었다. 처음부터 
 
 ## 실험 기록 (진행되면 추가)
 
-| 날짜 | 정밀도 방식 | 크기 | held-out 정확도 | 실기 속도 | 메모 |
+| 날짜 | 정밀도 방식 | 크기 | held-out 정확도 (test/data 20개, 음표 기준) | 실기 속도 | 메모 |
 |---|---|---|---|---|---|
-| — | FP32 (r15, 베이스라인) | 185MB | (재측정 예정) | (미측정) | — |
+| 2026-08-24 | FP32 (r15, 베이스라인) | 185MB | 81.7% (Treble 85.9%/Bass 88.0%) | 미측정 (CPU, 시간 미기록) | 표본 20개뿐, 재측정 필요 |
 
 ## 포트폴리오용 캡처 포인트 (계획)
 
