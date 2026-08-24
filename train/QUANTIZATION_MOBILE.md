@@ -204,12 +204,16 @@ Container Image를 새 커밋의 구체적 `:<sha>` 태그로 직접 바꿔줘�
       모바일뿐 아니라 현재 서빙 속도에도 적용 가능. `inference.py`에 `greedy_decode_kv()`로
       기존 `greedy_decode`와 별도 추가, newage21~30 10곡 검증: **토큰 시퀀스 10/10 완전
       일치**(정확성 확인), **속도 평균 2.0배 개선**(CPU, 1.4~3.8배). 커밋 `0707781`
-- [ ] **미결정 — production(run_image/beam_decode) 적용 여부**: `greedy_decode_kv`는
-      `time_correct`(InlineTimeCorrector, 마디 중간 박자표 재추정)를 지원 안 함 — 이미
-      캐시에 반영된 과거 위치를 되돌려 고치는 게 진짜 KV캐시와 구조적으로 안 맞음. 지금
-      production은 이 기능을 항상 씀. 2배 속도 이득과 이 기능 손실을 맞바꿀지 결정 필요
-      (사후 `correct_time_signature()`는 이 기능과 무관하게 항상 따로 돌아가서 완전한
-      안전판 상실은 아님)
+- [x] ~~production(run_image/beam_decode) 적용~~ — 처음엔 `time_correct` 없이 그대로
+      적용했다가 production 검증(analyze_sample)에서 정확도가 94.2%→90.9%로 떨어지는
+      걸 실측(newage25, 6/8박자, 97.8%→65.8% 급락 — InlineTimeCorrector가 원래 다루던
+      3/4·6/8 혼동 케이스). **하이브리드로 재설계**: 첫 마디는 캐시없는 방식(`decode_
+      step_cached`)으로 돌려 InlineTimeCorrector를 그대로 받고, 첫 마디가 끝나면
+      `forward_bulk_capture()`로 그 구간 전체를 self-attention 캐시에 한 번에 채운 뒤,
+      나머지는 `decode_step_kv_cached`로 빠르게 이어간다. **재검증(production 경로
+      그대로): 정확도 94.2%(완전 복원) + 속도 2.95s/장(기존 4.7~5.5s/장 대비 약
+      1.6~1.8배)** — 정확도 손실 없이 속도만 얻음. 커밋 `61d5586`. `train/*.py`라 다음
+      Docker 빌드부터 실서비스에 반영됨(container image 태그 교체는 사용자가 직접 진행)
 - [ ] TFLite export를 self-attention KV캐시 기반으로 재설계(growing 텐서 대신 고정 크기
       버퍼) — 위 크래시 문제의 근본 해결책, 지금 이 캐시 구현이 그 설계와 바로 맞음
 - [ ] 실제 모바일 기기 기준 속도 베이스라인 측정 (지금 있는 건 개발 PC CPU 수치뿐,
@@ -231,7 +235,8 @@ Container Image를 새 커밋의 구체적 `:<sha>` 태그로 직접 바꿔줘�
 | 2026-08-24 | FP32 (r15, 20개 합성) | 185MB | 81.7% (Treble 85.9%/Bass 88.0%) | 개발 PC CPU ~4.9초/장(+로드 ~6.1초, 1회) | 표본 작음, 참고용. 학습 포함 여부 불확실 |
 | 2026-08-24 | FP32 (r15, exactPicture 131개) | 185MB | 82.1%(TER기준 80.3%) | CPU 4.7초/장 | ⚠️ held-out 아님(대부분 학습에 쓰인 데이터), 베이스라인으로 쓰지 말 것 |
 | 2026-08-24 | FP32 (r15, **공식 held-out 베이스라인**) | 185MB | **94.2%**(newage21~30 10곡, 중앙값 96.7%) | CPU, `greedy_decode`(캐시 없는 self-attn) 기준 | 진짜 학습에 안 쓰인 유일한 셋. n=10로 작음 |
-| 2026-08-24 | FP32 (r15, self-attn KV캐시) | 185MB(가중치 동일, 코드만 다름) | **94.2%(동일)** — 토큰 시퀀스 10/10 완전 일치 확인 | CPU, `greedy_decode_kv` — **위 대비 평균 2.0배(1.4~3.8배)** | 정확도 손실 없이 속도만 개선. production 미적용(아래 미결정 참고) |
+| 2026-08-24 | FP32 (r15, self-attn KV캐시, time_correct 없이) | 185MB | 90.9% — ⚠️ 하락 확인 | CPU | InlineTimeCorrector 없이 순수 캐시만 적용한 시행착오. newage25가 65.8%로 급락(6/8박자) — production 반영 안 함 |
+| 2026-08-24 | FP32 (r15, **하이브리드: KV캐시+InlineTimeCorrector**, production) | 185MB | **94.2%(원본과 동일)** | CPU 2.95s/장 (기존 4.7~5.5s/장 대비 1.6~1.8배) | 정확도 손실 없이 속도만 개선 — **현재 production 코드**, 커밋 `61d5586` |
 
 ## 포트폴리오용 캡처 포인트 (계획)
 
