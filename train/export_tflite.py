@@ -61,7 +61,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(__file__))
-from model import SegNet, OmrSeq2Seq, CANVAS_W, SEQ_LEN, NUM_CLASSES, SOS_ID, infer_arch_from_state_dict
+from model import SegNet, OmrSeq2Seq, CANVAS_W, SEQ_LEN, NUM_CLASSES, SOS_ID, PAD_ID, infer_arch_from_state_dict
 from dataset import (load_preprocessed, detect_staffs, extract_system_canvas,
                      IMG_MEAN, IMG_STD, SYSTEM_CANVAS_H, load_tokenizer, make_model_input)
 
@@ -340,6 +340,108 @@ def _export_onnx_decoder_kv(seq2seq: OmrSeq2Seq, out: str, cache_len: int = 300)
     print(f"    ONNX -> {out}")
 
 
+class _BulkCaptureWrapperKV(nn.Module):
+    """고정 길이 청크(chunk_len개 토큰)를 한 번에 넣어서 self-attention K,V 캐시를
+    일괄로 채우는 wrapper (2026-08-24). PyTorch의 forward_bulk_capture()와 같은 목적:
+    InlineTimeCorrector로 교정된 "첫 마디" 구간을 _DecoderStepWrapperKV로 넘어가기 전에
+    한 번에 캐시에 반영한다.
+
+    한 위치(예: 박자표 토큰)만 나중에 고치는 게 안 되는 이유: attention이 매 레이어 모든
+    앞선 위치를 섞기 때문에, 한 위치의 토큰을 바꾸면 그 뒤 모든 위치의 hidden state가
+    이론적으로 다 달라져야 한다(부분 패치 불가) -- 그래서 "고친 뒤 전체를 한 번에
+    다시 계산"하는 이 방식이 필요하다.
+
+    chunk_len은 고정(예: 40 -- 첫 마디가 보통 이보다 짧음, 실제 길이보다 짧으면 뒤쪽은
+    PAD_ID로 채움). causal masking이라 패딩 위치는 앞쪽 실제 위치의 계산에 전혀 영향을
+    주지 않는다(뒤쪽만 보고, 패딩은 항상 뒤쪽에 있으므로).
+
+    Inputs:
+      tokens : [1, chunk_len]         int64 — SOS 포함, 실제 길이보다 뒤는 PAD_ID
+      memory : [1, SEQ_LEN, 512]      float32
+
+    Outputs:
+      k_cache_out, v_cache_out : [num_layers, 1, H, cache_len, Dh] — 0..chunk_len-1 위치가
+      채워짐(cache_len - chunk_len만큼은 0으로 패딩). 이후 _DecoderStepWrapperKV가
+      pos=실제 길이-1부터 이어서 씀.
+    """
+    def __init__(self, decoder: nn.Module, chunk_len: int, cache_len: int):
+        super().__init__()
+        self.decoder = decoder
+        self.chunk_len = chunk_len
+        self.cache_len = cache_len
+
+    def forward(self, tokens, memory):
+        decoder = self.decoder
+        D = decoder.embed_dim
+        M = self.chunk_len
+        B = tokens.shape[0]
+
+        emb = decoder.token_emb(tokens) * decoder.emb_scale     # [1,M,D]
+        x = emb + decoder.pos_enc[:, :M, :]
+
+        k_out_layers, v_out_layers = [], []
+        for layer in decoder.transformer.layers:
+            x1 = layer.norm1(x)
+            sa = layer.self_attn
+            H = sa.num_heads
+            Dh = D // H
+            in_b = sa.in_proj_bias
+            q = F.linear(x1, sa.in_proj_weight[:D],    in_b[:D]    if in_b is not None else None)
+            k = F.linear(x1, sa.in_proj_weight[D:2*D], in_b[D:2*D] if in_b is not None else None)
+            v = F.linear(x1, sa.in_proj_weight[2*D:],  in_b[2*D:]  if in_b is not None else None)
+            q = q.view(B, M, H, Dh).transpose(1, 2)            # [1,H,M,Dh]
+            k = k.view(B, M, H, Dh).transpose(1, 2)
+            v = v.view(B, M, H, Dh).transpose(1, 2)
+            attn = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+            attn = attn.transpose(1, 2).reshape(B, M, D)
+            x = x + layer.dropout1(sa.out_proj(attn))
+
+            x2 = layer.norm2(x)
+            mha = layer.multihead_attn
+            in_bc = mha.in_proj_bias
+            qc = F.linear(x2, mha.in_proj_weight[:D], in_bc[:D] if in_bc is not None else None)
+            kc = F.linear(memory, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None)
+            vc = F.linear(memory, mha.in_proj_weight[2*D:], in_bc[2*D:] if in_bc is not None else None)
+            S = memory.shape[1]
+            qc = qc.view(B, M, H, Dh).transpose(1, 2)
+            kc = kc.view(B, S, H, Dh).transpose(1, 2)
+            vc = vc.view(B, S, H, Dh).transpose(1, 2)
+            attn2 = F.scaled_dot_product_attention(qc, kc, vc)
+            attn2 = attn2.transpose(1, 2).reshape(B, M, D)
+            x = x + layer.dropout2(mha.out_proj(attn2))
+
+            x = x + layer._ff_block(layer.norm3(x))
+
+            pad_len = self.cache_len - M
+            k_pad = F.pad(k, (0, 0, 0, pad_len))   # [1,H,cache_len,Dh]
+            v_pad = F.pad(v, (0, 0, 0, pad_len))
+            k_out_layers.append(k_pad)
+            v_out_layers.append(v_pad)
+
+        k_cache_out = torch.stack(k_out_layers, dim=0)
+        v_cache_out = torch.stack(v_out_layers, dim=0)
+        return k_cache_out, v_cache_out
+
+
+def _export_onnx_bulk_capture(seq2seq: OmrSeq2Seq, out: str, chunk_len: int = 40,
+                              cache_len: int = 300):
+    """_BulkCaptureWrapperKV export. 모든 shape이 고정(chunk_len, cache_len)이라
+    dynamic_axes 불필요 -- _export_onnx_decoder_kv와 동일한 이유로 TFLite 안전."""
+    decoder = seq2seq.decoder
+    wrapper = _BulkCaptureWrapperKV(decoder, chunk_len, cache_len).eval()
+    dummy_tokens = torch.full((1, chunk_len), PAD_ID, dtype=torch.long)
+    dummy_tokens[0, 0] = SOS_ID
+    dummy_mem = torch.zeros(1, SEQ_LEN, 512)
+    torch.onnx.export(
+        wrapper, (dummy_tokens, dummy_mem), out,
+        input_names=['tokens', 'memory'],
+        output_names=['k_cache_out', 'v_cache_out'],
+        opset_version=17,
+        dynamo=False,
+    )
+    print(f"    ONNX(일괄 캐시 채우기, chunk_len={chunk_len}) -> {out}")
+
+
 def _simplify(onnx_path: str):
     try:
         import onnx
@@ -457,6 +559,8 @@ def main():
     p.add_argument('--device',           default='cpu')
     p.add_argument('--cache_len',        type=int, default=300,
                    help='디코더 self-attention KV캐시 고정 크기(최대 디코딩 스텝 수, INFER_MAX_LEN과 맞춤)')
+    p.add_argument('--chunk_len',        type=int, default=40,
+                   help='일괄 캐시 채우기 그래프의 고정 청크 길이(첫 마디 최대 토큰 수 상한)')
     args = p.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -552,6 +656,20 @@ def main():
                        keep_layout_input_names=['token_id', 'pos', 'memory',
                                                  'k_cache_in', 'v_cache_in']):
         _save_versioned(tflite_dec, args.out_dir, 'decoder_INT8', args.version)
+    print()
+
+    # ── 3b. Decoder 일괄 캐시 채우기(InlineTimeCorrector 호환용) ──
+    print("--- [3b] Decoder bulk-capture ------------------------------")
+    print(f"    Interface: (tokens[1,{args.chunk_len}], memory[1,S,512]) -> (k_cache_out, v_cache_out)")
+    print("    첫 마디(InlineTimeCorrector 교정 구간)를 한 번에 캐시에 반영하는 용도")
+    onnx_bulk = os.path.join(tmp, 'decoder_bulk.onnx')
+    _export_onnx_bulk_capture(seq2seq, onnx_bulk, chunk_len=args.chunk_len,
+                              cache_len=args.cache_len)
+    _simplify(onnx_bulk)
+    tflite_bulk = os.path.join(tmp, 'decoder_bulk_INT8.tflite')
+    if _convert_tflite(onnx_bulk, tflite_bulk, None, False, input_op_name='tokens',
+                       keep_layout_input_names=['tokens', 'memory']):
+        _save_versioned(tflite_bulk, args.out_dir, 'decoder_bulk_INT8', args.version)
     print()
 
     # ── 4. Tokenizer ──────────────────────────────────────
