@@ -271,10 +271,18 @@ projection 가중치가 표준 softmax dot-product attention에 맞춰 학습돼
 - [x] ~~Python 인터프리터로 실제 이미지 → 토큰 출력까지 되는 추론 스크립트 작성~~ —
       `train/tflite_infer.py`(영구 보관, ① 최종 산출물). PyTorch 모델 로드 전혀 없이
       `encoder_INT8.tflite`+`decoder_INT8.tflite` 두 파일만으로 동작
-- [x] ~~reshape 크래시 재현 안 되는지 확인~~ — newage24 실사 이미지로 111토큰 끝까지
-      크래시 없이 생성(이전엔 2번째 스텝에서 죽었음), **PyTorch 원본 출력과 토큰 완전
-      일치**(정확성 검증), 97ms/토큰, 인터프리터 리사이즈는 최초 1회만 필요(이전엔 매
-      스텝 필요해서 18.7초/스텝이었음)
+- [x] ~~reshape 크래시 재현 안 되는지 확인~~ — 처음엔 newage24 1곡만 확인(111토큰 끝까지
+      크래시 없이 생성, PyTorch 원본 출력과 토큰 완전 일치)했다가, **newage21~30 10곡
+      전체로 재확인** — **10/10 크래시 없음.** 리사이즈는 최초 1회만 필요(이전 growing
+      방식은 매 스텝 필요해서 18.7초/스텝이었음).
+- [x] ~~production과 공정한 정확도 비교~~ — 처음엔 `tflite_infer.py`에 EOS_BOOST/후처리가
+      빠져 있어 85.5%로 낮게 나옴 → 추가 후 재검증 **89.5%**. 남은 차이(PyTorch 94.2%
+      대비)는 `InlineTimeCorrector`(마디 중간 박자표 재추정) 미지원 때문으로 특정 —
+      newage25/26(6/8박자, 정확히 이 기능이 다루는 케이스)에 집중돼 있음. **InlineTimeCorrector
+      없는 PyTorch 버전(90.9%)과 비교하면 1.4%p 차이**로 훨씬 가까움 → TFLite 변환 자체의
+      정확도 손실은 작고, 아직 안 옮긴 기능 하나가 차이의 대부분. 커밋 `0d08ec2`
+      (InlineTimeCorrector를 TFLite 쪽에도 이식할지는 별도 판단 — 고정 캐시 설계와
+      구조적으로 안 맞아서 PyTorch만큼 간단하지 않음, ②/③ 이후 필요시 재검토)
 
 ### ② 정량적 성능 프로파일링 (가장 중요 — README에 벤치마크 리포트로 작성)
 
