@@ -147,15 +147,21 @@ def main():
     print(f"이미지 {len(images)}개로 벤치마크 (newage21~30 held-out)\n")
 
     results = []
-    print("[1/2] PyTorch(개발 PC CPU) 측정 중...")
+    print("[1/3] PyTorch(개발 PC CPU) 측정 중...")
     results.append(bench_pytorch(images))
 
-    print("[2/2] TFLite(FP32, CPU) 측정 중...")
+    print("[2/3] TFLite(FP32, CPU) 측정 중...")
     results.append(bench_tflite(images, TFLITE_FP32_DIR, "TFLite FP32 (CPU)"))
 
-    # FP16/dynamic-range는 이 커스텀 attention 그래프에서 둘 다 실패로 결론남(아래 report
-    # 참고) -- 10곡 전체 루프는 돌리지 않고 크기+1장 상태만 짧게 확인.
-    print("\nTFLite FP16 시도(런타임 실패 여부 확인)...")
+    # 2026-08-26: 인코더(FP32 고정, CoordConv CNN에서 dynamic-range 시 수치 발산 확인됨)
+    # + 디코더/일괄캐시(dynamic-range, Where->산술 블렌드 치환으로 양자화 스케일 버그 회피)
+    # 하이브리드 -- 10곡 전체 루프로 실측(더 이상 실패 케이스가 아니라 정상 동작 확인됨).
+    print("[3/3] TFLite Hybrid(FP32 인코더+Dynamic-Range 디코더/일괄캐시, CPU) 측정 중...")
+    results.append(bench_tflite(images, TFLITE_DR_DIR, "TFLite Hybrid DR (CPU)"))
+
+    # 순수 FP16(그래프 전체 fp16, 인코더까지)은 여전히 실패 -- 10곡 전체 루프는 생략하고
+    # 크기+1장 상태만 짧게 확인.
+    print("\nTFLite FP16(그래프 전체) 시도(런타임 실패 여부 확인)...")
     fp16_size = sum((TFLITE_FP16_DIR / f).stat().st_size for f in
                     ('encoder_INT8.tflite', 'decoder_INT8.tflite', 'decoder_bulk_INT8.tflite')
                     if (TFLITE_FP16_DIR / f).exists()) / (1024 * 1024)
@@ -164,12 +170,6 @@ def main():
         fp16_status = f"성공 ({r.get('avg_ms', 0):.0f}ms)"
     except Exception as e:
         fp16_status = f"런타임 실패 -- {str(e)[:80]}"
-
-    print("\nTFLite dynamic-range 양자화 시도(수치 발산 여부 확인)...")
-    dr_size = sum((TFLITE_DR_DIR / f).stat().st_size for f in
-                  ('encoder_INT8.tflite', 'decoder_INT8.tflite', 'decoder_bulk_INT8.tflite')
-                  if (TFLITE_DR_DIR / f).exists()) / (1024 * 1024)
-    dr_status = "인코더 출력 수치 발산(mean~3e28, std=inf) -- 2026-08-26 확인, QUANTIZATION_MOBILE.md 참고"
 
     print(f"\n{'='*70}")
     print("  벤치마크 리포트")
@@ -180,18 +180,16 @@ def main():
         if 'avg_ms' in r:
             print(f"  추론 레이턴시  : 평균 {r['avg_ms']:.0f}ms  (최소 {r['min_ms']:.0f}ms / 최대 {r['max_ms']:.0f}ms)")
         print(f"  Peak Memory    : {r['peak_mem_mb']:.0f} MB  (측정 구간 증가분 {r['mem_delta_mb']:+.0f} MB)")
-    print(f"\nTFLite FP16 (CPU)")
+        if 'errors' in r and r['errors']:
+            print(f"  에러(크래시)   : {r['errors']}/{len(images)}")
+    print(f"\nTFLite FP16(그래프 전체, CPU)")
     print(f"  모델 크기      : {fp16_size:.1f} MB  (FP32 대비 {fp16_size/results[1]['model_size_mb']*100:.0f}%)")
     print(f"  런타임         : {fp16_status}")
-    print(f"\nTFLite Dynamic-Range 양자화 (CPU)")
-    print(f"  모델 크기      : {dr_size:.1f} MB  (FP32 대비 {dr_size/results[1]['model_size_mb']*100:.0f}%, "
-          f"디코더가 커스텀 attention이라 거의 압축 안 됨)")
-    print(f"  런타임         : {dr_status}")
     print(f"\n정확도(별도 검증된 값 인용, held-out newage21~30 10곡 평균):")
-    print(f"  PyTorch(하이브리드)      : 94.2%")
-    print(f"  TFLite FP32(하이브리드)  : 93.0%")
-    print(f"  TFLite FP16              : 측정 불가(런타임 실패)")
-    print(f"  TFLite Dynamic-Range     : 측정 불가(수치 발산)")
+    print(f"  PyTorch(하이브리드)                        : 94.2%")
+    print(f"  TFLite FP32                                : 93.0%")
+    print(f"  TFLite Hybrid(FP32 인코더+DR 디코더/일괄캐시) : 94.3%")
+    print(f"  TFLite FP16(그래프 전체)                    : 측정 불가(런타임 실패)")
 
 
 if __name__ == '__main__':

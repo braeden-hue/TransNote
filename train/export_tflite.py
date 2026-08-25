@@ -270,39 +270,54 @@ class _DecoderStepWrapperKV(nn.Module):
             sa = layer.self_attn
             H = sa.num_heads
             Dh = D // H
-            B = x1.shape[0]
+            B, T, _ = x1.shape   # T=1(단일 스텝)
+            # (2026-08-26) 3D 입력([B,T,D])으로 F.linear/nn.Linear를 그대로 부르면 ONNX가
+            # MatMul(→TFLite BATCH_MATMUL)로 export해서 dynamic-range 양자화/fp16 hybrid
+            # 커널의 양자화 대상에서 빠진다(QUANTIZATION_MOBILE.md 참고, 팀원 제안). 모든
+            # linear 적용 전에 2D([B*T,D])로 펴서 Gemm(→TFLite FULLY_CONNECTED)으로 유도하고
+            # 끝나면 다시 3D로 되돌린다 — 수학적으로 동일 연산, export 표현만 바뀜.
+            x1_2d = x1.reshape(B * T, D)
             in_b = sa.in_proj_bias
-            q = F.linear(x1, sa.in_proj_weight[:D],    in_b[:D]    if in_b is not None else None)
-            k = F.linear(x1, sa.in_proj_weight[D:2*D], in_b[D:2*D] if in_b is not None else None)
-            v = F.linear(x1, sa.in_proj_weight[2*D:],  in_b[2*D:]  if in_b is not None else None)
+            q = F.linear(x1_2d, sa.in_proj_weight[:D],    in_b[:D]    if in_b is not None else None).view(B, T, D)
+            k = F.linear(x1_2d, sa.in_proj_weight[D:2*D], in_b[D:2*D] if in_b is not None else None).view(B, T, D)
+            v = F.linear(x1_2d, sa.in_proj_weight[2*D:],  in_b[2*D:]  if in_b is not None else None).view(B, T, D)
             q = q.view(B, 1, H, Dh).transpose(1, 2)              # [1,H,1,Dh]
             k = k.view(B, 1, H, Dh).transpose(1, 2)
             v = v.view(B, 1, H, Dh).transpose(1, 2)
 
-            k_cache_new = torch.where(write_mask, k.expand(-1, -1, C, -1), k_cache)
-            v_cache_new = torch.where(write_mask, v.expand(-1, -1, C, -1), v_cache)
+            # (2026-08-26) torch.where(mask, a, b) 대신 산술 블렌드(mask*a + (1-mask)*b)를 쓴다 --
+            # onnx2tf의 dynamic-range 양자화가 Where/Select 노드의 상수 피연산자를 가중치로
+            # 오인해 스케일을 2.68e36 같은 값으로 잘못 계산해서 즉시 NaN이 되는 버그를 확인함
+            # (QUANTIZATION_MOBILE.md 참고). Mul/Add만 쓰면 Where 노드 자체가 안 생겨서 회피된다.
+            write_f = write_mask.to(k_cache.dtype)
+            k_cache_new = k_cache * (1 - write_f) + k.expand(-1, -1, C, -1) * write_f
+            v_cache_new = v_cache * (1 - write_f) + v.expand(-1, -1, C, -1) * write_f
 
             scores = torch.matmul(q, k_cache_new.transpose(-2, -1)) / (Dh ** 0.5)  # [1,H,1,C]
-            scores = scores.masked_fill(~valid_mask, float('-inf'))
+            scores = scores + (~valid_mask).to(scores.dtype) * -1e9
             attn = torch.matmul(torch.softmax(scores, dim=-1), v_cache_new)        # [1,H,1,Dh]
-            attn = attn.transpose(1, 2).reshape(B, 1, D)
-            x = x + layer.dropout1(sa.out_proj(attn))
+            attn = attn.transpose(1, 2).reshape(B * 1, D)
+            x = x + layer.dropout1(sa.out_proj(attn).view(B, 1, D))
 
             x2 = layer.norm2(x)
             mha = layer.multihead_attn
             in_bc = mha.in_proj_bias
-            qc = F.linear(x2, mha.in_proj_weight[:D], in_bc[:D] if in_bc is not None else None)
-            kc = F.linear(memory, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None)
-            vc = F.linear(memory, mha.in_proj_weight[2*D:], in_bc[2*D:] if in_bc is not None else None)
             S = memory.shape[1]
+            x2_2d = x2.reshape(B * 1, D)
+            mem_2d = memory.reshape(B * S, D)
+            qc = F.linear(x2_2d, mha.in_proj_weight[:D],    in_bc[:D]    if in_bc is not None else None).view(B, 1, D)
+            kc = F.linear(mem_2d, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None).view(B, S, D)
+            vc = F.linear(mem_2d, mha.in_proj_weight[2*D:],  in_bc[2*D:]  if in_bc is not None else None).view(B, S, D)
             qc = qc.view(B, 1, H, Dh).transpose(1, 2)
             kc = kc.view(B, S, H, Dh).transpose(1, 2)
             vc = vc.view(B, S, H, Dh).transpose(1, 2)
             attn2 = F.scaled_dot_product_attention(qc, kc, vc)
-            attn2 = attn2.transpose(1, 2).reshape(B, 1, D)
-            x = x + layer.dropout2(mha.out_proj(attn2))
+            attn2 = attn2.transpose(1, 2).reshape(B * 1, D)
+            x = x + layer.dropout2(mha.out_proj(attn2).view(B, 1, D))
 
-            x = x + layer._ff_block(layer.norm3(x))
+            x3_2d = layer.norm3(x).reshape(B * 1, D)
+            ff = layer.linear2(layer.dropout(layer.activation(layer.linear1(x3_2d))))
+            x = x + layer.dropout3(ff).view(B, 1, D)
 
             k_out_layers.append(k_cache_new)
             v_out_layers.append(v_cache_new)
@@ -385,32 +400,44 @@ class _BulkCaptureWrapperKV(nn.Module):
             sa = layer.self_attn
             H = sa.num_heads
             Dh = D // H
+            # (2026-08-26) _DecoderStepWrapperKV와 동일 이유로 2D 평탄화 -- Gemm/FULLY_CONNECTED
+            # 유도(QUANTIZATION_MOBILE.md 참고)
+            x1_2d = x1.reshape(B * M, D)
             in_b = sa.in_proj_bias
-            q = F.linear(x1, sa.in_proj_weight[:D],    in_b[:D]    if in_b is not None else None)
-            k = F.linear(x1, sa.in_proj_weight[D:2*D], in_b[D:2*D] if in_b is not None else None)
-            v = F.linear(x1, sa.in_proj_weight[2*D:],  in_b[2*D:]  if in_b is not None else None)
+            q = F.linear(x1_2d, sa.in_proj_weight[:D],    in_b[:D]    if in_b is not None else None).view(B, M, D)
+            k = F.linear(x1_2d, sa.in_proj_weight[D:2*D], in_b[D:2*D] if in_b is not None else None).view(B, M, D)
+            v = F.linear(x1_2d, sa.in_proj_weight[2*D:],  in_b[2*D:]  if in_b is not None else None).view(B, M, D)
             q = q.view(B, M, H, Dh).transpose(1, 2)            # [1,H,M,Dh]
             k = k.view(B, M, H, Dh).transpose(1, 2)
             v = v.view(B, M, H, Dh).transpose(1, 2)
-            attn = F.scaled_dot_product_attention(q, k, v, is_causal=True)
-            attn = attn.transpose(1, 2).reshape(B, M, D)
-            x = x + layer.dropout1(sa.out_proj(attn))
+            # (2026-08-26) is_causal=True는 SDPA 내부에서 causal mask를 Where/Select로 적용하는데,
+            # 이 상수가 onnx2tf dynamic-range 양자화에서 스케일이 깨지는 대상이 됨(디코더 step
+            # wrapper의 torch.where와 동일 버그, QUANTIZATION_MOBILE.md 참고). 덧셈 방식의 명시적
+            # causal bias로 대체해서 Where 노드 자체를 없앤다.
+            causal_bias = torch.triu(torch.full((M, M), -1e9, device=q.device), diagonal=1)
+            attn = F.scaled_dot_product_attention(q, k, v, attn_mask=causal_bias)
+            attn = attn.transpose(1, 2).reshape(B * M, D)
+            x = x + layer.dropout1(sa.out_proj(attn).view(B, M, D))
 
             x2 = layer.norm2(x)
             mha = layer.multihead_attn
             in_bc = mha.in_proj_bias
-            qc = F.linear(x2, mha.in_proj_weight[:D], in_bc[:D] if in_bc is not None else None)
-            kc = F.linear(memory, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None)
-            vc = F.linear(memory, mha.in_proj_weight[2*D:], in_bc[2*D:] if in_bc is not None else None)
             S = memory.shape[1]
+            x2_2d = x2.reshape(B * M, D)
+            mem_2d = memory.reshape(B * S, D)
+            qc = F.linear(x2_2d, mha.in_proj_weight[:D],    in_bc[:D]    if in_bc is not None else None).view(B, M, D)
+            kc = F.linear(mem_2d, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None).view(B, S, D)
+            vc = F.linear(mem_2d, mha.in_proj_weight[2*D:],  in_bc[2*D:]  if in_bc is not None else None).view(B, S, D)
             qc = qc.view(B, M, H, Dh).transpose(1, 2)
             kc = kc.view(B, S, H, Dh).transpose(1, 2)
             vc = vc.view(B, S, H, Dh).transpose(1, 2)
             attn2 = F.scaled_dot_product_attention(qc, kc, vc)
-            attn2 = attn2.transpose(1, 2).reshape(B, M, D)
-            x = x + layer.dropout2(mha.out_proj(attn2))
+            attn2 = attn2.transpose(1, 2).reshape(B * M, D)
+            x = x + layer.dropout2(mha.out_proj(attn2).view(B, M, D))
 
-            x = x + layer._ff_block(layer.norm3(x))
+            x3_2d = layer.norm3(x).reshape(B * M, D)
+            ff = layer.linear2(layer.dropout(layer.activation(layer.linear1(x3_2d))))
+            x = x + layer.dropout3(ff).view(B, M, D)
 
             pad_len = self.cache_len - M
             k_pad = F.pad(k, (0, 0, 0, pad_len))   # [1,H,cache_len,Dh]
@@ -590,12 +617,17 @@ def main():
                    help='일괄 캐시 채우기 그래프의 고정 청크 길이(첫 마디 최대 토큰 수 상한)')
     p.add_argument('--fp16',             action='store_true',
                    help='FP32 대신 FP16 변형을 선택(재학습/캘리브레이션 불필요, 크기 약 절반) -- '
-                        '단 이 커스텀 attention 그래프에서는 CPU 런타임에서 BATCH_MATMUL 에러로 '
-                        '실행 자체가 안 됨(QUANTIZATION_MOBILE.md 참고), GPU 델리게이트 실험용으로만 남겨둠')
+                        '이 커스텀 attention 그래프에서는 CPU 런타임에서 실행 자체가 안 됨(2026-08-26: '
+                        '2D-flatten으로 Gemm/FULLY_CONNECTED 유도해도 동일 -- onnx2tf의 fp16 변환이 '
+                        '가중치뿐 아니라 활성값까지 통째로 fp16으로 캐스팅해서 CPU 커널이 거부함,'
+                        ' QUANTIZATION_MOBILE.md 참고), GPU 델리게이트 실험용으로만 남겨둠')
     p.add_argument('--dynamic_range',    action='store_true',
-                   help='FP32 대신 dynamic-range 양자화(가중치 INT8, 활성값 FP32) 변형을 선택 -- '
-                        '캘리브레이션 불필요, CPU에서 정상 실행됨. 단 인코더(Conv2D)만 실질 압축되고 '
-                        '디코더(커스텀 attention, MatMul 기반)는 거의 압축 안 됨(QUANTIZATION_MOBILE.md)')
+                   help='디코더+일괄캐시 그래프를 dynamic-range 양자화(가중치 INT8, 활성값 FP32,'
+                        ' 캘리브레이션 불필요)로 export -- 인코더는 항상 FP32로 유지한다(CoordConv '
+                        'CNN에서 dynamic-range 적용 시 출력이 수치적으로 발산하는 걸 확인, 2026-08-26,'
+                        ' QUANTIZATION_MOBILE.md 참고). 디코더/일괄캐시는 2026-08-26에 attention 내부'
+                        ' linear 연산을 3D→2D로 평탄화해 Gemm/FULLY_CONNECTED로 인식되게 고쳐서'
+                        ' 정상 압축됨(130.7MB→35.3MB, 115.0MB→29.9MB)')
     args = p.parse_args()
     if args.fp16 and args.dynamic_range:
         p.error('--fp16과 --dynamic_range는 동시에 줄 수 없음')
@@ -666,9 +698,12 @@ def main():
         calib_enc = os.path.join(tmp, 'calib_encoder.npy')
         _build_encoder_calib(image_paths, calib_enc, n=min(50, len(image_paths)), in_ch=in_ch)
 
+    if args.dynamic_range:
+        print("    (--dynamic_range: 인코더는 CoordConv CNN에서 수치 발산이 확인돼 FP32로 고정 --"
+              " QUANTIZATION_MOBILE.md 참고)")
     tflite_enc = os.path.join(tmp, 'encoder_INT8.tflite')
     if _convert_tflite(onnx_enc, tflite_enc, calib_enc, quantize, input_op_name='canvas',
-                       fp16=args.fp16, dynamic_range=args.dynamic_range):
+                       fp16=args.fp16, dynamic_range=False):
         _save_versioned(tflite_enc, args.out_dir, 'encoder_INT8', args.version)
     print()
 

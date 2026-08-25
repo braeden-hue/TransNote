@@ -96,53 +96,54 @@ Image"로 지정해서 만든다(RunPod의 GitHub 연동 자동 빌드는 불안
 
 ### 벤치마크 리포트 (개발 PC CPU, held-out 10곡 평균 — `train/benchmark.py`)
 
-| 항목 | PyTorch (원본) | TFLite FP32 | TFLite FP16 | TFLite Dynamic-Range |
+| 항목 | PyTorch (원본) | TFLite FP32 | **TFLite Hybrid**(인코더 FP32 + 디코더/일괄캐시 INT8) | TFLite FP16(그래프 전체) |
 |---|---|---|---|---|
-| 모델 크기 | 184.6MB | 300.2MB(인코더+디코더+일괄캐시 3개 파일) | 150.3MB(FP32 대비 50%) | 259.0MB(FP32 대비 86%) |
-| 추론 레이턴시(평균) | **3.2초** | 11.0초 | 측정 불가(런타임 실패) | 측정 불가(수치 발산) |
-| Peak Memory | 1.0GB | 2.4GB | — | — |
-| 정확도(음표 기준) | 94.2% | 93.0%(-1.2%p) | 측정 불가 | 측정 불가 |
+| 모델 크기 | 184.6MB | 300.2MB | **119.7MB**(FP32 대비 -60%, PyTorch보다도 35% 작음) | 150.3MB(FP32 대비 50%) |
+| 추론 레이턴시(평균) | **3.2초** | 10.6초 | **8.0초**(FP32 대비 -25%) | 측정 불가(런타임 실패) |
+| Peak Memory | 1.0GB | 2.4GB | 2.4GB(측정 한계, 아래 참고) | — |
+| 정확도(음표 기준) | 94.2% | 93.0%(-1.2%p) | **94.3%**(PyTorch와 사실상 동일) | 측정 불가 |
 
-**정직하게 밝히면, 이 desktop CPU 비교에서는 TFLite가 PyTorch보다 약 3.5배 느리고 메모리도
-2.4배 더 씁니다.** "TFLite=항상 빠름"이라는 통념과 반대되는 결과라 원인을 짚었다:
+크기·속도·정확도 세 축 모두 FP32 TFLite보다 나은 배포 형태(Hybrid)를 확보했다. 여기까지
+오는 과정에서 두 번 막혔다가 두 번 다 근본 원인을 찾아 풀었다 — 그 경로를 정직하게 남긴다.
 
-1. **캐시 텐서 I/O 오버헤드** — 고정 크기 KV캐시가 레이어 8개 × K,V 각각
-   `[1,8,300,64]`(약 4.7MB)라, 디코딩 스텝마다 `set_tensor`/`get_tensor`로 파이썬↔TFLite
-   인터프리터 경계를 넘나들며 약 19MB(입력+출력)를 복사한다. 시퀀스 길이 ~100스텝이면
-   한 이미지당 캐시 I/O만 약 1.9GB — PyTorch는 캐시가 프로세스 안에 계속 상주하는 텐서라
-   이 복사 비용이 아예 없다.
-2. **cross-attention K,V를 캐싱하지 않음** — TFLite export 그래프를 단순하게 유지하려고
-   cross-attention(인코더 출력 대상) K,V를 매 스텝 `memory`에서 다시 projection하도록
-   설계했다(PyTorch는 `precompute_memory_kv()`로 1회만 계산). 레이어 8개 × 스텝 수만큼
-   반복되는 불필요한 연산.
-3. **인터프리터 3개 동시 로드**(encoder/decoder/bulk) — TF 자체의 메모리 관리 오버헤드가
-   더해짐.
+**1차 시도(순수 FP16/Dynamic-Range, 실패)**: 처음엔 인코더+디코더 전체를 FP16 또는
+dynamic-range(가중치 INT8, 활성값 FP32, 캘리브레이션 불필요)로 통째로 바꾸려 했다.
+FP16은 CPU `BATCH_MATMUL` 커널이 fp16 입력을 지원하지 않아 런타임에서 실행이 안 됐고
+(onnx2tf의 fp16 변환이 가중치만이 아니라 그래프 전체를 fp16으로 캐스팅 — GPU 델리게이트
+전용 설계), dynamic-range는 인코더(CoordConv CNN)에서 압축은 되지만 출력이 수치적으로
+발산했다(mean~3×10²⁸, std=inf, 속도도 300초+/장).
 
-(2026-08-26: 인코더 입력이 항상 고정 크기인데도 매 호출마다 `resize_tensor_input()`을
-불필요하게 다시 부르던 버그를 발견해 제거 — TFLite FP32 레이턴시가 이 수정 하나로
-15.6초→11.0초(-29%)로 줄었다. 위 표는 수정 반영 후 수치.)
+**2차 시도(팀원 제안 검증, 디코더 압축 문제 해결)**: 팀원이 "디코더의 attention이 3D 입력을
+그대로 `nn.Linear`/`F.linear`에 먹여서 ONNX `MatMul`(→TFLite `BATCH_MATMUL`)로 export되니,
+2D로 평탄화해서 `Gemm`(→`FULLY_CONNECTED`)으로 유도하라"고 제안했다 — 실제로 이 프로젝트의
+디코더는 `in_proj_weight`를 수동 슬라이싱한 `F.linear` 구현이라 정확히 이 문제를 갖고
+있었다. 적용해서 검증한 결과:
+- ONNX op 분포가 `MatMul` 위주에서 `Gemm` 80개로 바뀜(남은 `MatMul` 33개는 실제
+  attention score 계산 — 가중치가 없는 정상적인 부분)
+- Dynamic-range 압축이 실제로 작동: 디코더 130.7MB→**35.3MB**, 일괄캐시 115.0MB→**29.9MB**
+- 단, FP16은 op 인식이 개선돼도 여전히 실패(에러 지점만 `BATCH_MATMUL`→`FULLY_CONNECTED`로
+  이동) — onnx2tf의 fp16 변환이 활성값까지 캐스팅하는 근본 구조 자체는 안 바뀌기 때문
 
-**FP16·Dynamic-Range 양자화 둘 다 이 커스텀 attention 그래프에서 CPU 실행이 불가능하다는
-게 최종 결론이다**:
+**3차 시도(자체 발견, 새 버그 진단+수정)**: 압축은 됐는데 실제로 돌려보니 정확도가 0%로
+나왔다. 디버깅해서 원인을 찾았다 — `torch.where(mask, a, b)`(self-attention 캐시 쓰기)와
+`F.scaled_dot_product_attention(..., is_causal=True)`(causal masking) 둘 다 내부적으로
+`Where`/`Select` 노드를 만드는데, onnx2tf의 dynamic-range 양자화가 이 노드의 상수
+피연산자를 "가중치"로 잘못 인식해서 양자화 스케일을 `2.68×10³⁶` 같은 값으로 계산 →
+그 순간부터 전부 NaN이 됐다. `torch.where`를 산술 블렌드(`mask*a + (1-mask)*b`)로,
+`is_causal=True`를 명시적 덧셈 마스크(`attn_mask`)로 바꿔서 `Where` 노드 자체를 없애자
+문제가 사라졌다(단일 스텝 logits이 FP32와 사실상 동일해짐, 10곡 검증 94.3%로 확인).
 
-- **FP16**: 파일 크기는 정확히 절반(150.3MB)으로 줄지만, 이 CPU 인터프리터에서
-  `BATCH_MATMUL` 커널이 fp16 입력을 지원하지 않아 런타임에서 아예 실행이 안 된다.
-  onnx2tf의 fp16 변환은 가중치만이 아니라 그래프 전체(입력 텐서 포함)를 fp16으로
-  만드는데(GPU 델리게이트 전용 설계), CPU는 이 fp16 활성값을 처리할 커널이 없다.
-- **Dynamic-Range 양자화**(가중치만 INT8, 활성값 FP32 — 캘리브레이션 불필요한 TFLite
-  표준 경량화 경로, FP16과 다른 시도): 인코더(CNN)는 정상 압축되지만(54.5MB→13.7MB)
-  **디코더는 거의 압축이 안 된다**(130.7MB→130.5MB) — 디코더의 attention이 `nn.Linear`가
-  아니라 `in_proj_weight`를 수동 슬라이싱한 `F.linear`로 구현돼 있어 ONNX `MatMul`→TFLite
-  `BATCH_MATMUL`로 export되는데, TFLite의 dynamic-range 양자화는 `FULLY_CONNECTED`/
-  `CONV_2D`로 인식된 가중치만 압축하기 때문이다(FP16 실패와 같은 근본 원인 — 커스텀
-  attention 구현이 표준 양자화 경로에서 벗어남). 게다가 실제로 돌려보니 **인코더 출력
-  자체가 수치적으로 발산**한다(mean~3×10²⁸, std=inf) — INT8 가중치 동적 역양자화와
-  이 CNN 그래프 사이에 호환성 문제가 있는 것으로 보이며, 원인을 더 파고들기보다(속도도
-  인코더 1장에 300초 이상 걸려 실용성이 없음) 여기서 결론을 내렸다.
+**최종 구성**: 인코더는 CoordConv CNN에서 dynamic-range 시 발산이 확인돼 FP32로 고정,
+디코더+일괄캐시는 위 두 수정을 반영한 dynamic-range로 export한다
+(`export_tflite.py --dynamic_range`).
 
-**해석**: 이 결과가 "TFLite가 못 쓸 정도로 나쁘다"는 뜻은 아니다 — 이건 개발 PC의 범용
-CPU(XNNPACK) 비교이고, 실제 모바일 기기는 NPU/GPU 델리게이트를 쓸 수 있어 다른 그림이
-나올 가능성이 크다(③ 항목, 실기 측정 필요). 다만 "가중치 압축(FP16/INT8 weight-only)은
-이 프로젝트의 수동 구현 attention 그래프와 근본적으로 안 맞는다"는 게 두 가지 서로 다른
-표준 경로 모두에서 확인된 이상, 지금 시점에서 검증 가능한 유일한 TFLite 배포 형태는
-FP32뿐이라는 게 정직한 결론이다.
+**Peak Memory 수치의 측정 한계**: `benchmark.py`가 세 백엔드를 같은 프로세스 안에서
+순차 측정하는데, `psutil`의 `peak_wset`은 프로세스 시작 이후 최고치를 누적 추적하는
+값이라(감소하지 않음) 뒤에 실행되는 TFLite Hybrid 값이 앞서 실행된 TFLite FP32의 피크를
+그대로 물려받는다 — 표의 "2.4GB"는 Hybrid 자체의 격리된 피크가 아니라 이 누적 한계 때문일
+가능성이 크다. 정확한 격리 측정을 하려면 백엔드별로 별도 프로세스에서 재야 한다(TODO).
+
+**해석**: 이건 개발 PC의 범용 CPU(XNNPACK) 비교이고, 실제 모바일 기기는 NPU/GPU
+델리게이트를 쓸 수 있어 다른 그림이 나올 가능성이 있다(③ 항목, 실기 측정 필요). 다만 이
+Hybrid 구성 자체는 크기·속도·정확도 모두에서 실측으로 검증된 실질적 개선이라, ③ 실기
+측정도 이 구성으로 진행하는 게 맞다.
