@@ -58,6 +58,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(__file__))
 from model import SegNet, OmrSeq2Seq, CANVAS_W, SEQ_LEN, NUM_CLASSES, SOS_ID, infer_arch_from_state_dict
@@ -213,6 +214,129 @@ def _export_onnx_decoder(seq2seq: OmrSeq2Seq, out: str):
         opset_version=17,
         dynamo=False,
     )
+
+
+class _DecoderStepWrapperKV(nn.Module):
+    """고정 크기 self-attention KV캐시 기반 단일 스텝 디코더 wrapper (2026-08-24).
+
+    _DecoderStepWrapper(위)는 past_ids를 매 스텝 growing 텐서로 넣는 방식이라 TFLite에서
+    실제로 돌려보니 두 번째 디코딩 스텝부터 reshape 에러로 깨졌다(QUANTIZATION_MOBILE.md
+    참고). 이 wrapper는 모든 입출력 shape을 처음부터 끝까지 고정시켜서(pos가 바뀌어도
+    텐서 shape은 안 바뀜) 문제를 근본적으로 피한다:
+      - self-attention K,V 캐시를 슬라이싱(`cache[:, :, :pos+1, :]`)하는 대신, 고정 크기
+        버퍼 전체에 대해 attention을 계산하고 pos보다 뒤쪽은 마스킹(-inf)으로 제외한다.
+      - 캐시에 새 K,V를 써넣는 것도 in-place 슬라이스 대입 대신 torch.where 기반 마스킹으로
+        한다(pos 위치만 새 값, 나머지는 기존 값 유지).
+      두 방식 모두 텐서 shape이 안 바뀌는 순수 elementwise/브로드캐스트 연산이라 TFLite
+      변환이 안전하다.
+    cross-attention(memory 대상) K,V는 캐싱하지 않고 매 스텝 memory에서 다시 projection한다
+    (self-attention의 O(T^2) 비용에 비해 상수 비용이라 단순화 -- production PyTorch 경로는
+    이 부분도 캐싱하지만, export 그래프를 간단히 유지하려고 여기서는 뺐다).
+
+    Inputs:
+      token_id   : [1, 1]                          int64
+      pos        : [1]                             int64 — 이 토큰의 0-index 위치(SOS=0)
+      memory     : [1, SEQ_LEN, 512]                float32 — 인코더 출력
+      k_cache_in : [num_layers, 1, H, cache_len, Dh] float32
+      v_cache_in : [num_layers, 1, H, cache_len, Dh] float32
+
+    Outputs:
+      next_logits : [1, vocab_size]
+      k_cache_out : [num_layers, 1, H, cache_len, Dh]
+      v_cache_out : [num_layers, 1, H, cache_len, Dh]
+    """
+    def __init__(self, decoder: nn.Module, cache_len: int):
+        super().__init__()
+        self.decoder = decoder
+        self.cache_len = cache_len
+
+    def forward(self, token_id, pos, memory, k_cache_in, v_cache_in):
+        decoder = self.decoder
+        D = decoder.embed_dim
+        C = self.cache_len
+        pos_idx = pos[0]
+        emb = decoder.token_emb(token_id) * decoder.emb_scale        # [1,1,D]
+        x = emb + decoder.pos_enc[:, pos_idx:pos_idx + 1, :]
+
+        idx = torch.arange(C, device=token_id.device)
+        write_mask = (idx == pos_idx).view(1, 1, C, 1)   # 새 K,V를 써넣을 캐시 슬롯
+        valid_mask = (idx <= pos_idx).view(1, 1, 1, C)   # attention에서 허용할 슬롯
+
+        k_out_layers, v_out_layers = [], []
+        for li, layer in enumerate(decoder.transformer.layers):
+            k_cache, v_cache = k_cache_in[li], v_cache_in[li]   # [1,H,C,Dh]
+
+            x1 = layer.norm1(x)
+            sa = layer.self_attn
+            H = sa.num_heads
+            Dh = D // H
+            B = x1.shape[0]
+            in_b = sa.in_proj_bias
+            q = F.linear(x1, sa.in_proj_weight[:D],    in_b[:D]    if in_b is not None else None)
+            k = F.linear(x1, sa.in_proj_weight[D:2*D], in_b[D:2*D] if in_b is not None else None)
+            v = F.linear(x1, sa.in_proj_weight[2*D:],  in_b[2*D:]  if in_b is not None else None)
+            q = q.view(B, 1, H, Dh).transpose(1, 2)              # [1,H,1,Dh]
+            k = k.view(B, 1, H, Dh).transpose(1, 2)
+            v = v.view(B, 1, H, Dh).transpose(1, 2)
+
+            k_cache_new = torch.where(write_mask, k.expand(-1, -1, C, -1), k_cache)
+            v_cache_new = torch.where(write_mask, v.expand(-1, -1, C, -1), v_cache)
+
+            scores = torch.matmul(q, k_cache_new.transpose(-2, -1)) / (Dh ** 0.5)  # [1,H,1,C]
+            scores = scores.masked_fill(~valid_mask, float('-inf'))
+            attn = torch.matmul(torch.softmax(scores, dim=-1), v_cache_new)        # [1,H,1,Dh]
+            attn = attn.transpose(1, 2).reshape(B, 1, D)
+            x = x + layer.dropout1(sa.out_proj(attn))
+
+            x2 = layer.norm2(x)
+            mha = layer.multihead_attn
+            in_bc = mha.in_proj_bias
+            qc = F.linear(x2, mha.in_proj_weight[:D], in_bc[:D] if in_bc is not None else None)
+            kc = F.linear(memory, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None)
+            vc = F.linear(memory, mha.in_proj_weight[2*D:], in_bc[2*D:] if in_bc is not None else None)
+            S = memory.shape[1]
+            qc = qc.view(B, 1, H, Dh).transpose(1, 2)
+            kc = kc.view(B, S, H, Dh).transpose(1, 2)
+            vc = vc.view(B, S, H, Dh).transpose(1, 2)
+            attn2 = F.scaled_dot_product_attention(qc, kc, vc)
+            attn2 = attn2.transpose(1, 2).reshape(B, 1, D)
+            x = x + layer.dropout2(mha.out_proj(attn2))
+
+            x = x + layer._ff_block(layer.norm3(x))
+
+            k_out_layers.append(k_cache_new)
+            v_out_layers.append(v_cache_new)
+
+        x = decoder.transformer.norm(x)
+        logits = decoder.head(x)[:, -1, :]           # [1, vocab_size]
+        k_cache_out = torch.stack(k_out_layers, dim=0)
+        v_cache_out = torch.stack(v_out_layers, dim=0)
+        return logits, k_cache_out, v_cache_out
+
+
+def _export_onnx_decoder_kv(seq2seq: OmrSeq2Seq, out: str, cache_len: int = 300):
+    """고정 크기 KV캐시 기반 디코더 스텝 export (2026-08-24). 모든 입출력 shape이 pos와
+    무관하게 고정이라 dynamic_axes가 필요 없다 -- TFLite 변환·리사이즈 문제 근본 해결책."""
+    decoder = seq2seq.decoder
+    D = decoder.embed_dim
+    H = decoder.transformer.layers[0].self_attn.num_heads
+    Dh = D // H
+    L = len(decoder.transformer.layers)
+
+    wrapper = _DecoderStepWrapperKV(decoder, cache_len).eval()
+    dummy_token = torch.tensor([[SOS_ID]], dtype=torch.long)
+    dummy_pos = torch.tensor([0], dtype=torch.long)
+    dummy_mem = torch.zeros(1, SEQ_LEN, 512)
+    dummy_k = torch.zeros(L, 1, H, cache_len, Dh)
+    dummy_v = torch.zeros(L, 1, H, cache_len, Dh)
+    torch.onnx.export(
+        wrapper, (dummy_token, dummy_pos, dummy_mem, dummy_k, dummy_v), out,
+        input_names=['token_id', 'pos', 'memory', 'k_cache_in', 'v_cache_in'],
+        output_names=['next_logits', 'k_cache_out', 'v_cache_out'],
+        opset_version=17,
+        dynamo=False,
+    )
+    print(f"    ONNX(KV캐시, cache_len={cache_len}) -> {out}")
     print(f"    ONNX -> {out}")
 
 
@@ -331,6 +455,8 @@ def main():
     p.add_argument('--quantize_decoder', action='store_true')
     p.add_argument('--no_quantize',      action='store_true')
     p.add_argument('--device',           default='cpu')
+    p.add_argument('--cache_len',        type=int, default=300,
+                   help='디코더 self-attention KV캐시 고정 크기(최대 디코딩 스텝 수, INFER_MAX_LEN과 맞춤)')
     args = p.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -404,23 +530,27 @@ def main():
         _save_versioned(tflite_enc, args.out_dir, 'encoder_INT8', args.version)
     print()
 
-    # ── 3. Decoder ────────────────────────────────────────
+    # ── 3. Decoder (self-attention KV캐시, 고정 shape) ─────
     print("--- [3/3] Decoder ----------------------------------------")
-    print(f"    Interface: (past_ids[1,T], memory[1,S,512]) -> next_logits[1,{vocab_size}]")
-    print("    T grows by 1 each decoding step (no explicit KV-cache tensors)")
+    print(f"    Interface: (token_id[1,1], pos[1], memory[1,S,512], k_cache_in, v_cache_in)")
+    print(f"               -> (next_logits[1,{vocab_size}], k_cache_out, v_cache_out)")
+    print(f"    고정 크기 캐시(cache_len={args.cache_len}) -- 매 스텝 shape 동일, 리사이즈 불필요")
+    print("    (2026-08-24: 이전 growing past_ids 방식은 실제 실행 시 2번째 스텝부터 TFLite")
+    print("     reshape 에러로 깨지는 걸 확인해서 이 방식으로 교체함)")
     onnx_dec = os.path.join(tmp, 'decoder.onnx')
-    _export_onnx_decoder(seq2seq, onnx_dec)
+    _export_onnx_decoder_kv(seq2seq, onnx_dec, cache_len=args.cache_len)
     _simplify(onnx_dec)
 
     if args.quantize_decoder:
-        print("    WARNING: --quantize_decoder는 아직 미구현 (decoder는 past_ids+memory 두 입력을 "
-              "함께 보정해야 해서 segnet/encoder와 같은 단일 캘리브레이션 방식으로 안 됨) -- FP32로 진행")
+        print("    WARNING: --quantize_decoder는 아직 미구현 (decoder는 여러 입력을 함께 보정해야 "
+              "해서 segnet/encoder와 같은 단일 캘리브레이션 방식으로 안 됨) -- FP32로 진행")
     else:
         print("    Quantization: FP32 (기본값, 자기회귀 decoder는 INT8 시 오류율 악화 위험)")
 
     tflite_dec = os.path.join(tmp, 'decoder_INT8.tflite')
-    if _convert_tflite(onnx_dec, tflite_dec, None, False,
-                       keep_layout_input_names=['memory', 'past_ids']):
+    if _convert_tflite(onnx_dec, tflite_dec, None, False, input_op_name='token_id',
+                       keep_layout_input_names=['token_id', 'pos', 'memory',
+                                                 'k_cache_in', 'v_cache_in']):
         _save_versioned(tflite_dec, args.out_dir, 'decoder_INT8', args.version)
     print()
 
