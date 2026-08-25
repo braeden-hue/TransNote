@@ -284,6 +284,27 @@ projection 가중치가 표준 softmax dot-product attention에 맞춰 학습돼
       (InlineTimeCorrector를 TFLite 쪽에도 이식할지는 별도 판단 — 고정 캐시 설계와
       구조적으로 안 맞아서 PyTorch만큼 간단하지 않음, ②/③ 이후 필요시 재검토)
 
+### InlineTimeCorrector를 TFLite에도 이식 — "일괄 캐시 채우기" 그래프로 성공 (2026-08-24)
+
+"동적 캐시로 하면 어떨까"라는 질문에서 출발 — 검토 결과 두 가지 확인:
+1. **동적(growing) 캐시로 되돌리면 안 됨**: 정확히 처음 겪었던 크래시(2번째 스텝 reshape
+   에러)와 스텝당 리사이즈 오버헤드(18.7초)가 재현되는 방향.
+2. **"캐시 한 슬롯만 패치"는 애초에 수학적으로 불가능**: attention이 매 레이어 모든 앞선
+   위치를 섞으므로, 한 위치(예: 박자표 토큰)의 토큰을 바꾸면 그 뒤 모든 위치의 hidden
+   state가 이론적으로 다 달라져야 함 — 부분 패치 불가, "교정 후 그 뒤 전체를 다시 계산"만
+   유효한 접근(PyTorch 하이브리드가 이미 이렇게 했던 이유).
+
+**해법**: `decoder_bulk_INT8.tflite` 추가 — 고정 길이 청크(chunk_len=40)를 causal
+masking으로 한 번에 처리해서 self-attention 캐시를 일괄 재구성하는 그래프
+(`_BulkCaptureWrapperKV`, PyTorch `forward_bulk_capture()`와 동일 목적). 여기도 모든
+shape이 고정이라 크래시 위험 없음. `tflite_infer.py`에 `decode_hybrid()`로 PyTorch와
+같은 3단계(첫 마디 순차 디코딩+교정 → 일괄 재구성 → 빠른 경로) 구현.
+
+**결과(newage21~30 10곡)**: 10/10 크래시 없음, **평균 Acc 93.0%**(이전 89.5% → 개선,
+PyTorch 하이브리드 94.2%와 1.2%p 차이로 좁혀짐). **newage25(6/8박자, InlineTimeCorrector가
+가장 크게 도움되던 곡)가 63.0%→97.8%로 급등** — PyTorch(98.7%)와 거의 일치, 이식 성공
+확인. 커밋 `d9c3e6d`.
+
 ### ② 정량적 성능 프로파일링 (가장 중요 — README에 벤치마크 리포트로 작성)
 
 - [ ] **Inference Latency**: PyTorch(서버 GPU / 개발 PC CPU) vs TFLite(단일 스레드 /
