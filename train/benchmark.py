@@ -35,6 +35,7 @@ CKPT = ROOT / "train" / "checkpoints" / "r15_cropfix_coordconv" / "seq2seq_best.
 TOKENIZER = ROOT / "train" / "tokenizer258.json"
 TFLITE_FP32_DIR = ROOT / "train" / "tflite_export"
 TFLITE_FP16_DIR = ROOT / "train" / "tflite_export_fp16"
+TFLITE_DR_DIR = ROOT / "train" / "tflite_export_dr"
 DATA_DIR = ROOT / "realImage" / "exactPicture"
 IMAGES = [f"newage{i}" for i in range(21, 31)]
 
@@ -152,6 +153,8 @@ def main():
     print("[2/2] TFLite(FP32, CPU) 측정 중...")
     results.append(bench_tflite(images, TFLITE_FP32_DIR, "TFLite FP32 (CPU)"))
 
+    # FP16/dynamic-range는 이 커스텀 attention 그래프에서 둘 다 실패로 결론남(아래 report
+    # 참고) -- 10곡 전체 루프는 돌리지 않고 크기+1장 상태만 짧게 확인.
     print("\nTFLite FP16 시도(런타임 실패 여부 확인)...")
     fp16_size = sum((TFLITE_FP16_DIR / f).stat().st_size for f in
                     ('encoder_INT8.tflite', 'decoder_INT8.tflite', 'decoder_bulk_INT8.tflite')
@@ -161,6 +164,12 @@ def main():
         fp16_status = f"성공 ({r.get('avg_ms', 0):.0f}ms)"
     except Exception as e:
         fp16_status = f"런타임 실패 -- {str(e)[:80]}"
+
+    print("\nTFLite dynamic-range 양자화 시도(수치 발산 여부 확인)...")
+    dr_size = sum((TFLITE_DR_DIR / f).stat().st_size for f in
+                  ('encoder_INT8.tflite', 'decoder_INT8.tflite', 'decoder_bulk_INT8.tflite')
+                  if (TFLITE_DR_DIR / f).exists()) / (1024 * 1024)
+    dr_status = "인코더 출력 수치 발산(mean~3e28, std=inf) -- 2026-08-26 확인, QUANTIZATION_MOBILE.md 참고"
 
     print(f"\n{'='*70}")
     print("  벤치마크 리포트")
@@ -174,10 +183,15 @@ def main():
     print(f"\nTFLite FP16 (CPU)")
     print(f"  모델 크기      : {fp16_size:.1f} MB  (FP32 대비 {fp16_size/results[1]['model_size_mb']*100:.0f}%)")
     print(f"  런타임         : {fp16_status}")
+    print(f"\nTFLite Dynamic-Range 양자화 (CPU)")
+    print(f"  모델 크기      : {dr_size:.1f} MB  (FP32 대비 {dr_size/results[1]['model_size_mb']*100:.0f}%, "
+          f"디코더가 커스텀 attention이라 거의 압축 안 됨)")
+    print(f"  런타임         : {dr_status}")
     print(f"\n정확도(별도 검증된 값 인용, held-out newage21~30 10곡 평균):")
     print(f"  PyTorch(하이브리드)      : 94.2%")
     print(f"  TFLite FP32(하이브리드)  : 93.0%")
     print(f"  TFLite FP16              : 측정 불가(런타임 실패)")
+    print(f"  TFLite Dynamic-Range     : 측정 불가(수치 발산)")
 
 
 if __name__ == '__main__':

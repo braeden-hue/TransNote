@@ -461,7 +461,8 @@ def _convert_tflite(onnx_path: str, tflite_path: str,
                     calib_npy: str | None, quantize: bool,
                     input_op_name: str = 'input',
                     keep_layout_input_names: list | None = None,
-                    fp16: bool = False) -> bool:
+                    fp16: bool = False,
+                    dynamic_range: bool = False) -> bool:
     """calib_npy는 이미 (px/255 - mean)/std로 정규화가 끝난 데이터라고 가정한다 --
     onnx2tf에는 mean=0/std=1을 넘겨서 추가 정규화를 건너뛰게 한다.
 
@@ -497,8 +498,27 @@ def _convert_tflite(onnx_path: str, tflite_path: str,
         # onnx2tf가 기본으로 float32와 함께 float16 변형도 항상 같이 만들어둠(부산물) --
         # 그중 float16만 골라 쓴다. 재학습·캘리브레이션 불필요, 단순 반정밀도 변환이라
         # 정확도 손실이 INT8보다 훨씬 적은 게 일반적.
+        #
+        # 주의(2026-08-25 확인): onnx2tf의 float16 변환은 "가중치만 fp16 + 활성값은 fp32"가
+        # 아니라 그래프 전체(입력 텐서 포함)를 fp16으로 만든다 -- GPU 델리게이트 전용 설계라
+        # CPU 인터프리터의 BATCH_MATMUL 커널이 fp16 입력을 거부해서 이 커스텀 attention
+        # 그래프(디코더)에서는 런타임에 아예 실행이 안 된다(QUANTIZATION_MOBILE.md 참고).
         print("    Exporting as FP16")
         want_substrings = ('float16',)
+    elif dynamic_range:
+        # TFLite 표준 "dynamic range quantization" -- 가중치만 INT8로 저장하고 활성값은
+        # 항상 FP32로 유지(캘리브레이션 데이터 불필요, 런타임에 가중치를 즉석 역양자화).
+        # fp16과 달리 활성값이 그대로 FP32라 BATCH_MATMUL 등 CPU 커널이 못 받는 문제가 없다.
+        #
+        # 단, 이 최적화는 TFLite가 FULLY_CONNECTED/CONV_2D 등 특정 op으로 인식한 가중치만
+        # 압축한다 -- 이 프로젝트의 디코더는 nn.Linear가 아니라 in_proj_weight를 수동
+        # 슬라이싱한 F.linear로 attention을 구현해서 ONNX MatMul -> TFLite BATCH_MATMUL로
+        # export되고, dynamic-range 양자화가 이 가중치를 건드리지 못한다(2026-08-25 확인,
+        # 디코더 실측 130.7MB -> 130.5MB, 사실상 무압축). CNN인 인코더(Conv2D)는 정상
+        # 압축된다(54.5MB -> 13.7MB). QUANTIZATION_MOBILE.md 참고.
+        print("    Exporting as dynamic-range quantized (INT8 weight-only, FP32 activations)")
+        kwargs['output_dynamic_range_quantized_tflite'] = True
+        want_substrings = ('dynamic_range_quant',)
     else:
         print("    Exporting as FP32")
         want_substrings = ('_float32', 'float32')
@@ -569,8 +589,16 @@ def main():
     p.add_argument('--chunk_len',        type=int, default=40,
                    help='일괄 캐시 채우기 그래프의 고정 청크 길이(첫 마디 최대 토큰 수 상한)')
     p.add_argument('--fp16',             action='store_true',
-                   help='FP32 대신 FP16 변형을 선택(재학습/캘리브레이션 불필요, 크기 약 절반)')
+                   help='FP32 대신 FP16 변형을 선택(재학습/캘리브레이션 불필요, 크기 약 절반) -- '
+                        '단 이 커스텀 attention 그래프에서는 CPU 런타임에서 BATCH_MATMUL 에러로 '
+                        '실행 자체가 안 됨(QUANTIZATION_MOBILE.md 참고), GPU 델리게이트 실험용으로만 남겨둠')
+    p.add_argument('--dynamic_range',    action='store_true',
+                   help='FP32 대신 dynamic-range 양자화(가중치 INT8, 활성값 FP32) 변형을 선택 -- '
+                        '캘리브레이션 불필요, CPU에서 정상 실행됨. 단 인코더(Conv2D)만 실질 압축되고 '
+                        '디코더(커스텀 attention, MatMul 기반)는 거의 압축 안 됨(QUANTIZATION_MOBILE.md)')
     args = p.parse_args()
+    if args.fp16 and args.dynamic_range:
+        p.error('--fp16과 --dynamic_range는 동시에 줄 수 없음')
 
     os.makedirs(args.out_dir, exist_ok=True)
     tmp = os.path.join(args.out_dir, '_export_tmp')
@@ -640,7 +668,7 @@ def main():
 
     tflite_enc = os.path.join(tmp, 'encoder_INT8.tflite')
     if _convert_tflite(onnx_enc, tflite_enc, calib_enc, quantize, input_op_name='canvas',
-                       fp16=args.fp16):
+                       fp16=args.fp16, dynamic_range=args.dynamic_range):
         _save_versioned(tflite_enc, args.out_dir, 'encoder_INT8', args.version)
     print()
 
@@ -665,7 +693,7 @@ def main():
     if _convert_tflite(onnx_dec, tflite_dec, None, False, input_op_name='token_id',
                        keep_layout_input_names=['token_id', 'pos', 'memory',
                                                  'k_cache_in', 'v_cache_in'],
-                       fp16=args.fp16):
+                       fp16=args.fp16, dynamic_range=args.dynamic_range):
         _save_versioned(tflite_dec, args.out_dir, 'decoder_INT8', args.version)
     print()
 
@@ -680,7 +708,7 @@ def main():
     tflite_bulk = os.path.join(tmp, 'decoder_bulk_INT8.tflite')
     if _convert_tflite(onnx_bulk, tflite_bulk, None, False, input_op_name='tokens',
                        keep_layout_input_names=['tokens', 'memory'],
-                       fp16=args.fp16):
+                       fp16=args.fp16, dynamic_range=args.dynamic_range):
         _save_versioned(tflite_bulk, args.out_dir, 'decoder_bulk_INT8', args.version)
     print()
 

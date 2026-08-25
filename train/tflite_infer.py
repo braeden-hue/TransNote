@@ -58,11 +58,20 @@ class TFLiteOmrModel:
         self.num_layers, _, self.num_heads, _, self.head_dim = k_shape
 
     def encode(self, canvas_norm: np.ndarray) -> np.ndarray:
-        """canvas_norm: [H,W] float32, 이미 (px/255-mean)/std 정규화 완료."""
+        """canvas_norm: [H,W] float32, 이미 (px/255-mean)/std 정규화 완료.
+
+        입력 shape은 (SYSTEM_CANVAS_H, CANVAS_W, in_ch)로 항상 고정이다(extract_system_canvas가
+        매번 같은 캔버스 크기를 반환) -- __init__의 allocate_tensors()가 이미 이 shape으로
+        인터프리터를 할당해뒀으므로 매 호출마다 resize_tensor_input()을 다시 부를 필요가
+        없다. FP32에서는 이 재할당이 저비용이라 안 드러났지만, dynamic-range(INT8 가중치)
+        인코더에서 XNNPACK 델리게이트가 매번 가중치를 재포장하며 300초 이상 걸리는 걸
+        확인해서(2026-08-26) 근본 원인을 찾아 제거함 -- shape이 실제로 달라질 때만 재할당."""
         inp = make_model_input(canvas_norm, self.in_ch).numpy()      # [in_ch,H,W]
         inp_nhwc = np.transpose(inp, (1, 2, 0))[None].astype(np.float32)
-        self.enc.resize_tensor_input(self.enc_in['index'], inp_nhwc.shape)
-        self.enc.allocate_tensors()
+        if tuple(self.enc_in['shape']) != inp_nhwc.shape:
+            self.enc.resize_tensor_input(self.enc_in['index'], inp_nhwc.shape)
+            self.enc.allocate_tensors()
+            self.enc_in['shape'] = inp_nhwc.shape
         self.enc.set_tensor(self.enc_in['index'], inp_nhwc)
         self.enc.invoke()
         return self.enc.get_tensor(self.enc_out_idx)

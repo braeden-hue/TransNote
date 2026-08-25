@@ -52,6 +52,7 @@ train/eval_*_report.json
 # 위에서 무시되지만 tokenizer 사본 등 나머지 파일도 같이 무시)
 train/tflite_export/
 train/tflite_export_fp16/
+train/tflite_export_dr/
 
 # API 키 / 비밀 정보 - 절대 커밋 금지
 *api_key*
