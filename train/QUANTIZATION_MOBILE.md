@@ -259,15 +259,22 @@ projection 가중치가 표준 softmax dot-product attention에 맞춰 학습돼
 모바일/Edge 런타임에서 얼마나 완벽하게 동작하는지"를 증명하는 벤치마크 코드+리포트로
 마무리한다. 아래 세 가지만 완성하면 끝.
 
-### ① TFLite 디코더 런타임 구동 성공 (동적 shape 문제 해결)
+### ① TFLite 디코더 런타임 구동 성공 (동적 shape 문제 해결) — ✅ 완료 (2026-08-24)
 
-- [ ] `export_tflite.py`의 디코더 export를 고정 크기 self-attention KV캐시 기반으로
-      재설계(지금 growing `past_ids` 리사이즈 방식 → `model.py`의
-      `precompute_self_attn_cache`/`decode_step_kv_cached`와 동일한 고정 버퍼 구조를
-      TFLite 그래프에 반영)
-- [ ] Python `tflite_runtime`(또는 `tf.lite.Interpreter`) 인터프리터로 실제 이미지 →
-      토큰 출력까지 되는 추론 스크립트 작성 — UI 없이 CLI 스크립트로 충분
-- [ ] reshape 크래시 재현 안 되는지, 여러 이미지로 안정성 확인
+- [x] ~~`export_tflite.py`의 디코더 export를 고정 크기 self-attention KV캐시 기반으로
+      재설계~~ — `_DecoderStepWrapperKV` 추가: `token_id/pos/memory/k_cache/v_cache` 전부
+      고정 shape(캐시는 `[num_layers,1,H,cache_len,Dh]` 고정 버퍼). 슬라이싱 대신 고정
+      버퍼 전체+마스킹, 캐시 쓰기도 슬라이스 대입 대신 `torch.where` 마스킹 — 둘 다
+      shape이 안 바뀌는 순수 elementwise 연산이라 TFLite 변환이 안전함. cross-attention은
+      캐싱 없이 매 스텝 memory에서 재계산(단순화, 상수 비용). onnx2tf가 5차원 캐시 텐서
+      축 순서를 자동으로 바꾸는 문제도 발견해 `keep_layout_input_names`로 방지. 커밋 `c2372b5`
+- [x] ~~Python 인터프리터로 실제 이미지 → 토큰 출력까지 되는 추론 스크립트 작성~~ —
+      `train/tflite_infer.py`(영구 보관, ① 최종 산출물). PyTorch 모델 로드 전혀 없이
+      `encoder_INT8.tflite`+`decoder_INT8.tflite` 두 파일만으로 동작
+- [x] ~~reshape 크래시 재현 안 되는지 확인~~ — newage24 실사 이미지로 111토큰 끝까지
+      크래시 없이 생성(이전엔 2번째 스텝에서 죽었음), **PyTorch 원본 출력과 토큰 완전
+      일치**(정확성 검증), 97ms/토큰, 인터프리터 리사이즈는 최초 1회만 필요(이전엔 매
+      스텝 필요해서 18.7초/스텝이었음)
 
 ### ② 정량적 성능 프로파일링 (가장 중요 — README에 벤치마크 리포트로 작성)
 
