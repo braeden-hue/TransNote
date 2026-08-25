@@ -305,18 +305,31 @@ PyTorch 하이브리드 94.2%와 1.2%p 차이로 좁혀짐). **newage25(6/8박�
 가장 크게 도움되던 곡)가 63.0%→97.8%로 급등** — PyTorch(98.7%)와 거의 일치, 이식 성공
 확인. 커밋 `d9c3e6d`.
 
-### ② 정량적 성능 프로파일링 (가장 중요 — README에 벤치마크 리포트로 작성)
+### ② 정량적 성능 프로파일링 — ✅ 완료 (2026-08-24)
 
-- [ ] **Inference Latency**: PyTorch(서버 GPU / 개발 PC CPU) vs TFLite(단일 스레드 /
-      멀티 스레드) 비교표. "Xms → Yms" 형태로.
-- [ ] **Model Size**: FP32(185MB, 이미 앎) vs FP16 양자화(약 93MB — export 시 이미
-      부산물로 생성됨, `_convert_tflite()`가 float32 대신 float16 변형을 고르도록만
-      바꾸면 바로 나옴) 비교.
-- [ ] **Memory Footprint**: 추론 중 Peak Memory 측정. 고정 크기 캐시로 바꾸면서 메모리
-      사용량이 안정화된 정도도 수치화(growing 텐서 방식 대비).
-- [ ] **정확도 유지율**: PyTorch 원본(94.2%, newage21~30 held-out) 대비 TFLite FP16의
-      정확도 손실 — 거의 없음 또는 "-X%p" 형태로 명시.
-- [ ] 위 네 가지를 표로 정리해서 README.md에 "벤치마크 리포트" 섹션으로 추가
+`train/benchmark.py` 작성(재사용 가능, `python train/benchmark.py`로 재현). newage21~30
+held-out 10곡, 개발 PC CPU 기준 결과는 README.md "벤치마크 리포트" 섹션에 표로 정리.
+
+- [x] ~~Model Size~~ — PyTorch 184.6MB vs TFLite FP32 300.2MB(인코더+디코더+일괄캐시 3파일
+      합계) vs TFLite FP16 150.3MB(FP32 대비 정확히 50%)
+- [x] ~~Inference Latency~~ — PyTorch 평균 5.3초 vs TFLite FP32 평균 15.6초. **예상과 반대로
+      TFLite가 3배 느림** — 원인 분석 완료(아래)
+- [x] ~~Memory Footprint~~ — PyTorch peak 1.0GB vs TFLite FP32 peak 2.4GB(2.4배)
+- [x] ~~정확도 유지율~~ — PyTorch 94.2% vs TFLite FP32 93.0%(-1.2%p). **FP16은 파일 크기만
+      확인 가능, 런타임 자체가 실패**(`BATCH_MATMUL` 커널이 fp16 입력 미지원 — 커스텀
+      attention 그래프라 자동 역양자화 삽입이 안 되는 것으로 추정, 미해결 이슈로 남김)
+
+**TFLite가 느린 이유(원인 분석, 정직하게 기록)**:
+1. 캐시 텐서 I/O 오버헤드 — 고정 캐시가 레이어 8개×K,V 각 4.7MB라 매 스텝
+   `set_tensor`/`get_tensor`로 파이썬↔인터프리터 경계를 넘나들며 약 19MB 복사(이미지당
+   ~100스텝 기준 총 ~1.9GB). PyTorch는 캐시가 프로세스 내 상주 텐서라 이 비용 자체가 없음.
+2. cross-attention K,V를 캐싱 안 함(그래프 단순화를 위해 매 스텝 memory에서 재projection) —
+   PyTorch는 `precompute_memory_kv()`로 1회만 계산.
+3. 인터프리터 3개(encoder/decoder/bulk) 동시 로드에 따른 TF 자체 메모리 관리 오버헤드.
+
+**해석**: 이건 desktop CPU(XNNPACK) 비교라서, 실제 모바일 기기의 NPU/GPU 델리게이트에서는
+다른 결과가 나올 수 있음 — ③(실기 측정)에서 확인 필요. "빠를 것"이라는 가정 없이 실측
+그대로를 보고하는 게 이 벤치마크의 핵심 가치.
 
 ### ③ 통제된 테스트 환경 구축
 

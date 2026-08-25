@@ -460,7 +460,8 @@ def _simplify(onnx_path: str):
 def _convert_tflite(onnx_path: str, tflite_path: str,
                     calib_npy: str | None, quantize: bool,
                     input_op_name: str = 'input',
-                    keep_layout_input_names: list | None = None) -> bool:
+                    keep_layout_input_names: list | None = None,
+                    fp16: bool = False) -> bool:
     """calib_npy는 이미 (px/255 - mean)/std로 정규화가 끝난 데이터라고 가정한다 --
     onnx2tf에는 mean=0/std=1을 넘겨서 추가 정규화를 건너뛰게 한다.
 
@@ -492,6 +493,12 @@ def _convert_tflite(onnx_path: str, tflite_path: str,
         ]]
         print(f"    Quantizing INT8 with: {calib_npy}  shape={data.shape}")
         want_substrings = ('full_integer_quant', 'integer_quant')
+    elif fp16:
+        # onnx2tf가 기본으로 float32와 함께 float16 변형도 항상 같이 만들어둠(부산물) --
+        # 그중 float16만 골라 쓴다. 재학습·캘리브레이션 불필요, 단순 반정밀도 변환이라
+        # 정확도 손실이 INT8보다 훨씬 적은 게 일반적.
+        print("    Exporting as FP16")
+        want_substrings = ('float16',)
     else:
         print("    Exporting as FP32")
         want_substrings = ('_float32', 'float32')
@@ -561,6 +568,8 @@ def main():
                    help='디코더 self-attention KV캐시 고정 크기(최대 디코딩 스텝 수, INFER_MAX_LEN과 맞춤)')
     p.add_argument('--chunk_len',        type=int, default=40,
                    help='일괄 캐시 채우기 그래프의 고정 청크 길이(첫 마디 최대 토큰 수 상한)')
+    p.add_argument('--fp16',             action='store_true',
+                   help='FP32 대신 FP16 변형을 선택(재학습/캘리브레이션 불필요, 크기 약 절반)')
     args = p.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -630,7 +639,8 @@ def main():
         _build_encoder_calib(image_paths, calib_enc, n=min(50, len(image_paths)), in_ch=in_ch)
 
     tflite_enc = os.path.join(tmp, 'encoder_INT8.tflite')
-    if _convert_tflite(onnx_enc, tflite_enc, calib_enc, quantize, input_op_name='canvas'):
+    if _convert_tflite(onnx_enc, tflite_enc, calib_enc, quantize, input_op_name='canvas',
+                       fp16=args.fp16):
         _save_versioned(tflite_enc, args.out_dir, 'encoder_INT8', args.version)
     print()
 
@@ -654,7 +664,8 @@ def main():
     tflite_dec = os.path.join(tmp, 'decoder_INT8.tflite')
     if _convert_tflite(onnx_dec, tflite_dec, None, False, input_op_name='token_id',
                        keep_layout_input_names=['token_id', 'pos', 'memory',
-                                                 'k_cache_in', 'v_cache_in']):
+                                                 'k_cache_in', 'v_cache_in'],
+                       fp16=args.fp16):
         _save_versioned(tflite_dec, args.out_dir, 'decoder_INT8', args.version)
     print()
 
@@ -668,7 +679,8 @@ def main():
     _simplify(onnx_bulk)
     tflite_bulk = os.path.join(tmp, 'decoder_bulk_INT8.tflite')
     if _convert_tflite(onnx_bulk, tflite_bulk, None, False, input_op_name='tokens',
-                       keep_layout_input_names=['tokens', 'memory']):
+                       keep_layout_input_names=['tokens', 'memory'],
+                       fp16=args.fp16):
         _save_versioned(tflite_bulk, args.out_dir, 'decoder_bulk_INT8', args.version)
     print()
 
