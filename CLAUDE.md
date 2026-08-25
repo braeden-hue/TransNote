@@ -92,10 +92,14 @@ webpage 제거와 함께 결국 Model_TransNote로 옮겼다). `train/` 최상�
 RunPod Docker 이미지가 실제로 빌드 시 복사해가는 런타임 의존 파일이라 이 저장소에도 그대로
 남아있다(아래 "train/ 내부 구조" 참고) — 지우면 배포가 깨진다.
 
-**2026-08-09 이전에는 Flutter 앱 + 자체 C++ TFLite 엔진 구조였으나 전면 폐기됨** — 이후 웹
-단일 구조로 재구성했었고, 그마저 2026-08-24에 이 저장소에서 분리했다. Flutter 시절 잔재는
-저장소에 없지만, `train/export_tflite.py`(모바일 export 스크립트)는 그 시절 유물을 다시
-꺼내 쓰는 중이라는 점에 주의 — 지금 아키텍처(r15, CoordConv)에 맞게 일부 수정했다.
+**2026-08-09 이전에는 Flutter 앱 + 자체 C++ TFLite 엔진 구조였으나 폐기됨** — 다만 폐기된 건
+"Flutter+C++로 만든 그 구현체"이지 "온디바이스 추론"이라는 목표 자체가 아니다. 이후 웹(FastAPI)
+단일 구조로 재구성했었고, 그마저 2026-08-24에 이 저장소에서 분리했다. Flutter/C++ 시절 코드
+잔재는 저장소에 없지만, **모바일 온디바이스 추론은 `train/export_tflite.py` 기반으로 계속
+진행 중**이다(같은 PyTorch 체크포인트를 ONNX 경유로 export) — r15(CoordConv) 아키텍처에 맞게
+수정했고, 인코더+디코더 export 자체는 성공했으나 디코더가 실제 다단계 디코딩에서 크래시하는
+문제를 발견해 진단 완료, self-attention KV캐시 기반 재설계로 해결 방향까지 확보한 상태.
+진행 상황은 `train/QUANTIZATION_MOBILE.md`.
 
 ## Directory Layout
 

@@ -65,4 +65,27 @@ Image"로 지정해서 만든다(RunPod의 GitHub 연동 자동 빌드는 불안
 |---|---|
 | 추론 서버 | RunPod Serverless(Docker, GPU) |
 | OMR 모델 | PyTorch(CNN 인코더 + Transformer 디코더) — 학습 코드·정확도·개발 히스토리는 별도 저장소 [Model_TransNote](https://github.com/braeden-hue/Model_TransNote) 참고 |
-| 모바일 양자화 | ONNX export → TFLite(진행 중, `train/QUANTIZATION_MOBILE.md` 참고) |
+| 모바일 온디바이스 | ONNX export → TFLite(진행 중, 아래 참고) |
+
+## 모바일 온디바이스 추론 (진행 중)
+
+서버(RunPod GPU) 추론과 별개로, **같은 체크포인트를 모바일에서 직접 돌리는 작업**을 진행
+중이다(`train/export_tflite.py`, 진행 로그는 `train/QUANTIZATION_MOBILE.md`).
+
+- **자기회귀 디코더의 실제 병목을 찾아 고쳤다**: 서버 추론 경로도 cross-attention(인코더 출력)
+  K,V만 캐싱하고 self-attention은 매 스텝 전체를 재계산하고 있었다(O(T³)). 고정 크기 버퍼
+  기반 self-attention KV캐시를 구현해 O(T²)로 낮췄고, held-out 실사 10곡에서 토큰 시퀀스
+  완전 일치(정확성 검증)·실측 속도 약 1.6~2배 개선을 확인한 뒤 프로덕션(RunPod)에 반영했다.
+  더 낮출 수 있는지(O(T log T)급 sparse/linear attention 등)도 검토했으나, 이런 방법들은
+  attention 계산 자체를 바꾸는 방식이라 재학습 없인 정확도가 깨진다는 걸 확인 — 재학습 없이
+  유일하게 시도 가능했던 슬라이딩 윈도우 attention도 직접 실험해 정확도 하락으로 기각했다.
+  지금 O(T²)가 재학습 없이 도달 가능한 합리적 한계.
+- **TFLite export를 실제로 끝까지 돌려서 검증**: 인코더(54.5MB)+디코더(131MB) export 자체는
+  성공했지만, "export 성공"과 "실제 동작"은 다르다는 걸 직접 확인했다 — 디코더가 2번째
+  디코딩 스텝부터 reshape 에러로 깨졌다(`past_ids`를 매 스텝 growing 텐서로 리사이즈하는
+  방식이 TFLite/XNNPACK과 안 맞음). 원인을 정확히 진단했고, 위 self-attention KV캐시(고정
+  크기 버퍼 — 애초에 TFLite 호환을 염두에 두고 설계함)를 TFLite export에 그대로 적용하는
+  게 다음 단계.
+- **정확도 베이스라인도 재검증**: 처음 잰 82.1%가 held-out이 아니라 학습에 이미 쓰인
+  데이터로 잰 수치였다는 걸 발견 — 실제 학습에 안 쓰인 셋(뉴에이지 10곡)으로 재측정하니
+  94.2%. 앞으로 양자화 전/후 비교는 이 숫자를 기준으로 한다.
