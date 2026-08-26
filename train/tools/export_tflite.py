@@ -3,22 +3,23 @@
 파이프라인: PyTorch .pt -> ONNX -> (onnx2tf) -> TFLite
 ONNX 래퍼 클래스 3종은 onnx_wrappers.py, 설계 배경은 EXPORT_NOTES.md 참고.
 
-산출물(4개 그래프 + 토크나이저):
-    encoder_INT8.tflite         인코더 (항상 FP32 -- EXPORT_NOTES.md §10)
+산출물(6개 그래프 + 토크나이저) -- 버킷팅(작은/큰 KV캐시 두 크기) 구성, EXPORT_NOTES.md §14:
+    encoder_INT8.tflite         인코더 (항상 FP32 -- §10)
     decoder_memkv_INT8.tflite   cross-attention K,V 사전계산 (이미지당 1회)
-    decoder_INT8.tflite         디코더 단일 스텝 (self-attn KV캐시)
-    decoder_bulk_INT8.tflite    캐시 일괄 재구성 (InlineTimeCorrector 호환용)
+    decoder_INT8.tflite         디코더 단일 스텝, 작은 버킷(cache_len_small, 기본으로 씀)
+    decoder_bulk_INT8.tflite    첫 마디 일괄 캐시 채우기, 작은 버킷(InlineTimeCorrector 호환)
+    decoder_large_INT8.tflite   디코더 단일 스텝, 큰 버킷(cache_len, 넘칠 때만 씀)
+    decoder_rebucket_INT8.tflite 작은→큰 버킷 전환용 일괄 캐시 채우기
     tokenizer.json
   각각 <이름>_<version>.tflite 로도 같이 저장된다.
 
 사용법:
-    # Hybrid (권장 -- 인코더 FP32 + 나머지 dynamic-range INT8)
-    python train/tools/export_tflite.py --seq2seq <ckpt.pt> \\
-        --out_dir train/tflite_export_dr --version v1 --no_quantize --dynamic_range
+    # Hybrid (기본값, 채택된 구성 -- 인코더 FP32 + 나머지 dynamic-range INT8)
+    python train/tools/export_tflite.py --seq2seq <ckpt.pt> --no_quantize
 
-    # 순정 FP32
-    python train/tools/export_tflite.py --seq2seq <ckpt.pt> \\
-        --out_dir train/tflite_export --version v1 --no_quantize
+    # 순정 FP32(비교 기준선 재현용, 평소엔 안 씀)
+    python train/tools/export_tflite.py --seq2seq <ckpt.pt> --no_quantize \\
+        --precision fp32 --out_dir train/tflite_export
 """
 
 import argparse
@@ -316,25 +317,29 @@ def main():
     p.add_argument('--tokenizer',        default=os.path.join(_TRAIN, 'tokenizer258.json'))
     p.add_argument('--data_dir',         default=None,
                    help='대보표 PNG 디렉토리 (INT8 캘리브레이션용, 없으면 FP32로 fallback)')
-    p.add_argument('--out_dir',          default=os.path.join(_TRAIN, 'tflite_export'))
+    p.add_argument('--out_dir',          default=os.path.join(_TRAIN, 'tflite_export_dr'),
+                   help='기본값이 Hybrid 산출물 디렉토리(tflite_export_dr)임에 주의')
     p.add_argument('--version',          default='v1')
     p.add_argument('--calib_n',          type=int, default=100)
     p.add_argument('--quantize_decoder', action='store_true')
     p.add_argument('--no_quantize',      action='store_true')
     p.add_argument('--device',           default='cpu')
     p.add_argument('--cache_len',        type=int, default=300,
-                   help='디코더 KV캐시 고정 크기(최대 디코딩 스텝 수, INFER_MAX_LEN과 맞춤)')
+                   help='큰 버킷 KV캐시 크기(넘칠 때만 쓰는 안전판, INFER_MAX_LEN과 맞춤) -- '
+                        'EXPORT_NOTES.md §14')
+    p.add_argument('--cache_len_small',  type=int, default=160,
+                   help='작은 버킷 KV캐시 크기(대부분의 곡이 여기서 안 넘침) -- newage01~30 '
+                        '실측(2026-08-26) 기준 29/30곡이 133 이하라 160으로 설정, 재학습된 '
+                        '체크포인트로 바뀌면 재검증 필요(§14)')
     p.add_argument('--chunk_len',        type=int, default=40,
                    help='일괄 캐시 채우기 청크 길이(첫 마디 최대 토큰 수 상한)')
-    p.add_argument('--fp16',             action='store_true',
-                   help='FP16 변형 선택 -- 이 그래프는 CPU에서 실행 불가, GPU 델리게이트 '
-                        '실험용으로만 남겨둠 (EXPORT_NOTES.md §9)')
-    p.add_argument('--dynamic_range',    action='store_true',
-                   help='디코더 3종을 dynamic-range 양자화(가중치 INT8/활성값 FP32)로 export. '
-                        '인코더는 발산 문제로 항상 FP32 유지 (EXPORT_NOTES.md §10)')
+    p.add_argument('--precision',        choices=['hybrid', 'fp32', 'fp16'], default='hybrid',
+                   help="'hybrid'(기본값, 채택된 구성): 인코더 FP32 + 디코더 3종 dynamic-range "
+                        "INT8(EXPORT_NOTES.md §10). 'fp32': 전부 FP32(비교 기준선 재현용). "
+                        "'fp16': 이 그래프는 CPU 실행 불가, GPU 델리게이트 실험용(§9)")
     args = p.parse_args()
-    if args.fp16 and args.dynamic_range:
-        p.error('--fp16과 --dynamic_range는 동시에 줄 수 없음')
+    fp16          = args.precision == 'fp16'
+    dynamic_range = args.precision == 'hybrid'
 
     os.makedirs(args.out_dir, exist_ok=True)
     tmp = os.path.join(args.out_dir, '_export_tmp')
@@ -345,7 +350,7 @@ def main():
     tok2id, _ = load_tokenizer(args.tokenizer)
     vocab_size = len(tok2id)
 
-    mode = 'FP16' if args.fp16 else ('Hybrid(dynamic-range)' if args.dynamic_range else 'FP32')
+    mode = {'hybrid': 'Hybrid(dynamic-range, 채택된 구성)', 'fp32': 'FP32', 'fp16': 'FP16'}[args.precision]
     print(f"\n{'='*60}")
     print(f"  대보표 OMR TFLite Export  —  version: {args.version}  mode: {mode}")
     print(f"{'='*60}")
@@ -368,7 +373,7 @@ def main():
                 quantize = False
 
     # ── 1. SegNet (선택) ──────────────────────────────────
-    print("--- [1/5] SegNet ---------------------------------------")
+    print("--- [1/6] SegNet ---------------------------------------")
     if not args.segnet:
         print("    --segnet 안 줌 -- 건너뜀 (EXPORT_NOTES.md §13)\n")
     else:
@@ -385,7 +390,7 @@ def main():
         print()
 
     # ── 2. Encoder (dynamic_range와 무관하게 항상 FP32 -- §10) ──
-    print("--- [2/5] Encoder --------------------------------------")
+    print("--- [2/6] Encoder --------------------------------------")
     seq2seq  = load_seq2seq(args.seq2seq, vocab_size, device)
     in_ch    = seq2seq.encoder.backbone[0].block[0].weight.shape[1]   # 1 또는 CoordConv 2
     onnx_enc = os.path.join(tmp, 'encoder.onnx')
@@ -396,17 +401,17 @@ def main():
     if quantize:
         calib_enc = os.path.join(tmp, 'calib_encoder.npy')
         _build_encoder_calib(image_paths, calib_enc, n=min(50, len(image_paths)), in_ch=in_ch)
-    if args.dynamic_range:
+    if dynamic_range:
         print("    (--dynamic_range여도 인코더는 FP32 고정 -- EXPORT_NOTES.md §10)")
 
     tflite_enc = os.path.join(tmp, 'encoder_INT8.tflite')
     if _convert_tflite(onnx_enc, tflite_enc, calib_enc, quantize, input_op_name='canvas',
-                       fp16=args.fp16, dynamic_range=False):
+                       fp16=fp16, dynamic_range=False):
         _save_versioned(tflite_enc, args.out_dir, 'encoder_INT8', args.version)
     print()
 
     # ── 3. cross-attention K,V 사전계산 -- §6 ──────────────
-    print("--- [3/5] Decoder memory-KV precompute -----------------")
+    print("--- [3/6] Decoder memory-KV precompute -----------------")
     print("    memory[1,S,512] -> (k_mem, v_mem)[L,1,H,S,Dh], 이미지당 1회만 실행")
     onnx_memkv = os.path.join(tmp, 'decoder_memkv.onnx')
     _export_onnx_memory_kv(seq2seq, onnx_memkv)
@@ -414,41 +419,69 @@ def main():
     tflite_memkv = os.path.join(tmp, 'decoder_memkv_INT8.tflite')
     if _convert_tflite(onnx_memkv, tflite_memkv, None, False, input_op_name='memory',
                        keep_layout_input_names=['memory'],
-                       fp16=args.fp16, dynamic_range=args.dynamic_range):
+                       fp16=fp16, dynamic_range=dynamic_range):
         _save_versioned(tflite_memkv, args.out_dir, 'decoder_memkv_INT8', args.version)
     print()
 
-    # ── 4. Decoder 단일 스텝 (고정 shape KV캐시 -- §3) ─────
-    print("--- [4/5] Decoder step ---------------------------------")
-    print(f"    (token_id, pos, k_mem_in, v_mem_in, k_cache_in, v_cache_in)")
-    print(f"    -> (next_logits[1,{vocab_size}], k_cache_out, v_cache_out), cache_len={args.cache_len}")
-    onnx_dec = os.path.join(tmp, 'decoder.onnx')
-    _export_onnx_decoder_kv(seq2seq, onnx_dec, cache_len=args.cache_len)
-    _simplify(onnx_dec)
-
+    # ── 4. Decoder 단일 스텝 -- 작은 버킷(기본, cache_len_small) + 큰 버킷(안전판, cache_len) ──
+    # EXPORT_NOTES.md §14: self-attention이 pos와 무관하게 항상 O(cache_len) 계산이라
+    # (§3의 고정 shape 설계 대가), 작은 버퍼로 대부분의 곡을 빠르게 처리하고 넘칠 때만
+    # 큰 버퍼로 전환("리버킷")한다.
+    print("--- [4/6] Decoder step (작은 버킷, 기본) ----------------")
+    print(f"    cache_len_small={args.cache_len_small} -- decoder_INT8.tflite로 저장(대부분 이걸 씀)")
+    onnx_dec_s = os.path.join(tmp, 'decoder_small.onnx')
+    _export_onnx_decoder_kv(seq2seq, onnx_dec_s, cache_len=args.cache_len_small)
+    _simplify(onnx_dec_s)
     if args.quantize_decoder:
         print("    WARNING: --quantize_decoder 미구현(디코더는 여러 입력을 함께 보정해야 함) -- 무시")
-
-    tflite_dec = os.path.join(tmp, 'decoder_INT8.tflite')
-    if _convert_tflite(onnx_dec, tflite_dec, None, False, input_op_name='token_id',
+    tflite_dec_s = os.path.join(tmp, 'decoder_INT8.tflite')
+    if _convert_tflite(onnx_dec_s, tflite_dec_s, None, False, input_op_name='token_id',
                        keep_layout_input_names=['token_id', 'pos', 'k_mem_in', 'v_mem_in',
                                                  'k_cache_in', 'v_cache_in'],
-                       fp16=args.fp16, dynamic_range=args.dynamic_range):
-        _save_versioned(tflite_dec, args.out_dir, 'decoder_INT8', args.version)
+                       fp16=fp16, dynamic_range=dynamic_range):
+        _save_versioned(tflite_dec_s, args.out_dir, 'decoder_INT8', args.version)
     print()
 
-    # ── 5. 캐시 일괄 재구성 (InlineTimeCorrector 호환 -- §7) ──
-    print("--- [5/5] Decoder bulk-capture -------------------------")
+    print("--- [5/6] Decoder step (큰 버킷, 넘칠 때만) --------------")
+    print(f"    cache_len={args.cache_len} -- decoder_large_INT8.tflite로 저장")
+    onnx_dec_l = os.path.join(tmp, 'decoder_large.onnx')
+    _export_onnx_decoder_kv(seq2seq, onnx_dec_l, cache_len=args.cache_len)
+    _simplify(onnx_dec_l)
+    tflite_dec_l = os.path.join(tmp, 'decoder_large_INT8.tflite')
+    if _convert_tflite(onnx_dec_l, tflite_dec_l, None, False, input_op_name='token_id',
+                       keep_layout_input_names=['token_id', 'pos', 'k_mem_in', 'v_mem_in',
+                                                 'k_cache_in', 'v_cache_in'],
+                       fp16=fp16, dynamic_range=dynamic_range):
+        _save_versioned(tflite_dec_l, args.out_dir, 'decoder_large_INT8', args.version)
+    print()
+
+    # ── 6. 캐시 일괄 재구성 -- 첫 마디(InlineTimeCorrector) + 버킷 전환(리버킷) 둘 다
+    # _BulkCaptureWrapperKV 재사용(chunk_len/cache_len만 다름) -- EXPORT_NOTES.md §7, §14
+    print("--- [6/6] Decoder bulk-capture (일괄 캐시 채우기) -------")
     print(f"    (tokens[1,{args.chunk_len}], k_mem_in, v_mem_in) -> (k_cache_out, v_cache_out)")
+    print(f"    첫 마디(InlineTimeCorrector 교정 구간)를 작은 버킷 캐시에 일괄 반영")
     onnx_bulk = os.path.join(tmp, 'decoder_bulk.onnx')
     _export_onnx_bulk_capture(seq2seq, onnx_bulk, chunk_len=args.chunk_len,
-                              cache_len=args.cache_len)
+                              cache_len=args.cache_len_small)
     _simplify(onnx_bulk)
     tflite_bulk = os.path.join(tmp, 'decoder_bulk_INT8.tflite')
     if _convert_tflite(onnx_bulk, tflite_bulk, None, False, input_op_name='tokens',
                        keep_layout_input_names=['tokens', 'k_mem_in', 'v_mem_in'],
-                       fp16=args.fp16, dynamic_range=args.dynamic_range):
+                       fp16=fp16, dynamic_range=dynamic_range):
         _save_versioned(tflite_bulk, args.out_dir, 'decoder_bulk_INT8', args.version)
+    print()
+
+    print(f"    (tokens[1,{args.cache_len_small}], k_mem_in, v_mem_in) -> (k_cache_out, v_cache_out)")
+    print(f"    리버킷: 작은 버킷이 꽉 찼을 때(넘칠 때만) 지금까지 전체를 큰 버킷 캐시로 일괄 이전")
+    onnx_rebucket = os.path.join(tmp, 'decoder_rebucket.onnx')
+    _export_onnx_bulk_capture(seq2seq, onnx_rebucket, chunk_len=args.cache_len_small,
+                              cache_len=args.cache_len)
+    _simplify(onnx_rebucket)
+    tflite_rebucket = os.path.join(tmp, 'decoder_rebucket_INT8.tflite')
+    if _convert_tflite(onnx_rebucket, tflite_rebucket, None, False, input_op_name='tokens',
+                       keep_layout_input_names=['tokens', 'k_mem_in', 'v_mem_in'],
+                       fp16=fp16, dynamic_range=dynamic_range):
+        _save_versioned(tflite_rebucket, args.out_dir, 'decoder_rebucket_INT8', args.version)
     print()
 
     print("--- Tokenizer ------------------------------------------")

@@ -310,9 +310,9 @@ PyTorch 하이브리드 94.2%와 1.2%p 차이로 좁혀짐). **newage25(6/8박�
 `train/tools/benchmark.py` 작성(재사용 가능, `python train/tools/benchmark.py`로 재현). newage21~30
 held-out 10곡, 개발 PC CPU 기준 결과는 README.md "벤치마크 리포트" 섹션에 표로 정리.
 최종적으로 **인코더 FP32 + 디코더/일괄캐시 dynamic-range INT8 + cross-attention K,V
-사전계산 "Hybrid" 구성**이 크기(116.1MB, FP32 대비 -59%, PyTorch보다도 37% 작음)·속도
-(3.4초, PyTorch 대비 1.3배)·정확도(94.3%, PyTorch와 동급) 세 축 모두에서 순정 FP32 TFLite
-export보다 나은 결과로 확정됐다. 여기까지 온 경로:
+사전계산 + 버킷팅(작은/큰 KV캐시) "Hybrid" 구성**이 크기(173.6MB)·속도(3.5초, PyTorch
+대비 1.18배)·정확도(94.3%, PyTorch와 동급)로 확정됐고, `export_tflite.py`/`tflite_infer.py`에
+정식 통합 완료(2026-08-26 늦은 시각). 여기까지 온 경로:
 
 **1차: 순수 FP32 export/벤치마크 (2026-08-24)** — PyTorch 184.6MB/3.2초/94.2% vs TFLite
 FP32 300.2MB/10.6초/93.0%. TFLite가 desktop CPU에서 더 느리다는 게 처음엔 의아했는데
@@ -394,12 +394,62 @@ os.cpu_count()`, `dec_threads=1`)으로는 채택했지만, 이 개발 PC에서 
 크래시 없음). 크기도 부수적으로 줄었다(Hybrid 119.7MB→116.1MB — memkv 그래프도 dynamic-
 range로 잘 압축됨, 4.3MB).
 
-**최종 결정**: 인코더는 CoordConv CNN에서 dynamic-range 시 발산이 확인돼(원인 불명, 인코더는
-애초에 손실 대비 이득도 작아서 — FP32 54.5MB면 전체의 절반 미만 — 추가 조사 안 하고 FP32로
-고정) FP32로 유지, 디코더+일괄캐시는 Gemm 유도+Where 회피를 반영한 dynamic-range로,
-cross-attention K,V는 이미지당 1회만 계산하는 별도 그래프로 분리해서 export하는 **Hybrid
-구성**을 채택(`export_tflite.py --dynamic_range`, 인코더는 이 플래그와 무관하게 항상 FP32).
-`train/tflite_export_dr/`가 이 Hybrid 산출물(로컬 전용, `.gitignore` 처리).
+**인코더 압축 재시도 — 팀원 제안 3가지 검토 + PyTorch 네이티브 PTQ 스파이크 (2026-08-26)**
+— 팀원이 "onnx2tf 컨버터와 TFLite CPU 런타임의 호환성 문제"라는 진단과 함께 3가지 대안을
+제안: ①PyTorch `torch.ao.quantization`으로 먼저 양자화 후 export, ②QAT 도입, ③안드로이드
+NNAPI 델리게이트. ②는 "1~2 에폭 파인튜닝"이 필요해 재학습 없음 원칙 위반이라 진행 여부는
+사용자 결정 대기(RunPod 계획 있음, 열면 Model_TransNote 쪽 작업), ③은 갤럭시탭 연결 보류로
+지금 테스트 불가(③ 항목으로 이월). **①은 실제로 스파이크 테스트함**:
+- FX 양자화(`prepare_fx`/`convert_fx`)로 인코더 backbone(CNN)만 양자화 → PyTorch 내부
+  추론 성공(NaN 없음, 오차 정상 범위)
+- 전체 인코더를 그대로 ONNX export하면 `squeeze`+`permute` 조합에서 `onnx::If`가 생기고
+  뒤의 quantized `Transpose`가 실패 — backbone만 양자화하고 pool/squeeze/permute/proj/
+  pos_enc는 float로 남기는 export wrapper로 우회해서 export 성공, 진짜
+  `QuantizeLinear`/`DequantizeLinear` 노드 확보
+- **그런데 onnx2tf에 넘겨보니 크기가 54.6MB로 원본과 동일(무압축)** — onnx2tf가 QDQ 노드를
+  보고도 자체 판단(float32/float16 변형만 생성)을 그대로 하고, 진짜 INT8 저장은 onnx2tf
+  **자신의** 양자화 플래그(`output_dynamic_range_quantized_tflite`/
+  `output_integer_quantized_tflite`)를 명시적으로 켜야만 일어난다는 걸 확인. 그 플래그를
+  이 QDQ ONNX에 켜봐도 캘리브레이션 데이터 없인 변형이 안 만들어지고, 데이터를 주면 전에
+  크래시났던 그 경로로 돌아감 — **PyTorch에서 먼저 양자화해도 onnx2tf의 INT8 변환 로직
+  자체를 우회하지 못한다는 게 최종 결론**
+- 종합: dynamic-range(발산)·calibrated INT8(네이티브 크래시)·FP16(CONV_2D 거부)·PyTorch
+  PTQ(onnx2tf가 우회 안 됨) 4가지 경로 전부 막힘 — **인코더는 FP32로 최종 확정**, 더 이상
+  조사 안 함(QAT/NNAPI는 스코프/환경이 열리면 재검토)
+
+**최종 결정**: 인코더는 위 4가지 압축 경로가 전부 막혀 FP32로 유지, 디코더 계열(작은/큰
+버킷 step, 일괄캐시, 리버킷)은 Gemm 유도+Where 회피를 반영한 dynamic-range로, cross-attention
+K,V는 이미지당 1회만 계산하는 별도 그래프로 분리해서 export하는 **Hybrid 구성**을 채택.
+2026-08-26에 `export_tflite.py`/`tflite_infer.py`에 **정식 통합 완료**(더 이상 플래그로
+켜는 게 아니라 기본 동작) — 아래 "버킷팅 통합" 참고.
+
+### 버킷팅 통합 — 6번째 개선, ②/③ 사이 추가 라운드 (2026-08-26)
+
+cross-attention 캐싱 이후에도 self-attention이 `pos`와 무관하게 항상 고정 `cache_len`
+크기로 계산되는 비용은 남아있었다(§3 설계 대가). newage01~30(30곡, 소나타류는 학습에만
+쓰고 테스트에선 제외 — 더 복잡한 악보라 대표성 낮음) 실측 결과 **29/30곡이 133 이하**
+(하나만 237, 근데 그 곡도 모델이 실제로 예측하는 길이는 125라 결국 안 넘음) — 이 근거로
+KV캐시를 **작은 버킷(160)/큰 버킷(300, 안전판)**으로 나누고, 작은 버킷이 꽉 차면
+"리버킷"(`_BulkCaptureWrapperKV`를 `chunk_len=160`로 재사용)으로 큰 버킷으로 전환하는
+방식을 `export_tflite.py`/`tflite_infer.py`에 정식 통합했다(EXPORT_NOTES.md §14에 설계
+전체 기록).
+
+**정확성 검증**: 리버킷은 30곡 실측에서 한 번도 발동하지 않았지만(전부 160 안에서 끝남),
+강제로 트리거시켜 순차 계산과 텐서 레벨로 직접 비교했다 — 오차가 있었지만(최대 0.12,
+레이어당 완만히 누적) **이미 프로덕션에 있던 `chunk_len=40` 일괄캐시 그래프도 순차 계산
+대비 정확히 같은 크기의 오차**를 보여서, dynamic-range 양자화가 그래프마다 독립적으로
+스케일을 잡아 생기는 이미 받아들여진 수준의 노이즈이지 새 버그가 아님을 확인했다.
+
+**결과**(정식 통합 후 재검증, held-out 10곡): **크기 173.6MB, 속도 3.5초(PyTorch 대비
+1.18배, 이전 1.3배에서 개선), 정확도 94.3%(불변), 10/10 크래시 없음.** 다만 크기는
+116.1MB→173.6MB로 **50% 늘었다** — 작은/큰 버킷 디코더 그래프를 둘 다 담아야 하는데,
+큰 버킷+리버킷(~60MB)은 이 실측에서 한 번도 실제로 안 쓰였다. **속도와 크기를 맞바꾼
+트레이드오프**임을 정직하게 기록한다 — 실제 앱이라면 이 안전판을 온디맨드로 받게 하는
+것도 고려할 만하다.
+
+`train/tflite_export_dr/`가 이 버킷팅 Hybrid 산출물(로컬 전용, `.gitignore` 처리) —
+6개 그래프(encoder/memkv/decoder(작은)/decoder_bulk(작은)/decoder_large(큰)/
+decoder_rebucket).
 
 ### ③ 통제된 테스트 환경 구축
 
@@ -414,16 +464,15 @@ cross-attention K,V는 이미지당 1회만 계산하는 별도 그래프로 분
 - INT8 양자화(`--quantize_decoder`) — FP16까지만 하고 INT8은 이번 범위 밖(디코더 이중
   입력 캘리브레이션 문제가 남아있고, ①②③ 완성이 우선)
 - catastrophic 실패 곡 원인 분석 — 별도 트랙, 우선순위 낮음
-- **MQA/GQA 도입**, **인코더 시퀀스 축소(S=320→160)** (2026-08-26, 팀원 제안) — 둘 다
-  KV캐시/cross-attn 비용을 구조적으로 줄이는 정석적 기법이지만 모델 아키텍처 자체를 바꾸는
-  거라 재학습이 필요함. 이 트랙은 지금까지 "재학습 없이 기존 체크포인트로 짜낼 수 있는
-  만큼"을 원칙으로 해왔음(슬라이딩 윈도우 attention 기각 사례와 동일 기준) — 진행하려면
-  Model_TransNote(학습 저장소) 쪽으로 스코프가 넘어감, 별도 논의 필요
-- **cache_len 버킷팅**(64/128/300처럼 여러 고정 크기 디코더 그래프를 두고 `pos`가 버킷
-  경계를 넘을 때만 `forward_bulk_capture`처럼 큰 버킷으로 옮기는 방식) — self-attention이
-  매 스텝 O(cache_len)=O(300)을 계산하는데(진짜 O(pos) 슬라이싱은 TFLite 리사이즈 문제로
-  포기했던 전례가 있음) 재학습 없이 이 비용을 줄일 수 있는 후보. cross-attn 캐싱만으로
-  이미 PyTorch 대비 1.3배까지 좁혀져서 우선순위가 낮아짐 — 다음 단계 후보로 남겨둠
+- **MQA/GQA 도입**, **인코더 시퀀스 축소(S=320→160)**, **QAT**(2026-08-26, 팀원 제안) —
+  셋 다 모델 아키텍처/가중치 자체를 바꾸는 거라 재학습이 필요함. 이 트랙은 지금까지
+  "재학습 없이 기존 체크포인트로 짜낼 수 있는 만큼"을 원칙으로 해왔음(슬라이딩 윈도우
+  attention 기각 사례와 동일 기준) — 진행하려면 Model_TransNote(학습 저장소) 쪽으로
+  스코프가 넘어감, 사용자가 RunPod 계획 있다고 밝혀서 진행 여부는 사용자 결정 대기.
+  **버킷팅과의 순서는 무관하다고 판단**(버킷팅=디코더 export 그래프 구조, QAT=가중치 —
+  서로 다른 축이라 독립적. QAT가 나중에 도착하면 새 체크포인트로 전체 재export + newage01~30
+  재측정만 하면 됨 — 버킷팅을 먼저 통합해둔 게 그때 할 일을 줄여주는 정도의 실무적 이점)
+- ~~cache_len 버킷팅~~ — ✅ 완료, 위 "버킷팅 통합" 섹션 참고
 
 ## 실험 기록 (진행되면 추가)
 
@@ -441,7 +490,9 @@ cross-attention K,V는 이미지당 1회만 계산하는 별도 그래프로 분
 | 2026-08-26 | TFLite dynamic-range 2차(Gemm 유도 후, Where 버그 수정 전) | 디코더 35MB+일괄캐시 30MB | 0.0%(NaN) | CPU 8~13s/장 | 팀원 제안(2D flatten)으로 압축은 성공했지만 `torch.where`/`is_causal` 관련 텐서 양자화 스케일이 2.68e36으로 깨져 1스텝만에 NaN. 크래시는 없어서(NaN이 조용히 전파) 발견이 늦었음 |
 | 2026-08-26 | TFLite Hybrid(인코더 FP32 + 디코더/일괄캐시 dynamic-range, Where→산술 블렌드 수정 후) | 119.7MB(FP32 대비 -60%) | 94.3%(PyTorch 94.2%와 동급) | CPU 8.0s/장(FP32 TFLite 대비 -25%) | `torch.where`→산술 블렌드, `is_causal=True`→명시적 `attn_mask` 치환으로 Where 노드 제거 후 재검증. 10/10 크래시 없음 |
 | 2026-08-26 | TFLite FP32(cross-attn K,V 캐싱 추가 후, 재측정) | 286.2MB(memkv 그래프 분리로 증가) | 93.0%(불변) | **CPU 4.2s/장**(-60%) | `decoder_memkv_INT8.tflite` 분리로 스텝마다 재계산하던 cross-attn projection 제거. `_MemoryKVWrapper` 신설 |
-| 2026-08-26 | **TFLite Hybrid**(dynamic-range + cross-attn K,V 캐싱, **최종 채택**) | **116.1MB**(FP32 대비 -59%, PyTorch보다 37% 작음) | **94.3%**(PyTorch 94.2%와 동급) | **CPU 3.4s/장**(PyTorch 대비 1.3배, 2회 측정 평균) | 위 두 개선(Gemm/Where 수정 + cross-attn 캐싱) 결합. 10/10 크래시 없음. `export_tflite.py --dynamic_range`로 재현 가능 |
+| 2026-08-26 | TFLite Hybrid(dynamic-range + cross-attn K,V 캐싱, 버킷팅 전) | 116.1MB | 94.3% | CPU 3.4s/장(PyTorch 대비 1.3배) | 위 두 개선(Gemm/Where 수정 + cross-attn 캐싱) 결합 |
+| 2026-08-26 | 인코더 PyTorch PTQ 스파이크(FX 양자화+QDQ export) | 54.6MB(무압축) | — | — | onnx2tf가 QDQ 노드 봐도 자체 판단 그대로 함 — 우회 실패, 채택 안 함 |
+| 2026-08-26 | **TFLite Hybrid + 버킷팅**(작은 160/큰 300 KV캐시, **최종 채택**) | **173.6MB**(버킷팅 전 대비 +50%, 안전판 포함) | **94.3%**(불변) | **CPU 3.5s/장**(PyTorch 대비 **1.18배**) | `export_tflite.py`/`tflite_infer.py`에 정식 통합(플래그 아닌 기본 동작). 리버킷 텐서 레벨 검증 완료(기존 노이즈 수준과 동일). 30곡 중 리버킷 실발동 0회 |
 
 ## 포트폴리오용 캡처 포인트 (계획)
 
