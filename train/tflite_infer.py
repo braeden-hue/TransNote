@@ -2,8 +2,10 @@
 악보 이미지를 인식하는 CLI 스크립트.
 
 모바일 앱 없이도 "TFLite 모델이 실제 인터프리터에서 완전하게 동작하는지"를 증명하는 게
-목적이다(train/QUANTIZATION_MOBILE.md ① 항목). export_tflite.py가 만든
-encoder_INT8.tflite/decoder_INT8.tflite(둘 다 지금은 실제로는 FP32)를 그대로 쓴다.
+목적이다(train/QUANTIZATION_MOBILE.md ① 항목). export_tflite.py가 만든 4개 파일
+(encoder_INT8.tflite, decoder_memkv_INT8.tflite, decoder_INT8.tflite,
+decoder_bulk_INT8.tflite)을 그대로 쓴다 -- Hybrid 구성(2026-08-26)은 인코더/memkv는
+FP32, decoder/decoder_bulk는 dynamic-range(INT8 가중치)다.
 
 디코더는 고정 크기 self-attention KV캐시 인터페이스(_export_onnx_decoder_kv 참고)라
 매 스텝 텐서 shape이 동일 — resize_tensor_input이 처음 한 번만 필요하고 이후 스텝마다는
@@ -14,6 +16,7 @@ encoder_INT8.tflite/decoder_INT8.tflite(둘 다 지금은 실제로는 FP32)를 
     python train/tflite_infer.py --tflite_dir train/tflite_export --image <악보사진.jpg>
 """
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -36,16 +39,32 @@ class TFLiteOmrModel:
     """encoder_INT8.tflite/decoder_INT8.tflite(+decoder_bulk_INT8.tflite) 세 파일만으로
     동작하는 추론 래퍼."""
 
-    def __init__(self, tflite_dir: str, cache_len: int = 300, chunk_len: int = 40):
+    def __init__(self, tflite_dir: str, cache_len: int = 300, chunk_len: int = 40,
+                 enc_threads: int | None = None, dec_threads: int = 1):
+        """enc_threads/dec_threads (2026-08-26 실측): 인코더(이미지당 1회, 큰 CNN)는
+        스레드가 많을수록 빨라지지만(이 개발 PC 18코어 기준 16스레드까지 계속 개선), 디코더는
+        정반대 — 스텝마다 토큰 1개짜리 아주 작은 연산이라 스레드 동기화 오버헤드가 병렬화
+        이득보다 커서 스레드를 늘릴수록 오히려 느려진다(4곡 평균 실측: dec_threads=1이 2,3,4
+        보다 항상 빠름). enc_threads 기본값은 머신의 전체 코어 수(os.cpu_count()), dec_threads
+        기본값은 1 — 이 비대칭성은 "작은 연산은 스레드 오버헤드가 이득을 압도한다"는 일반적
+        원리라 코어 수가 다른 기기에서도 유효할 것으로 예상(다만 실기 재검증 필요, ③ 참고)."""
+        if enc_threads is None:
+            enc_threads = os.cpu_count() or 4
         d = Path(tflite_dir)
-        self.enc = tf.lite.Interpreter(model_path=str(d / "encoder_INT8.tflite"))
-        self.dec = tf.lite.Interpreter(model_path=str(d / "decoder_INT8.tflite"))
-        self.bulk = tf.lite.Interpreter(model_path=str(d / "decoder_bulk_INT8.tflite"))
+        self.enc = tf.lite.Interpreter(model_path=str(d / "encoder_INT8.tflite"), num_threads=enc_threads)
+        # memkv(cross-attention K,V 사전계산, 2026-08-26)는 인코더처럼 이미지당 1회만 도는
+        # 큰 연산(S=SEQ_LEN 전체)이라 enc_threads를 같이 씀.
+        self.memkv = tf.lite.Interpreter(model_path=str(d / "decoder_memkv_INT8.tflite"), num_threads=enc_threads)
+        self.dec = tf.lite.Interpreter(model_path=str(d / "decoder_INT8.tflite"), num_threads=dec_threads)
+        self.bulk = tf.lite.Interpreter(model_path=str(d / "decoder_bulk_INT8.tflite"), num_threads=dec_threads)
         self.enc.allocate_tensors()
+        self.memkv.allocate_tensors()
         self.dec.allocate_tensors()
         self.bulk.allocate_tensors()
         self.enc_in = self.enc.get_input_details()[0]
         self.enc_out_idx = self.enc.get_output_details()[0]['index']
+        self.memkv_ins = {t['name']: t['index'] for t in self.memkv.get_input_details()}
+        self.memkv_outs = {t['name']: t['index'] for t in self.memkv.get_output_details()}
         self.dec_ins = {t['name']: t['index'] for t in self.dec.get_input_details()}
         self.dec_outs = {t['name']: t['index'] for t in self.dec.get_output_details()}
         self.bulk_ins = {t['name']: t['index'] for t in self.bulk.get_input_details()}
@@ -56,6 +75,16 @@ class TFLiteOmrModel:
 
         k_shape = self.dec.get_tensor_details()[self.dec_ins['k_cache_in']]['shape']
         self.num_layers, _, self.num_heads, _, self.head_dim = k_shape
+
+    def precompute_memory_kv(self, memory: np.ndarray):
+        """cross-attention K,V를 이미지당 1회 계산(2026-08-26) -- production PyTorch의
+        precompute_memory_kv()와 동일 목적. decode_hybrid()가 디코딩 루프 시작 전 1번만
+        호출하고, 이후 모든 _dec_step()/bulk 호출에 그 결과(k_mem,v_mem)를 넘긴다."""
+        self.memkv.set_tensor(self.memkv_ins['memory'], memory.astype(np.float32))
+        self.memkv.invoke()
+        k_mem = self.memkv.get_tensor(self.memkv_outs['k_mem'])
+        v_mem = self.memkv.get_tensor(self.memkv_outs['v_mem'])
+        return k_mem, v_mem
 
     def encode(self, canvas_norm: np.ndarray) -> np.ndarray:
         """canvas_norm: [H,W] float32, 이미 (px/255-mean)/std 정규화 완료.
@@ -84,6 +113,7 @@ class TFLiteOmrModel:
         LONG_DECODE_RAMP(과잉생성 방지)를 적용한다 — 이게 없으면 production과 공정한
         비교가 안 됨(2026-08-24, 처음 이걸 빼고 10곡 검증했다가 정확도가 실제보다 낮게
         나와서 나중에 추가함)."""
+        k_mem, v_mem = self.precompute_memory_kv(memory)
         L, H, C, Dh = self.num_layers, self.num_heads, self.cache_len, self.head_dim
         k_cache = np.zeros((L, 1, H, C, Dh), dtype=np.float32)
         v_cache = np.zeros((L, 1, H, C, Dh), dtype=np.float32)
@@ -91,7 +121,8 @@ class TFLiteOmrModel:
         for pos in range(max_steps):
             self.dec.set_tensor(self.dec_ins['token_id'], np.array([[cur_id]], dtype=np.int64))
             self.dec.set_tensor(self.dec_ins['pos'], np.array([pos], dtype=np.int64))
-            self.dec.set_tensor(self.dec_ins['memory'], memory.astype(np.float32))
+            self.dec.set_tensor(self.dec_ins['k_mem_in'], k_mem)
+            self.dec.set_tensor(self.dec_ins['v_mem_in'], v_mem)
             self.dec.set_tensor(self.dec_ins['k_cache_in'], k_cache)
             self.dec.set_tensor(self.dec_ins['v_cache_in'], v_cache)
             self.dec.invoke()
@@ -116,12 +147,14 @@ class TFLiteOmrModel:
             cur_id = nxt
         return tokens
 
-    def _dec_step(self, cur_id, pos, memory, k_cache, v_cache, stop_token_id, step_for_ramp):
+    def _dec_step(self, cur_id, pos, k_mem, v_mem, k_cache, v_cache, stop_token_id, step_for_ramp):
         """decode()/decode_hybrid()가 공유하는 디코더 1스텝 호출 (EOS_BOOST/과잉생성
-        방지 포함). 반환: (다음 토큰 id, 다음 토큰 logits argmax 전 로짓, 갱신된 캐시)."""
+        방지 포함). k_mem/v_mem은 precompute_memory_kv()로 이미지당 1회 계산해둔 cross-attention
+        K,V(2026-08-26, 이전엔 매 스텝 memory에서 재계산했음). 반환: (다음 토큰 id, 갱신된 캐시)."""
         self.dec.set_tensor(self.dec_ins['token_id'], np.array([[cur_id]], dtype=np.int64))
         self.dec.set_tensor(self.dec_ins['pos'], np.array([pos], dtype=np.int64))
-        self.dec.set_tensor(self.dec_ins['memory'], memory.astype(np.float32))
+        self.dec.set_tensor(self.dec_ins['k_mem_in'], k_mem)
+        self.dec.set_tensor(self.dec_ins['v_mem_in'], v_mem)
         self.dec.set_tensor(self.dec_ins['k_cache_in'], k_cache)
         self.dec.set_tensor(self.dec_ins['v_cache_in'], v_cache)
         self.dec.invoke()
@@ -153,6 +186,7 @@ class TFLiteOmrModel:
         time_correct = InlineTimeCorrector(tok2id, id2tok, is_grand=True)
         barline_ids = {tid for tid, s in id2tok.items() if s in _BARLINE_TOKEN_STRS}
 
+        k_mem, v_mem = self.precompute_memory_kv(memory)   # 이미지당 1회(2026-08-26)
         L, H, C, Dh = self.num_layers, self.num_heads, self.cache_len, self.head_dim
         k_cache = np.zeros((L, 1, H, C, Dh), dtype=np.float32)
         v_cache = np.zeros((L, 1, H, C, Dh), dtype=np.float32)
@@ -162,7 +196,7 @@ class TFLiteOmrModel:
         first_measure_done = False
         step = 0
         for step in range(max_steps):
-            nxt, k_cache, v_cache = self._dec_step(seq[-1], step, memory, k_cache, v_cache,
+            nxt, k_cache, v_cache = self._dec_step(seq[-1], step, k_mem, v_mem, k_cache, v_cache,
                                                     stop_token_id, step)
             if nxt == EOS_ID:
                 return result
@@ -189,7 +223,8 @@ class TFLiteOmrModel:
         if len(seq) <= self.chunk_len:
             chunk = seq + [PAD_ID] * (self.chunk_len - len(seq))
             self.bulk.set_tensor(self.bulk_ins['tokens'], np.array([chunk], dtype=np.int64))
-            self.bulk.set_tensor(self.bulk_ins['memory'], memory.astype(np.float32))
+            self.bulk.set_tensor(self.bulk_ins['k_mem_in'], k_mem)
+            self.bulk.set_tensor(self.bulk_ins['v_mem_in'], v_mem)
             self.bulk.invoke()
             k_cache = self.bulk.get_tensor(self.bulk_outs['k_cache_out'])
             v_cache = self.bulk.get_tensor(self.bulk_outs['v_cache_out'])
@@ -199,7 +234,7 @@ class TFLiteOmrModel:
 
         # ── 3단계: 빠른 경로 ──
         for step2 in range(step + 1, max_steps):
-            nxt, k_cache, v_cache = self._dec_step(cur_id, pos, memory, k_cache, v_cache,
+            nxt, k_cache, v_cache = self._dec_step(cur_id, pos, k_mem, v_mem, k_cache, v_cache,
                                                     stop_token_id, step2)
             if nxt == EOS_ID:
                 break

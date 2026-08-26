@@ -125,7 +125,7 @@ def bench_tflite(images, tflite_dir: Path, label: str):
     mem_after = _peak_mem_mb()
 
     size_mb = sum((tflite_dir / f).stat().st_size for f in
-                  ('encoder_INT8.tflite', 'decoder_INT8.tflite', 'decoder_bulk_INT8.tflite')
+                  ('encoder_INT8.tflite', 'decoder_memkv_INT8.tflite', 'decoder_INT8.tflite', 'decoder_bulk_INT8.tflite')
                   if (tflite_dir / f).exists()) / (1024 * 1024)
 
     result = {
@@ -163,7 +163,7 @@ def main():
     # 크기+1장 상태만 짧게 확인.
     print("\nTFLite FP16(그래프 전체) 시도(런타임 실패 여부 확인)...")
     fp16_size = sum((TFLITE_FP16_DIR / f).stat().st_size for f in
-                    ('encoder_INT8.tflite', 'decoder_INT8.tflite', 'decoder_bulk_INT8.tflite')
+                    ('encoder_INT8.tflite', 'decoder_memkv_INT8.tflite', 'decoder_INT8.tflite', 'decoder_bulk_INT8.tflite')
                     if (TFLITE_FP16_DIR / f).exists()) / (1024 * 1024)
     try:
         r = bench_tflite(images[:1], TFLITE_FP16_DIR, "TFLite FP16 (CPU)")

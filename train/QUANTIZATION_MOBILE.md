@@ -309,9 +309,10 @@ PyTorch 하이브리드 94.2%와 1.2%p 차이로 좁혀짐). **newage25(6/8박�
 
 `train/benchmark.py` 작성(재사용 가능, `python train/benchmark.py`로 재현). newage21~30
 held-out 10곡, 개발 PC CPU 기준 결과는 README.md "벤치마크 리포트" 섹션에 표로 정리.
-최종적으로 **인코더 FP32 + 디코더/일괄캐시 dynamic-range INT8 "Hybrid" 구성**이 크기
-(119.7MB, FP32 대비 -60%)·속도(8.0초, FP32 대비 -25%)·정확도(94.3%, PyTorch와 동급)
-세 축 모두에서 순정 FP32 TFLite export보다 나은 결과로 확정됐다. 여기까지 온 경로:
+최종적으로 **인코더 FP32 + 디코더/일괄캐시 dynamic-range INT8 + cross-attention K,V
+사전계산 "Hybrid" 구성**이 크기(116.1MB, FP32 대비 -59%, PyTorch보다도 37% 작음)·속도
+(3.4초, PyTorch 대비 1.3배)·정확도(94.3%, PyTorch와 동급) 세 축 모두에서 순정 FP32 TFLite
+export보다 나은 결과로 확정됐다. 여기까지 온 경로:
 
 **1차: 순수 FP32 export/벤치마크 (2026-08-24)** — PyTorch 184.6MB/3.2초/94.2% vs TFLite
 FP32 300.2MB/10.6초/93.0%. TFLite가 desktop CPU에서 더 느리다는 게 처음엔 의아했는데
@@ -364,12 +365,41 @@ b)`(self-attention 캐시 쓰기)가 만드는 `Where`/`Select` 노드의 상수
 0개, 단일 스텝 logits이 FP32와 사실상 동일(mean 0.3543 vs 0.3577, argmax 일치), **10곡
 평균 94.3%(PyTorch 94.2%와 동급, 10/10 크래시 없음)**.
 
-**최종 결정**: 인코더는 CoordConv CNN에서 dynamic-range 시 발산이 확인돼(4차까지 조사해도
-원인 불명, 인코더는 애초에 손실 대비 이득도 작아서 — FP32 54.5MB면 전체의 46%뿐 — 추가
-조사 안 하고 FP32로 고정) FP32로 유지, 디코더+일괄캐시는 위 두 수정을 반영한 dynamic-range
-로 export하는 **Hybrid 구성**을 채택(`export_tflite.py --dynamic_range`, 인코더는 이
-플래그와 무관하게 항상 FP32). `train/tflite_export_dr/`가 이 Hybrid 산출물(로컬 전용,
-`.gitignore` 처리).
+**5차: 스레드 수 튜닝 조사 — 원리는 맞지만 이 개발 PC 벤치마크에서 신호가 노이즈에 묻힘
+(2026-08-26)** — "PyTorch 대비 2배 넘게 느리다"는 걸 더 줄일 방법을 팀원과 논의하다가
+`tf.lite.Interpreter(num_threads=N)`을 먼저 테스트. 워밍업된 인터프리터를 재사용하며
+반복 측정(3곡 평균)하는 통제된 실험에서는 **인코더는 스레드가 많을수록 빠르고(18코어
+기준 16까지 계속 개선), 디코더는 스레드가 적을수록 빠르다**(토큰 1개짜리 아주 작은 연산이라
+동기화 오버헤드가 병렬화 이득을 압도)는 뚜렷한 신호를 확인(14초→5.1초). 하지만 콜드스타트가
+섞이고 시스템 부하 변동이 큰 정식 `benchmark.py`(10곡, 매번 새 프로세스)로 재검증하니 이
+효과가 명확히 재현되지 않음 — 같은 코드를 연속으로 두 번 돌려도 TFLite FP32 레이턴시가
+34% 차이날 만큼 이 개발 PC의 런투런 변동이 커서, 노이즈 안에 묻혀버림. **결론**: 인코더-고
+스레드/디코더-저스레드라는 원리 자체는 타당하고 정확도에 영향도 없어 기본값(`enc_threads=
+os.cpu_count()`, `dec_threads=1`)으로는 채택했지만, 이 개발 PC에서 몇 초 개선됐다고 숫자로
+과장 보고하지 않음 — 실기(③) 측정에서 더 명확히 볼 수 있을 것으로 기대. (덧붙여 팀원이
+제안한 MQA/GQA 도입과 인코더 시퀀스(S=320→160) 축소는 원리상 타당하지만 재학습이 필요해서
+이 트랙("재학습 없이")의 범위 밖으로 판단, 보류.)
+
+**6차: cross-attention K,V 캐싱 — 가장 큰 폭의 개선 (2026-08-26)** — 팀원이 "고정 shape
+제약 때문에 매번 300개 토큰을 연산하는 게 병목"이라며 "모델 구조가 아니라 TFLite 연산자
+선택으로 풀어야 한다"고 지적한 게 계기 — 조사해보니 self-attention의 O(cache_len) 고정
+비용보다 먼저 손댈 수 있는 더 명백한 낭비가 있었다: TFLite 디코더 step 그래프가
+**cross-attention K,V를 캐싱하지 않고 스텝마다 `memory`(S=320)에서 다시 projection**하고
+있었다(그래프를 간단히 유지하려던 단순화 — production PyTorch는 `precompute_memory_kv()`로
+이미지당 1회만 계산, ①번 벤치마크 때부터 알려진 원인이었으나 그동안 안 고쳤던 것). 새
+그래프(`_MemoryKVWrapper` → `decoder_memkv_INT8.tflite`)로 분리해서 이미지당 1회만
+호출하고, 디코더 step/일괄캐시 그래프는 그 결과를 입력으로 받게 재작성(수학적으로 동일
+연산). 결과(2회 측정 평균): **TFLite FP32 10.6초→4.2초, Hybrid 8.0초→3.4초** — PyTorch
+대비 배율이 2.5~3.5배에서 **1.3배**로 줄었다. 정확도 불변(94.3%, 10곡 재검증, 10/10
+크래시 없음). 크기도 부수적으로 줄었다(Hybrid 119.7MB→116.1MB — memkv 그래프도 dynamic-
+range로 잘 압축됨, 4.3MB).
+
+**최종 결정**: 인코더는 CoordConv CNN에서 dynamic-range 시 발산이 확인돼(원인 불명, 인코더는
+애초에 손실 대비 이득도 작아서 — FP32 54.5MB면 전체의 절반 미만 — 추가 조사 안 하고 FP32로
+고정) FP32로 유지, 디코더+일괄캐시는 Gemm 유도+Where 회피를 반영한 dynamic-range로,
+cross-attention K,V는 이미지당 1회만 계산하는 별도 그래프로 분리해서 export하는 **Hybrid
+구성**을 채택(`export_tflite.py --dynamic_range`, 인코더는 이 플래그와 무관하게 항상 FP32).
+`train/tflite_export_dr/`가 이 Hybrid 산출물(로컬 전용, `.gitignore` 처리).
 
 ### ③ 통제된 테스트 환경 구축
 
@@ -384,6 +414,16 @@ b)`(self-attention 캐시 쓰기)가 만드는 `Where`/`Select` 노드의 상수
 - INT8 양자화(`--quantize_decoder`) — FP16까지만 하고 INT8은 이번 범위 밖(디코더 이중
   입력 캘리브레이션 문제가 남아있고, ①②③ 완성이 우선)
 - catastrophic 실패 곡 원인 분석 — 별도 트랙, 우선순위 낮음
+- **MQA/GQA 도입**, **인코더 시퀀스 축소(S=320→160)** (2026-08-26, 팀원 제안) — 둘 다
+  KV캐시/cross-attn 비용을 구조적으로 줄이는 정석적 기법이지만 모델 아키텍처 자체를 바꾸는
+  거라 재학습이 필요함. 이 트랙은 지금까지 "재학습 없이 기존 체크포인트로 짜낼 수 있는
+  만큼"을 원칙으로 해왔음(슬라이딩 윈도우 attention 기각 사례와 동일 기준) — 진행하려면
+  Model_TransNote(학습 저장소) 쪽으로 스코프가 넘어감, 별도 논의 필요
+- **cache_len 버킷팅**(64/128/300처럼 여러 고정 크기 디코더 그래프를 두고 `pos`가 버킷
+  경계를 넘을 때만 `forward_bulk_capture`처럼 큰 버킷으로 옮기는 방식) — self-attention이
+  매 스텝 O(cache_len)=O(300)을 계산하는데(진짜 O(pos) 슬라이싱은 TFLite 리사이즈 문제로
+  포기했던 전례가 있음) 재학습 없이 이 비용을 줄일 수 있는 후보. cross-attn 캐싱만으로
+  이미 PyTorch 대비 1.3배까지 좁혀져서 우선순위가 낮아짐 — 다음 단계 후보로 남겨둠
 
 ## 실험 기록 (진행되면 추가)
 
@@ -399,7 +439,9 @@ b)`(self-attention 캐시 쓰기)가 만드는 `Where`/`Select` 노드의 상수
 | 2026-08-26 | TFLite dynamic-range 1차 시도(Gemm 유도 전) | 259MB(86%) | 측정 불가 | 측정 불가(인코더 1장 300초+) | **런타임 수치 발산** — 인코더 출력 mean≈3e28/std=inf. 디코더도 커스텀 attention(`BATCH_MATMUL`)이라 거의 압축 안 됨(130.7→130.5MB). FP16과 같은 근본 원인(수동 attention이 표준 양자화 op 매칭 밖) |
 | 2026-08-26 | TFLite FP32(`encode()` 재할당 버그 수정 후, 재측정) | 300MB | 93.0%(불변) | **CPU 10.6s/장**(-29%) | dynamic-range 조사 중 발견한 버그(캔버스 크기 고정인데 매 호출 `resize_tensor_input` 재호출) 제거 — FP32 경로도 함께 빨라짐. README 벤치마크 표 갱신 반영 |
 | 2026-08-26 | TFLite dynamic-range 2차(Gemm 유도 후, Where 버그 수정 전) | 디코더 35MB+일괄캐시 30MB | 0.0%(NaN) | CPU 8~13s/장 | 팀원 제안(2D flatten)으로 압축은 성공했지만 `torch.where`/`is_causal` 관련 텐서 양자화 스케일이 2.68e36으로 깨져 1스텝만에 NaN. 크래시는 없어서(NaN이 조용히 전파) 발견이 늦었음 |
-| 2026-08-26 | **TFLite Hybrid**(인코더 FP32 + 디코더/일괄캐시 dynamic-range, Where→산술 블렌드 수정 후, **최종 채택**) | **119.7MB**(FP32 대비 -60%) | **94.3%**(PyTorch 94.2%와 동급) | **CPU 8.0s/장**(FP32 TFLite 대비 -25%) | `torch.where`→산술 블렌드, `is_causal=True`→명시적 `attn_mask` 치환으로 Where 노드 제거 후 재검증. 10/10 크래시 없음. `export_tflite.py --dynamic_range`로 재현 가능 |
+| 2026-08-26 | TFLite Hybrid(인코더 FP32 + 디코더/일괄캐시 dynamic-range, Where→산술 블렌드 수정 후) | 119.7MB(FP32 대비 -60%) | 94.3%(PyTorch 94.2%와 동급) | CPU 8.0s/장(FP32 TFLite 대비 -25%) | `torch.where`→산술 블렌드, `is_causal=True`→명시적 `attn_mask` 치환으로 Where 노드 제거 후 재검증. 10/10 크래시 없음 |
+| 2026-08-26 | TFLite FP32(cross-attn K,V 캐싱 추가 후, 재측정) | 286.2MB(memkv 그래프 분리로 증가) | 93.0%(불변) | **CPU 4.2s/장**(-60%) | `decoder_memkv_INT8.tflite` 분리로 스텝마다 재계산하던 cross-attn projection 제거. `_MemoryKVWrapper` 신설 |
+| 2026-08-26 | **TFLite Hybrid**(dynamic-range + cross-attn K,V 캐싱, **최종 채택**) | **116.1MB**(FP32 대비 -59%, PyTorch보다 37% 작음) | **94.3%**(PyTorch 94.2%와 동급) | **CPU 3.4s/장**(PyTorch 대비 1.3배, 2회 측정 평균) | 위 두 개선(Gemm/Where 수정 + cross-attn 캐싱) 결합. 10/10 크래시 없음. `export_tflite.py --dynamic_range`로 재현 가능 |
 
 ## 포트폴리오용 캡처 포인트 (계획)
 

@@ -38,9 +38,11 @@ Usage
 Output:
     tflite_export/segnet_INT8_v1.tflite
     tflite_export/encoder_INT8_v1.tflite
-    tflite_export/decoder_INT8_v1.tflite   (FP32 by default)
+    tflite_export/decoder_memkv_INT8_v1.tflite   (cross-attention K,V 사전계산, 2026-08-26)
+    tflite_export/decoder_INT8_v1.tflite         (FP32 by default)
+    tflite_export/decoder_bulk_INT8_v1.tflite
     tflite_export/tokenizer_v1.json
-    tflite_export/{segnet,encoder,decoder}_INT8.tflite  (latest, overwritten each run)
+    tflite_export/{segnet,encoder,decoder_memkv,decoder,decoder_bulk}_INT8.tflite  (latest, overwritten each run)
     tflite_export/tokenizer.json
 """
 
@@ -216,6 +218,62 @@ def _export_onnx_decoder(seq2seq: OmrSeq2Seq, out: str):
     )
 
 
+class _MemoryKVWrapper(nn.Module):
+    """cross-attention 대상(memory)의 K,V를 레이어별로 한 번만 계산해서 export (2026-08-26).
+
+    PyTorch의 Decoder.precompute_memory_kv()(model.py)와 동일한 목적 -- production PyTorch
+    경로는 이미지당 1번만 이 계산을 하는데, TFLite 쪽 _DecoderStepWrapperKV는 그래프를 간단히
+    유지하려고 매 디코딩 스텝마다 memory(S=SEQ_LEN=320)에서 K,V를 다시 projection하고
+    있었다(레이어 8개 × 스텝 수만큼 반복 -- ②번 벤치마크에서 확인된 TFLite가 느린 두 원인
+    중 하나). 이 wrapper를 별도 그래프로 분리해 이미지당 1회만 호출하고, 그 결과를
+    _DecoderStepWrapperKV/_BulkCaptureWrapperKV에 입력으로 넘겨준다.
+
+    Inputs:
+      memory : [1, SEQ_LEN, 512] float32 — 인코더 출력
+
+    Outputs:
+      k_mem, v_mem : [num_layers, 1, H, SEQ_LEN, Dh] float32
+    """
+    def __init__(self, decoder: nn.Module):
+        super().__init__()
+        self.decoder = decoder
+
+    def forward(self, memory):
+        decoder = self.decoder
+        D = decoder.embed_dim
+        B, S, _ = memory.shape
+        mem_2d = memory.reshape(B * S, D)   # 2D 평탄화 -- Gemm/FULLY_CONNECTED 유도(팀원 제안)
+
+        k_layers, v_layers = [], []
+        for layer in decoder.transformer.layers:
+            mha = layer.multihead_attn
+            H = mha.num_heads
+            Dh = D // H
+            in_bc = mha.in_proj_bias
+            kc = F.linear(mem_2d, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None).view(B, S, D)
+            vc = F.linear(mem_2d, mha.in_proj_weight[2*D:], in_bc[2*D:] if in_bc is not None else None).view(B, S, D)
+            kc = kc.view(B, S, H, Dh).transpose(1, 2)   # [B,H,S,Dh]
+            vc = vc.view(B, S, H, Dh).transpose(1, 2)
+            k_layers.append(kc)
+            v_layers.append(vc)
+        k_mem = torch.stack(k_layers, dim=0)   # [L,B,H,S,Dh]
+        v_mem = torch.stack(v_layers, dim=0)
+        return k_mem, v_mem
+
+
+def _export_onnx_memory_kv(seq2seq: OmrSeq2Seq, out: str):
+    """_MemoryKVWrapper export. memory shape이 고정(SEQ_LEN)이라 dynamic_axes 불필요."""
+    wrapper = _MemoryKVWrapper(seq2seq.decoder).eval()
+    dummy_mem = torch.zeros(1, SEQ_LEN, 512)
+    torch.onnx.export(
+        wrapper, (dummy_mem,), out,
+        input_names=['memory'], output_names=['k_mem', 'v_mem'],
+        opset_version=17,
+        dynamo=False,
+    )
+    print(f"    ONNX(memory KV 사전계산) -> {out}")
+
+
 class _DecoderStepWrapperKV(nn.Module):
     """고정 크기 self-attention KV캐시 기반 단일 스텝 디코더 wrapper (2026-08-24).
 
@@ -229,14 +287,17 @@ class _DecoderStepWrapperKV(nn.Module):
         한다(pos 위치만 새 값, 나머지는 기존 값 유지).
       두 방식 모두 텐서 shape이 안 바뀌는 순수 elementwise/브로드캐스트 연산이라 TFLite
       변환이 안전하다.
-    cross-attention(memory 대상) K,V는 캐싱하지 않고 매 스텝 memory에서 다시 projection한다
-    (self-attention의 O(T^2) 비용에 비해 상수 비용이라 단순화 -- production PyTorch 경로는
-    이 부분도 캐싱하지만, export 그래프를 간단히 유지하려고 여기서는 뺐다).
+    cross-attention(memory 대상) K,V는 _MemoryKVWrapper가 이미지당 1회 미리 계산해둔 값을
+    입력으로 받는다(2026-08-26) -- 원래는 매 스텝 memory에서 다시 projection했는데(그래프를
+    간단히 유지하려던 단순화), ②번 벤치마크에서 TFLite가 느린 원인 중 하나로 지목돼(레이어
+    8개 × S=320 projection을 스텝마다 반복) 제거했다. production PyTorch 경로
+    (`precompute_memory_kv`)와 동일한 설계.
 
     Inputs:
       token_id   : [1, 1]                          int64
       pos        : [1]                             int64 — 이 토큰의 0-index 위치(SOS=0)
-      memory     : [1, SEQ_LEN, 512]                float32 — 인코더 출력
+      k_mem_in   : [num_layers, 1, H, SEQ_LEN, Dh]  float32 — _MemoryKVWrapper 사전계산 결과
+      v_mem_in   : [num_layers, 1, H, SEQ_LEN, Dh]  float32
       k_cache_in : [num_layers, 1, H, cache_len, Dh] float32
       v_cache_in : [num_layers, 1, H, cache_len, Dh] float32
 
@@ -250,7 +311,7 @@ class _DecoderStepWrapperKV(nn.Module):
         self.decoder = decoder
         self.cache_len = cache_len
 
-    def forward(self, token_id, pos, memory, k_cache_in, v_cache_in):
+    def forward(self, token_id, pos, k_mem_in, v_mem_in, k_cache_in, v_cache_in):
         decoder = self.decoder
         D = decoder.embed_dim
         C = self.cache_len
@@ -302,15 +363,13 @@ class _DecoderStepWrapperKV(nn.Module):
             x2 = layer.norm2(x)
             mha = layer.multihead_attn
             in_bc = mha.in_proj_bias
-            S = memory.shape[1]
             x2_2d = x2.reshape(B * 1, D)
-            mem_2d = memory.reshape(B * S, D)
-            qc = F.linear(x2_2d, mha.in_proj_weight[:D],    in_bc[:D]    if in_bc is not None else None).view(B, 1, D)
-            kc = F.linear(mem_2d, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None).view(B, S, D)
-            vc = F.linear(mem_2d, mha.in_proj_weight[2*D:],  in_bc[2*D:]  if in_bc is not None else None).view(B, S, D)
+            # (2026-08-26) kc/vc를 매 스텝 재계산하지 않고 _MemoryKVWrapper가 미리 계산해둔
+            # 값을 그대로 씀(k_mem_in[li]/v_mem_in[li]) -- 레이어당 Gemm 2개(kc,vc projection)를
+            # 스텝마다 제거.
+            kc, vc = k_mem_in[li], v_mem_in[li]   # [1,H,SEQ_LEN,Dh]
+            qc = F.linear(x2_2d, mha.in_proj_weight[:D], in_bc[:D] if in_bc is not None else None).view(B, 1, D)
             qc = qc.view(B, 1, H, Dh).transpose(1, 2)
-            kc = kc.view(B, S, H, Dh).transpose(1, 2)
-            vc = vc.view(B, S, H, Dh).transpose(1, 2)
             attn2 = F.scaled_dot_product_attention(qc, kc, vc)
             attn2 = attn2.transpose(1, 2).reshape(B * 1, D)
             x = x + layer.dropout2(mha.out_proj(attn2).view(B, 1, D))
@@ -341,12 +400,13 @@ def _export_onnx_decoder_kv(seq2seq: OmrSeq2Seq, out: str, cache_len: int = 300)
     wrapper = _DecoderStepWrapperKV(decoder, cache_len).eval()
     dummy_token = torch.tensor([[SOS_ID]], dtype=torch.long)
     dummy_pos = torch.tensor([0], dtype=torch.long)
-    dummy_mem = torch.zeros(1, SEQ_LEN, 512)
+    dummy_k_mem = torch.zeros(L, 1, H, SEQ_LEN, Dh)
+    dummy_v_mem = torch.zeros(L, 1, H, SEQ_LEN, Dh)
     dummy_k = torch.zeros(L, 1, H, cache_len, Dh)
     dummy_v = torch.zeros(L, 1, H, cache_len, Dh)
     torch.onnx.export(
-        wrapper, (dummy_token, dummy_pos, dummy_mem, dummy_k, dummy_v), out,
-        input_names=['token_id', 'pos', 'memory', 'k_cache_in', 'v_cache_in'],
+        wrapper, (dummy_token, dummy_pos, dummy_k_mem, dummy_v_mem, dummy_k, dummy_v), out,
+        input_names=['token_id', 'pos', 'k_mem_in', 'v_mem_in', 'k_cache_in', 'v_cache_in'],
         output_names=['next_logits', 'k_cache_out', 'v_cache_out'],
         opset_version=17,
         dynamo=False,
@@ -371,8 +431,9 @@ class _BulkCaptureWrapperKV(nn.Module):
     주지 않는다(뒤쪽만 보고, 패딩은 항상 뒤쪽에 있으므로).
 
     Inputs:
-      tokens : [1, chunk_len]         int64 — SOS 포함, 실제 길이보다 뒤는 PAD_ID
-      memory : [1, SEQ_LEN, 512]      float32
+      tokens   : [1, chunk_len]                    int64 — SOS 포함, 실제 길이보다 뒤는 PAD_ID
+      k_mem_in : [num_layers, 1, H, SEQ_LEN, Dh]    float32 — _MemoryKVWrapper 사전계산 결과
+      v_mem_in : [num_layers, 1, H, SEQ_LEN, Dh]    float32
 
     Outputs:
       k_cache_out, v_cache_out : [num_layers, 1, H, cache_len, Dh] — 0..chunk_len-1 위치가
@@ -385,7 +446,7 @@ class _BulkCaptureWrapperKV(nn.Module):
         self.chunk_len = chunk_len
         self.cache_len = cache_len
 
-    def forward(self, tokens, memory):
+    def forward(self, tokens, k_mem_in, v_mem_in):
         decoder = self.decoder
         D = decoder.embed_dim
         M = self.chunk_len
@@ -395,7 +456,7 @@ class _BulkCaptureWrapperKV(nn.Module):
         x = emb + decoder.pos_enc[:, :M, :]
 
         k_out_layers, v_out_layers = [], []
-        for layer in decoder.transformer.layers:
+        for li, layer in enumerate(decoder.transformer.layers):
             x1 = layer.norm1(x)
             sa = layer.self_attn
             H = sa.num_heads
@@ -422,15 +483,11 @@ class _BulkCaptureWrapperKV(nn.Module):
             x2 = layer.norm2(x)
             mha = layer.multihead_attn
             in_bc = mha.in_proj_bias
-            S = memory.shape[1]
             x2_2d = x2.reshape(B * M, D)
-            mem_2d = memory.reshape(B * S, D)
-            qc = F.linear(x2_2d, mha.in_proj_weight[:D],    in_bc[:D]    if in_bc is not None else None).view(B, M, D)
-            kc = F.linear(mem_2d, mha.in_proj_weight[D:2*D], in_bc[D:2*D] if in_bc is not None else None).view(B, S, D)
-            vc = F.linear(mem_2d, mha.in_proj_weight[2*D:],  in_bc[2*D:]  if in_bc is not None else None).view(B, S, D)
+            # (2026-08-26) _DecoderStepWrapperKV와 동일 -- kc/vc는 _MemoryKVWrapper 사전계산값
+            kc, vc = k_mem_in[li], v_mem_in[li]   # [1,H,SEQ_LEN,Dh]
+            qc = F.linear(x2_2d, mha.in_proj_weight[:D], in_bc[:D] if in_bc is not None else None).view(B, M, D)
             qc = qc.view(B, M, H, Dh).transpose(1, 2)
-            kc = kc.view(B, S, H, Dh).transpose(1, 2)
-            vc = vc.view(B, S, H, Dh).transpose(1, 2)
             attn2 = F.scaled_dot_product_attention(qc, kc, vc)
             attn2 = attn2.transpose(1, 2).reshape(B * M, D)
             x = x + layer.dropout2(mha.out_proj(attn2).view(B, M, D))
@@ -455,13 +512,18 @@ def _export_onnx_bulk_capture(seq2seq: OmrSeq2Seq, out: str, chunk_len: int = 40
     """_BulkCaptureWrapperKV export. 모든 shape이 고정(chunk_len, cache_len)이라
     dynamic_axes 불필요 -- _export_onnx_decoder_kv와 동일한 이유로 TFLite 안전."""
     decoder = seq2seq.decoder
+    D = decoder.embed_dim
+    H = decoder.transformer.layers[0].self_attn.num_heads
+    Dh = D // H
+    L = len(decoder.transformer.layers)
     wrapper = _BulkCaptureWrapperKV(decoder, chunk_len, cache_len).eval()
     dummy_tokens = torch.full((1, chunk_len), PAD_ID, dtype=torch.long)
     dummy_tokens[0, 0] = SOS_ID
-    dummy_mem = torch.zeros(1, SEQ_LEN, 512)
+    dummy_k_mem = torch.zeros(L, 1, H, SEQ_LEN, Dh)
+    dummy_v_mem = torch.zeros(L, 1, H, SEQ_LEN, Dh)
     torch.onnx.export(
-        wrapper, (dummy_tokens, dummy_mem), out,
-        input_names=['tokens', 'memory'],
+        wrapper, (dummy_tokens, dummy_k_mem, dummy_v_mem), out,
+        input_names=['tokens', 'k_mem_in', 'v_mem_in'],
         output_names=['k_cache_out', 'v_cache_out'],
         opset_version=17,
         dynamo=False,
@@ -666,7 +728,7 @@ def main():
                 quantize = False
 
     # ── 1. SegNet ─────────────────────────────────────────
-    print("--- [1/3] SegNet ---------------------------------------")
+    print("--- [1/4] SegNet ---------------------------------------")
     if not args.segnet:
         print("    --segnet 안 줌 -- 건너뜀 (현재 오선 검출은 OpenCV detect_staffs()만 씀)\n")
     else:
@@ -686,7 +748,7 @@ def main():
         print()
 
     # ── 2. Encoder ────────────────────────────────────────
-    print("--- [2/3] Encoder --------------------------------------")
+    print("--- [2/4] Encoder --------------------------------------")
     seq2seq  = load_seq2seq(args.seq2seq, vocab_size, device)
     in_ch    = seq2seq.encoder.backbone[0].block[0].weight.shape[1]  # 체크포인트 실제 입력 채널(1 또는 CoordConv 2)
     onnx_enc = os.path.join(tmp, 'encoder.onnx')
@@ -707,9 +769,25 @@ def main():
         _save_versioned(tflite_enc, args.out_dir, 'encoder_INT8', args.version)
     print()
 
-    # ── 3. Decoder (self-attention KV캐시, 고정 shape) ─────
-    print("--- [3/3] Decoder ----------------------------------------")
-    print(f"    Interface: (token_id[1,1], pos[1], memory[1,S,512], k_cache_in, v_cache_in)")
+    # ── 3. Decoder memory-KV 사전계산 (cross-attention 캐싱, 2026-08-26) ──
+    print("--- [3/4] Decoder memory-KV precompute --------------------")
+    print(f"    Interface: memory[1,S,512] -> (k_mem[L,1,H,S,Dh], v_mem[L,1,H,S,Dh])")
+    print("    cross-attention K,V를 이미지당 1회만 계산 -- 이전엔 디코더 스텝마다 memory에서")
+    print("    다시 projection해서(레이어 8개 × 스텝 수) ②번 벤치마크에서 확인된 두 원인 중")
+    print("    하나였음. production PyTorch의 precompute_memory_kv()와 동일한 설계.")
+    onnx_memkv = os.path.join(tmp, 'decoder_memkv.onnx')
+    _export_onnx_memory_kv(seq2seq, onnx_memkv)
+    _simplify(onnx_memkv)
+    tflite_memkv = os.path.join(tmp, 'decoder_memkv_INT8.tflite')
+    if _convert_tflite(onnx_memkv, tflite_memkv, None, False, input_op_name='memory',
+                       keep_layout_input_names=['memory'],
+                       fp16=args.fp16, dynamic_range=args.dynamic_range):
+        _save_versioned(tflite_memkv, args.out_dir, 'decoder_memkv_INT8', args.version)
+    print()
+
+    # ── 4. Decoder (self-attention KV캐시, 고정 shape) ─────
+    print("--- [4/4] Decoder ----------------------------------------")
+    print(f"    Interface: (token_id[1,1], pos[1], k_mem_in, v_mem_in, k_cache_in, v_cache_in)")
     print(f"               -> (next_logits[1,{vocab_size}], k_cache_out, v_cache_out)")
     print(f"    고정 크기 캐시(cache_len={args.cache_len}) -- 매 스텝 shape 동일, 리사이즈 불필요")
     print("    (2026-08-24: 이전 growing past_ids 방식은 실제 실행 시 2번째 스텝부터 TFLite")
@@ -726,15 +804,15 @@ def main():
 
     tflite_dec = os.path.join(tmp, 'decoder_INT8.tflite')
     if _convert_tflite(onnx_dec, tflite_dec, None, False, input_op_name='token_id',
-                       keep_layout_input_names=['token_id', 'pos', 'memory',
+                       keep_layout_input_names=['token_id', 'pos', 'k_mem_in', 'v_mem_in',
                                                  'k_cache_in', 'v_cache_in'],
                        fp16=args.fp16, dynamic_range=args.dynamic_range):
         _save_versioned(tflite_dec, args.out_dir, 'decoder_INT8', args.version)
     print()
 
-    # ── 3b. Decoder 일괄 캐시 채우기(InlineTimeCorrector 호환용) ──
-    print("--- [3b] Decoder bulk-capture ------------------------------")
-    print(f"    Interface: (tokens[1,{args.chunk_len}], memory[1,S,512]) -> (k_cache_out, v_cache_out)")
+    # ── 4b. Decoder 일괄 캐시 채우기(InlineTimeCorrector 호환용) ──
+    print("--- [4b] Decoder bulk-capture ------------------------------")
+    print(f"    Interface: (tokens[1,{args.chunk_len}], k_mem_in, v_mem_in) -> (k_cache_out, v_cache_out)")
     print("    첫 마디(InlineTimeCorrector 교정 구간)를 한 번에 캐시에 반영하는 용도")
     onnx_bulk = os.path.join(tmp, 'decoder_bulk.onnx')
     _export_onnx_bulk_capture(seq2seq, onnx_bulk, chunk_len=args.chunk_len,
@@ -742,7 +820,7 @@ def main():
     _simplify(onnx_bulk)
     tflite_bulk = os.path.join(tmp, 'decoder_bulk_INT8.tflite')
     if _convert_tflite(onnx_bulk, tflite_bulk, None, False, input_op_name='tokens',
-                       keep_layout_input_names=['tokens', 'memory'],
+                       keep_layout_input_names=['tokens', 'k_mem_in', 'v_mem_in'],
                        fp16=args.fp16, dynamic_range=args.dynamic_range):
         _save_versioned(tflite_bulk, args.out_dir, 'decoder_bulk_INT8', args.version)
     print()
