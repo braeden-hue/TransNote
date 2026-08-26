@@ -17,14 +17,14 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # train/ (런타임 모듈)
 
 import torch
 from dataset import load_tokenizer
 from inference import run_image, analyze_sample
 from model import OmrSeq2Seq, infer_arch_from_state_dict
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent   # 저장소 루트(train/tools/ 기준)
 CKPT = ROOT / "train" / "checkpoints" / "r15_cropfix_coordconv" / "seq2seq_best.pt"
 TOKENIZER = ROOT / "train" / "tokenizer258.json"
 DATA_DIR = ROOT / "realImage" / "exactPicture"

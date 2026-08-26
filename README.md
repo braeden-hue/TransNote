@@ -13,7 +13,7 @@
 > 웹 프론트엔드는 별도 프로젝트(myweb)로 이전됐고, 이 저장소의 RunPod Docker 이미지가
 > 그쪽의 인식 요청을 그대로 처리한다. `trans-note.vercel.app`는 마지막 배포본이 남아있을
 > 뿐 더 이상 갱신하지 않는다. 앞으로 이 저장소는 **RunPod Docker 이미지 파이프라인 유지 +
-> 모바일 온디바이스 양자화**(`train/export_tflite.py`, `train/QUANTIZATION_MOBILE.md`)
+> 모바일 온디바이스 양자화**(`train/tools/export_tflite.py`, `train/QUANTIZATION_MOBILE.md`)
 > 위주로 다룬다.
 
 ---
@@ -55,7 +55,7 @@ Image"로 지정해서 만든다(RunPod의 GitHub 연동 자동 빌드는 불안
 | 폴더 | 내용 |
 |---|---|
 | `runpod_serverless/` | RunPod Serverless GPU 추론 워커(Docker) — `.github/workflows`가 자동 빌드 |
-| `train/` | OMR 모델 추론 런타임 코드(PyTorch) + 체크포인트 + 모바일 양자화 작업(`export_tflite.py`, `QUANTIZATION_MOBILE.md`) |
+| `train/` | OMR 모델 추론 런타임 코드(PyTorch) + 체크포인트 + 모바일 양자화 작업(`tools/export_tflite.py`, `QUANTIZATION_MOBILE.md`) |
 | `server/token_to_notes.py` | Docker 이미지가 복사해가는 런타임 의존 파일(토큰 시퀀스 → 악보 JSON 변환) |
 | `realImage/` | 실사 촬영 이미지 데이터셋(로컬 전용, git 미포함) |
 
@@ -70,7 +70,7 @@ Image"로 지정해서 만든다(RunPod의 GitHub 연동 자동 빌드는 불안
 ## 모바일 온디바이스 추론 (진행 중)
 
 서버(RunPod GPU) 추론과 별개로, **같은 체크포인트를 모바일에서 직접 돌리는 작업**을 진행
-중이다(`train/export_tflite.py`, 진행 로그는 `train/QUANTIZATION_MOBILE.md`).
+중이다(`train/tools/export_tflite.py`, 진행 로그는 `train/QUANTIZATION_MOBILE.md`).
 
 - **자기회귀 디코더의 실제 병목을 찾아 고쳤다**: 서버 추론 경로도 cross-attention(인코더 출력)
   K,V만 캐싱하고 self-attention은 매 스텝 전체를 재계산하고 있었다(O(T³)). 고정 크기 버퍼
@@ -94,7 +94,7 @@ Image"로 지정해서 만든다(RunPod의 GitHub 연동 자동 빌드는 불안
   데이터로 잰 수치였다는 걸 발견 — 실제 학습에 안 쓰인 셋(뉴에이지 10곡)으로 재측정하니
   94.2%. 앞으로 양자화 전/후 비교는 이 숫자를 기준으로 한다.
 
-### 벤치마크 리포트 (개발 PC CPU, held-out 10곡 평균 — `train/benchmark.py`)
+### 벤치마크 리포트 (개발 PC CPU, held-out 10곡 평균 — `train/tools/benchmark.py`)
 
 | 항목 | PyTorch (원본) | TFLite FP32 | **TFLite Hybrid**(인코더 FP32 + 디코더/일괄캐시 INT8) | TFLite FP16(그래프 전체) |
 |---|---|---|---|---|
@@ -152,9 +152,9 @@ step/일괄캐시 그래프에 입력으로 넘기는 방식으로 바꿨다(PyT
 **최종 구성**: 인코더는 CoordConv CNN에서 dynamic-range 시 발산이 확인돼 FP32로 고정,
 디코더+일괄캐시는 위 두 수정(Gemm 유도, Where 회피)을 반영한 dynamic-range로, cross-attention
 K,V는 이미지당 1회만 계산하도록 별도 그래프로 분리해서 export한다
-(`export_tflite.py --dynamic_range`).
+(`train/tools/export_tflite.py --dynamic_range`).
 
-**Peak Memory 수치의 측정 한계**: `benchmark.py`가 세 백엔드를 같은 프로세스 안에서
+**Peak Memory 수치의 측정 한계**: `tools/benchmark.py`가 세 백엔드를 같은 프로세스 안에서
 순차 측정하는데, `psutil`의 `peak_wset`은 프로세스 시작 이후 최고치를 누적 추적하는
 값이라(감소하지 않음) 뒤에 실행되는 TFLite Hybrid 값이 앞서 실행된 TFLite FP32의 피크를
 그대로 물려받는다 — 표의 "2.4GB"는 Hybrid 자체의 격리된 피크가 아니라 이 누적 한계 때문일

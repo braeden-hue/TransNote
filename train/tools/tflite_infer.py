@@ -21,7 +21,8 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_TRAIN = Path(__file__).resolve().parent.parent   # train/ (런타임 모듈·체크포인트가 있는 곳)
+sys.path.insert(0, str(_TRAIN))
 
 import numpy as np
 import tensorflow as tf
@@ -280,8 +281,8 @@ def run_image_tflite(image_path: str, tflite_dir: str, tok2id: dict, id2tok: dic
 
 def main():
     ap = argparse.ArgumentParser(description="TFLite(인코더+디코더)만으로 악보 이미지 인식")
-    ap.add_argument('--tflite_dir', default=str(Path(__file__).parent / 'tflite_export'))
-    ap.add_argument('--tokenizer', default=str(Path(__file__).parent / 'tokenizer258.json'))
+    ap.add_argument('--tflite_dir', default=str(_TRAIN / 'tflite_export'))
+    ap.add_argument('--tokenizer', default=str(_TRAIN / 'tokenizer258.json'))
     ap.add_argument('--image', required=True)
     ap.add_argument('--cache_len', type=int, default=300)
     args = ap.parse_args()

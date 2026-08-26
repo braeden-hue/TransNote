@@ -82,7 +82,7 @@ TransNote — 악보 이미지를 촬영/업로드하면 자체 학습한 OMR(�
 1. **RunPod Serverless Docker 이미지 파이프라인** — myweb(외부 프론트엔드)이 호출하는 GPU
    추론 백엔드를 계속 유지·배포한다.
 2. **모바일 온디바이스 양자화** — 같은 r15 체크포인트를 양자화해 모바일에서 빠른 속도로
-   추론하는 작업(`train/export_tflite.py`, 진행 상황은 `train/QUANTIZATION_MOBILE.md`).
+   추론하는 작업(`train/tools/export_tflite.py`, 진행 상황은 `train/QUANTIZATION_MOBILE.md`).
 
 모델 학습 코드·히스토리·정확도 근거는 별도 저장소
 [Model_TransNote](https://github.com/braeden-hue/Model_TransNote) 참고(2026-08-12 분리,
@@ -95,7 +95,7 @@ RunPod Docker 이미지가 실제로 빌드 시 복사해가는 런타임 의존
 **2026-08-09 이전에는 Flutter 앱 + 자체 C++ TFLite 엔진 구조였으나 폐기됨** — 다만 폐기된 건
 "Flutter+C++로 만든 그 구현체"이지 "온디바이스 추론"이라는 목표 자체가 아니다. 이후 웹(FastAPI)
 단일 구조로 재구성했었고, 그마저 2026-08-24에 이 저장소에서 분리했다. Flutter/C++ 시절 코드
-잔재는 저장소에 없지만, **모바일 온디바이스 추론은 `train/export_tflite.py` 기반으로 계속
+잔재는 저장소에 없지만, **모바일 온디바이스 추론은 `train/tools/export_tflite.py` 기반으로 계속
 진행 중**이다(같은 PyTorch 체크포인트를 ONNX 경유로 export) — r15(CoordConv) 아키텍처에 맞게
 수정했고, 인코더+디코더 export 자체는 성공했으나 디코더가 실제 다단계 디코딩에서 크래시하는
 문제를 발견해 진단 완료, self-attention KV캐시 기반 재설계로 해결 방향까지 확보한 상태.
@@ -105,11 +105,17 @@ RunPod Docker 이미지가 실제로 빌드 시 복사해가는 런타임 의존
 
 ```
 runpod_serverless/    # RunPod Serverless GPU 추론 워커(Docker) — .github/workflows가 자동 빌드
-train/                # OMR 추론 런타임 코드(PyTorch) + 모바일 양자화 작업(export_tflite.py, QUANTIZATION_MOBILE.md)
+train/                # 추론 런타임 4개(model/dataset/inference/real_texture_augment) — 평면 유지
+train/tools/          # 개발 전용 도구(export/추론검증/벤치마크/평가) — Docker가 안 가져감
 server/token_to_notes.py  # Docker 이미지가 복사해가는 런타임 의존 파일 (server/의 나머지는 삭제됨)
 realImage/            # 실사 촬영 이미지(로컬 전용, .gitignore로 git 미포함)
 secrets/              # API 키 등(.gitignore로 git 미포함, 절대 커밋 금지)
 ```
+
+**중요**: `Dockerfile`의 `COPY train/*.py`와 CI 트리거 경로 `train/*.py`는 **평면 glob이라
+하위 디렉토리를 안 가져간다.** 그래서 추론에 필요한 모듈은 반드시 `train/` 최상위에 둬야 하고,
+개발 도구는 `train/tools/`에 둬서 Docker 이미지에서 자연히 빠지게 한다(이미지도 가벼워짐).
+런타임 모듈을 하위 디렉토리로 옮기면 배포가 조용히 깨진다.
 
 ## Build & Run Commands
 
@@ -120,12 +126,16 @@ python train/inference.py --seq2seq <ckpt.pt> --tokenizer train/tokenizer258.jso
 학습(재학습·데이터 생성·라운드별 정확도)은 이 저장소 범위 밖 —
 [Model_TransNote](https://github.com/braeden-hue/Model_TransNote)에서 진행한다.
 
-### 모바일 export 시도
+### 모바일 export / 검증 (`train/tools/`)
 ```bash
-python train/export_tflite.py --segnet <legacy_segnet.pt> --seq2seq <ckpt.pt> \
-    --tokenizer train/tokenizer258.json --out_dir train/tflite_export --version v1 --no_quantize
+python train/tools/export_tflite.py --seq2seq <ckpt.pt> \
+    --out_dir train/tflite_export_dr --version v1 --no_quantize --dynamic_range
+python train/tools/tflite_infer.py --tflite_dir train/tflite_export_dr --image <악보사진.jpg>
+python train/tools/benchmark.py          # PyTorch vs TFLite 정량 비교
+python train/tools/eval_exactpicture.py  # 실사 held-out 정확도
 ```
-진행 상황·TODO는 `train/QUANTIZATION_MOBILE.md` 참고.
+export 설계 배경(고정 shape, 양자화 함정 등)은 `train/tools/EXPORT_NOTES.md`,
+진행 상황·실측 수치는 `train/QUANTIZATION_MOBILE.md` 참고.
 
 ## Architecture
 
@@ -163,18 +173,25 @@ train/tokenizer258.json                                    # DeepScore 토큰 vo
 난다 — 반드시 `infer_arch_from_state_dict()`로 역산한 값을 넘길 것(2026-08-24,
 `export_tflite.py`에서 실제로 겪은 버그).
 
-### `train/` 내부 구조
+### `train/` 내부 구조 (2026-08-26 정리)
 | 위치 | 역할 |
 |---|---|
-| `train/*.py` (top-level, ~14개) | `runpod_serverless/Dockerfile`이 `COPY train/*.py`로 통째로 복사해가는 런타임 세트 — `dataset.py`/`model.py`/`inference.py`가 실제 추론 경로에서 쓰이고, 나머지(`train.py`, `generate_scores.py`, `export_tflite.py` 등)는 학습/모바일 export 코드지만 sibling import 안전을 위해 같이 유지 |
+| `train/*.py` (4개) | **Docker가 `COPY train/*.py`로 가져가는 추론 런타임** — `model.py`(아키텍처), `dataset.py`(전처리·오선검출), `inference.py`(디코딩·후처리), `real_texture_augment.py`(dataset이 import). 여기에 파일을 추가하면 Docker 이미지에 그대로 들어간다 |
+| `train/tools/` | 개발 전용, Docker 미포함 — `export_tflite.py`(TFLite export CLI), `onnx_wrappers.py`(ONNX 래퍼 클래스 3종), `tflite_infer.py`(TFLite만으로 추론), `benchmark.py`(성능 비교), `eval_exactpicture.py`(정확도 평가), `EXPORT_NOTES.md`(export 설계 배경) |
 | `train/checkpoints/` | r15(채택) — `.gitignore` 처리, 로컬에만 존재 |
 | `train/checkpoints_legacy/` | 옛 Flutter/C++ 엔진 시절 체크포인트(segnet 포함) — 참고용, `.gitignore` 처리 |
-| `train/real_texture_bank/` | `real_texture_augment.py`가 참조하는 노이즈 텍스처 png(304KB) — 학습 전용 코드 의존성이지만 용량이 작아 유지 |
+| `train/real_texture_bank/` | `real_texture_augment.py`가 참조하는 노이즈 텍스처 png(304KB) |
 | `train/QUANTIZATION_MOBILE.md` | 모바일 양자화 작업 진행 로그 — 새 세션에서 이 작업 이어갈 때 먼저 읽을 것 |
 
+`train/tools/*.py`는 `sys.path`에 상위 `train/`을 넣어서 런타임 모듈을 import한다 —
+새 도구를 추가할 땐 그 패턴을 따를 것(`_TRAIN = ...parent.parent`).
+
 학습 코드 전반(`train/experiments/`, `train/docs/`, 평가 스크립트 `test/`)은 2026-08-12에
-[Model_TransNote](https://github.com/braeden-hue/Model_TransNote)로 이관하고 이 저장소에서
-제거했다 — 학습/재현 관련 작업은 그 저장소에서 진행할 것.
+[Model_TransNote](https://github.com/braeden-hue/Model_TransNote)로 이관했고, 2026-08-26에
+그때 이 저장소에 중복으로 남아있던 `generate_scores.py`·`train.py`·`mscz_to_tokens.py`·
+`render_custom_notation.py`·`render_sample10_comparison.py`·`dump_canvas.py`(합 3,698줄)도
+제거했다(내용이 Model_TransNote 사본과 동일한 걸 diff로 확인 — 그쪽 `train/core/`,
+`train/data_gen/`, `train/visualize/`에 있음). 학습/재현 작업은 그 저장소에서 진행할 것.
 
 ## Platform Notes
 

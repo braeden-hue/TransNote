@@ -26,7 +26,7 @@ Model_TransNote의 TRAINING_REPORT.md에서 실제 검증셋을 확인할 것.
 
 ### 발견 — 기존 시도가 이미 존재함
 
-`train/export_tflite.py`가 Flutter/C++ TFLite 엔진 시절(2026-08-09 전면 폐기 전)에 만들어진
+`train/tools/export_tflite.py`가 Flutter/C++ TFLite 엔진 시절(2026-08-09 전면 폐기 전)에 만들어진
 ONNX→TFLite export 스크립트로 저장소에 남아있었다. 처음부터 새로 설계하지 않고 여기서부터
 이어가기로 함.
 
@@ -155,7 +155,7 @@ Container Image를 새 커밋의 구체적 `:<sha>` 태그로 직접 바꿔줘�
 
 ### B단계 — 136개 held-out 정확도 측정 (⚠️ 아래 82.1%는 정정됨, 파일 상단 "베이스라인 정정" 참고)
 
-`train/eval_exactpicture.py`로 `realImage/exactPicture/` 전체(131개 유효 샘플, 장르
+`train/tools/eval_exactpicture.py`로 `realImage/exactPicture/` 전체(131개 유효 샘플, 장르
 다양 — Chopin/Czerny/뉴에이지/사계 등, 5개는 파일 누락으로 건너뜀: newage16~20) 실측:
 
 - **음표 레벨 평균 Acc 82.1%**, 전체 TER 평균 Acc 80.3% (617초, 4.7초/장 — CPU 속도
@@ -169,7 +169,7 @@ Container Image를 새 커밋의 구체적 `:<sha>` 태그로 직접 바꿔줘�
 실패함. 즉 "대체로 조금씩 틀리는" 게 아니라 "거의 맞거나 완전히 무너지거나" 패턴 —
 최악 사례(`sonatineHa_8_13`, note_err 110%)는 디코딩 과잉생성(`LONG_DECODE_THRESHOLD`
 안전장치가 있어도 가끔 뚫림) 계열로 보임. 포트폴리오 "실패 사례" 후보로 좋음 — 재현
-가능(`python train/eval_exactpicture.py`로 언제든 같은 샘플 재확인 가능).
+가능(`python train/tools/eval_exactpicture.py`로 언제든 같은 샘플 재확인 가능).
 
 ### 목표 스택/디코더 방식 결정
 
@@ -269,7 +269,7 @@ projection 가중치가 표준 softmax dot-product attention에 맞춰 학습돼
       캐싱 없이 매 스텝 memory에서 재계산(단순화, 상수 비용). onnx2tf가 5차원 캐시 텐서
       축 순서를 자동으로 바꾸는 문제도 발견해 `keep_layout_input_names`로 방지. 커밋 `c2372b5`
 - [x] ~~Python 인터프리터로 실제 이미지 → 토큰 출력까지 되는 추론 스크립트 작성~~ —
-      `train/tflite_infer.py`(영구 보관, ① 최종 산출물). PyTorch 모델 로드 전혀 없이
+      `train/tools/tflite_infer.py`(영구 보관, ① 최종 산출물). PyTorch 모델 로드 전혀 없이
       `encoder_INT8.tflite`+`decoder_INT8.tflite` 두 파일만으로 동작
 - [x] ~~reshape 크래시 재현 안 되는지 확인~~ — 처음엔 newage24 1곡만 확인(111토큰 끝까지
       크래시 없이 생성, PyTorch 원본 출력과 토큰 완전 일치)했다가, **newage21~30 10곡
@@ -307,7 +307,7 @@ PyTorch 하이브리드 94.2%와 1.2%p 차이로 좁혀짐). **newage25(6/8박�
 
 ### ② 정량적 성능 프로파일링 — ✅ 완료, Hybrid 양자화까지 확보 (2026-08-24~26)
 
-`train/benchmark.py` 작성(재사용 가능, `python train/benchmark.py`로 재현). newage21~30
+`train/tools/benchmark.py` 작성(재사용 가능, `python train/tools/benchmark.py`로 재현). newage21~30
 held-out 10곡, 개발 PC CPU 기준 결과는 README.md "벤치마크 리포트" 섹션에 표로 정리.
 최종적으로 **인코더 FP32 + 디코더/일괄캐시 dynamic-range INT8 + cross-attention K,V
 사전계산 "Hybrid" 구성**이 크기(116.1MB, FP32 대비 -59%, PyTorch보다도 37% 작음)·속도
